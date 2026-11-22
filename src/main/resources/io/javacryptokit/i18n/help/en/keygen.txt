@@ -1,0 +1,47 @@
+keygen - create a new random AES-256 key file
+
+Usage
+  java -jar {jar} keygen --out <key file> [--lang en|ko]
+
+Options
+  --out <key file>   Key file to create (required). The parent folder must exist. An existing file is never
+                     overwritten (losing a key makes its ciphertext undecryptable).
+  --lang en|ko       Message language for this run only (optional).
+
+What it does
+  Creates 32 random bytes with SecureRandom and writes them as one line of standard Base64 (44 characters).
+  On Linux/macOS the file is created with permission 600. The key is never printed; only its fingerprint.
+  keygen does not read any settings or keys.
+
+Examples (create the parent folder first)
+  Windows PowerShell (a folder under your user profile: only you and administrators by default)
+    New-Item -ItemType Directory -Force -Path "$HOME\jck-secure" | Out-Null
+    java -jar .\{jar} keygen --out "$HOME\jck-secure\example.key"
+    icacls "$HOME\jck-secure\example.key" /inheritance:r /grant:r "${env:USERNAME}:(R)"
+    A folder created directly under C:\ (e.g. C:\secure) inherits read access for other local users by default;
+    remove inheritance with icacls and allow only the accounts that need it (operator, Tomcat service account).
+  Linux (for embedding, your own folder)
+    mkdir -p -m 700 ~/jck-secure
+    java -jar ./{jar} keygen --out ~/jck-secure/example.key
+  Linux server (file key read by the Tomcat account - run as root, adjust the account name)
+    install -d -m 750 -g tomcat /etc/java-crypto-kit
+    java -jar ./{jar} keygen --out /etc/java-crypto-kit/example.key
+    chown tomcat:tomcat /etc/java-crypto-kit/example.key
+
+Expected result
+  The key file was created. Key fingerprint: 3f9a...
+  Next: build the key-embedded JAR with config embed-key --from-file example.key --key-id <new key ID> --operator <ID>, or ...
+
+Next
+  - Embed it into the JAR:   java -jar {jar} config embed-key --from-file example.key --key-id prod01 --operator <ID>
+  - Or use it as a file key: crypto.key.source=file and crypto.key.file=/etc/java-crypto-kit/example.key
+  - Or store it in Vault KV v2 (help vault) or wrap it with AWS KMS (kms datakey --help).
+
+Errors and fixes
+  [reason: USAGE] The key file already exists (FileAlreadyExistsException) -> choose another name.
+  [reason: USAGE] The folder for the key file does not exist               -> create the folder first.
+
+Security
+  Keep a protected backup of every key that is in use. Never commit key files or send them by e-mail or chat.
+
+Related: config embed-key, fingerprint, rekey

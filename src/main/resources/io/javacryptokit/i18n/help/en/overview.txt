@@ -1,0 +1,60 @@
+java-crypto-kit CLI {version} - encrypted JDBC pool credentials for WAS and AES-256-GCM for any Java program
+
+Usage
+  java [-D<setting>=<value> ...] -jar {jar} <command> [options] [--lang en|ko]
+
+  -D options go between java and -jar (they are JVM properties, not command options).
+  PowerShell: quote them, e.g. java "-Dcrypto.lang=en" -jar .\{jar} info
+  Setting priority: JVM -D > external Properties > JAR built-in values.
+    External Properties: --config <file>, or -Dcrypto.config.file=<file>, or the environment variable CRYPTO_CONFIG_FILE.
+  Message language: crypto.lang (default ko). --lang en|ko applies to this run only.
+    Change it permanently in the JAR: java -jar {jar} config set crypto.lang=en --operator <ID>
+
+First try (runs right away with the built-in example key of the public JAR)
+  java -jar {jar} encrypt   # type the plaintext unseen -> prints an ENC token
+  java -jar {jar} decrypt   # confirm SHOW -> type the token -> prints the plaintext
+  java -jar {jar} verify    # type the token -> success or failure only (no plaintext)
+  The built-in example key is public and known to everyone. Never use it for real passwords or secrets.
+
+Before production (required): use your own key instead of the public example key
+  java -jar {jar} keygen --out example.key   # only when you need a new key (skip if you have a key file)
+  java -jar {jar} config embed-key --from-file example.key --key-id key01 --operator example-admin
+  Then run encrypt with the newly created JAR and deploy that JAR to Tomcat (help tomcat).
+  example.key is the name of the new key file, not the key value. Back the key file up outside Git in a protected place.
+  Skip this step if you use an external key (file/env/vault/aws-kms) or already have a JAR with your own key (config help).
+
+Commands
+  Values (DB passwords, user names, tokens)
+    encrypt            Encrypt a value typed in the terminal (prints ENC[v1:...])
+    verify             Check that a ciphertext can be decrypted (never prints plaintext)
+    decrypt            Show plaintext after a warning and SHOW confirmation (interactive terminal only)
+  Keys
+    keygen             Create a new random AES-256 key file (only when you need a new key)
+    fingerprint        Show the key fingerprint to compare keys without revealing them
+    rekey              Re-encrypt existing ciphertext from an old key to a new key
+    kms datakey        Create an AWS KMS protected data key file (optional AWS SDK bundle)
+  JAR built-in settings (no source change, no rebuild, no external Properties)
+    config help        Every setting: default, allowed values, where it can be set, examples
+    config show        Current values inside a JAR and the last change
+    config history     Every change from the first one (time, operator, setting, before -> after)
+    config set         Change built-in settings into a new JAR (or --replace with backup)
+    config embed-key   Embed your own AES-256 key and a new key ID
+  Checks
+    info               Final runtime settings and the origin of each value
+    doctor             Diagnose settings, key and encryption before starting the WAS (PASS/WARN/FAIL)
+  Files (CSV, JSON, PDF, images ... any content)
+    file encrypt       Encrypt a file (JCKF v1, streaming, original kept)
+    file decrypt       Decrypt a file (output appears only after full authentication)
+
+Topics
+  help tomcat        Tomcat JNDI DataSource: JAR placement, DBCP2 / Tomcat JDBC Pool Resource examples, errors
+  help vault         HashiCorp Vault KV v2 key source
+  help aws-kms       AWS KMS envelope encryption and the optional AWS SDK bundle
+
+Help for one command
+  java -jar {jar} <command> --help        e.g. config set --help, file encrypt --help, rekey --help
+
+Exit code 0 = success, 1 = failure. Errors go to standard error as one line:
+  [java-crypto-kit] [reason: CODE] cause Action: what to check
+  CODE is the same in every language (CONFIGURATION, KEY_SOURCE, INVALID_INPUT, INVALID_TOKEN, KEY_ID_MISMATCH,
+  INTEGRITY, CRYPTO_PROVIDER, USAGE, IO_ERROR).

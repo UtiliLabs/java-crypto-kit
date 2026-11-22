@@ -1,0 +1,46 @@
+file encrypt - encrypt any file (text, CSV, JSON, PDF, images, archives ...)
+
+Usage
+  java [-D...] -jar {jar} file encrypt --in <file> [--out <file>] [--config <file>] [--lang en|ko]
+
+Options
+  --in <file>       File to encrypt (required). A regular file; a symbolic link to a regular file is allowed.
+  --out <file>      Encrypted file to create (optional). Default: <input>.jck in the same folder.
+                    It must not exist yet (never overwritten) and must differ from the input.
+  --config <file>   External Properties file (optional, same rules as encrypt).
+  --lang en|ko      Message language for this run only (optional).
+
+What it does
+  Writes the JCKF v1 format: header (version, key ID) + 64 KiB chunks, each encrypted with AES-256-GCM and its own
+  random IV. The header, chunk order and the last chunk are authenticated, so tampering, reordering, truncation and
+  appended data are detected at decryption. Large files are streamed (one chunk in memory at a time).
+  The result is written to a temporary file in the output folder and renamed only when complete.
+  The original file is not changed. This format is separate from the ENC[v1:...] string format.
+
+Examples
+  Windows PowerShell
+    java -jar .\{jar} file encrypt --in "C:/data/monthly report.pdf"
+    java -jar .\{jar} file encrypt --in C:/data/users.csv --out D:/backup/users.csv.jck
+  Linux
+    java -jar ./{jar} file encrypt --in /data/export/users.csv
+    java -jar ./{jar} file encrypt --in /data/img.png --out /secure/img.png.jck --config /etc/java-crypto-kit/batch.properties
+
+Expected result
+  Encrypted: users.csv -> users.csv.jck (JCKF v1, key ID prod01, 1048650 bytes)
+  The original file was not changed.
+
+Errors and fixes
+  [reason: INVALID_INPUT] The output file (...) already exists -> choose another --out or move the existing file.
+  [reason: INVALID_INPUT] The input file (...) does not exist   -> check --in (quote paths with spaces).
+  [reason: INVALID_INPUT] The input and output are the same path -> use a different --out.
+  [reason: KEY_SOURCE] ...                                        -> the key cannot be read; run doctor.
+
+Security
+  - Decryption needs the same key and key ID. Keep the key (or the key-embedded JAR) safe.
+  - The encrypted file reveals the file size and the key ID, not the content.
+  - Do not change the input file while it is being encrypted.
+
+Java API (same implementation)
+  CredentialCrypto.fromDefaultConfiguration().encryptFile(Paths.get("users.csv"), Paths.get("users.csv.jck"));
+
+Related: file decrypt, fingerprint, doctor

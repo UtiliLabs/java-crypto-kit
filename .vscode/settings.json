@@ -1,0 +1,15 @@
+{
+  "files.encoding": "utf8",
+  "files.eol": "\n",
+  "files.exclude": {
+    "bin": true,
+    ".gradle": true
+  },
+  "files.watcherExclude": {
+    "**/.gradle": true,
+    "**/.gradle/**": true
+  },
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.compile.nullAnalysis.mode": "automatic",
+  "gradle.nestedProjects": true
+}

@@ -1,0 +1,38 @@
+decrypt - show the plaintext of a ciphertext (interactive terminal only, with confirmation)
+
+Usage
+  java [-D...] -jar {jar} decrypt [--config <file>] [--lang en|ko]
+
+Options
+  --config <file>   External Properties file (optional, same rules as encrypt).
+  --lang en|ko      Message language for this run only (optional).
+  There is no option to pass the ciphertext as an argument (to prevent scripted bulk extraction of plaintext).
+
+What it does
+  1) Shows a warning. 2) You type SHOW (anything else cancels). 3) You paste the ciphertext (not shown).
+  4) Only when the ciphertext integrity check (AES-GCM authentication tag) succeeds, the plaintext is printed.
+  SHOW only confirms that the plaintext may be shown on the screen; it is not user authentication (control terminal access in your environment).
+
+Examples
+  Windows PowerShell
+    java -jar .\{jar} decrypt
+  Linux
+    java -jar ./{jar} decrypt --config /etc/java-crypto-kit/app.properties
+
+Expected result
+  [CAUTION] decrypt shows the decrypted plaintext on the screen. ...
+  Type SHOW to show the plaintext (anything else cancels): SHOW
+  Whole ciphertext to decrypt, ENC[...] or B64[...]:
+  Decrypted result (plaintext): ...
+
+Errors and fixes
+  [reason: USAGE] An interactive terminal is required -> run it directly in Windows PowerShell or Command Prompt, or a
+                                                        Linux terminal (ssh); not in an IDE console, pipe, redirect or script.
+  [reason: INTEGRITY] / [reason: KEY_ID_MISMATCH]     -> wrong key or key ID; check with info and fingerprint.
+
+Security
+  - Plaintext may remain in screen sharing, recordings and terminal history. Clear the screen afterwards.
+  - crypto.warning.enabled=false does not skip this warning and confirmation.
+  - To check only that a value can be decrypted, use verify.
+
+Related: verify, encrypt, info

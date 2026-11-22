@@ -1,0 +1,12 @@
+root = true
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+[*.{md,xml,properties,gradle,json}]
+indent_size = 2
+# Windows 배치 파일(gradlew.bat)은 CRLF로 유지한다(.gitattributes와 같은 정책).
+[*.{bat,cmd}]
+end_of_line = crlf

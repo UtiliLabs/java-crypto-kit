@@ -1,0 +1,56 @@
+rekey - re-encrypt an existing ciphertext from the old key to a new key (plaintext is never shown)
+
+Usage
+  java [-D...] -jar {jar} rekey [--from-config <file> | --from-jar <jar>] [--to-config <file> | --to-jar <jar>]
+                                [--value <ciphertext>] [--lang en|ko]
+
+Options (old side = "from", new side = "to"; give at least one side)
+  --from-config <file>   Old settings = JAR built-in values of the running JAR + this Properties file only.
+  --from-jar <jar>       Old settings = built-in values of that JAR only (e.g. the original JAR before embed-key).
+  --to-config <file>     New settings = JAR built-in values of the running JAR + this Properties file only.
+  --to-jar <jar>         New settings = built-in values of that JAR only.
+                         A side that is not given uses the current runtime settings (as shown by info).
+                         -D options and CRYPTO_CONFIG_FILE apply only to that runtime side.
+  --value <ciphertext>   Ciphertext to re-encrypt (optional). Without it, it is read from the terminal (not shown).
+  --lang en|ko           Message language for this run only (optional).
+  Any implemented key source works on either side: embedded, file, env, vault, aws-kms.
+
+What it does
+  Checks that the two sides have different key IDs and different keys (fingerprints), decrypts with the old key
+  (GCM tag checked), encrypts with the new key and key ID with a new IV, decrypts the result with the new key to
+  verify it, and confirms the old key cannot decrypt it. Only the new ciphertext goes to standard output; the
+  summary goes to standard error. The old ciphertext is not changed or deleted.
+
+Key rotation procedure
+  1) Create the new key:        java -jar {jar} keygen --out rotated-key.key
+  2) Make the new JAR:          java -jar {jar} config embed-key --from-file rotated-key.key --key-id prod02 --operator <ID>
+  3) Re-encrypt each value:     java -jar java-crypto-kit-{version}-configured.jar rekey --from-jar java-crypto-kit-{version}.jar
+  4) Replace password="..." of each JNDI Resource with the new ciphertext, deploy the new JAR, restart the WAS.
+  5) Keep the old key (or the old JAR) until every ciphertext has been replaced and checked with verify.
+  If the old key is already lost (e.g. the built-in key was replaced and the original JAR was deleted), the old
+  ciphertext cannot be re-encrypted: encrypt the DB passwords again from the plaintext.
+
+Examples
+  Windows PowerShell
+    java -jar .\java-crypto-kit-{version}-configured.jar rekey --from-jar .\java-crypto-kit-{version}.jar
+    $new = java -jar .\{jar} rekey --from-config C:/secure/old.properties --to-config C:/secure/new.properties --value "ENC[v1:prod01:...]"
+  Linux
+    java -jar ./{jar} rekey --from-config /etc/java-crypto-kit/old.properties --to-config /etc/java-crypto-kit/vault.properties
+    java -jar ./{jar} rekey --from-jar ./old/{jar} --to-jar ./new/{jar} --value 'ENC[v1:default:...]' > new-password.txt
+
+Expected result
+  standard output: ENC[v1:prod02:...]
+  standard error : Old: key ID prod01, key fingerprint ... / New: key ID prod02, key fingerprint ...
+                   [PASS] Decrypts with the new key, encrypted with a new IV, cannot be decrypted with the old key
+
+Errors and fixes
+  [reason: USAGE] same key ID / same key -> the new side needs a new key and a new key ID.
+  [reason: USAGE] both sides are the current runtime settings -> give --from-... or --to-....
+  [reason: KEY_ID_MISMATCH] -> the ciphertext was not made with the old side; check the old settings.
+  [reason: INTEGRITY]       -> the old key is not the key that made this ciphertext.
+
+Security
+  Plaintext is only in memory and wiped after use. --value holds ciphertext (not plaintext) but remains in the shell
+  history; prefer the hidden prompt. The new ciphertext is as sensitive as the old one.
+
+Related: config embed-key, fingerprint, verify, kms datakey

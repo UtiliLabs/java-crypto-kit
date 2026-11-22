@@ -1,0 +1,38 @@
+config history - every successful change of the JAR built-in settings, from the first one
+
+Usage
+  java -jar {jar} config history [--jar <jar>] [--lang en|ko]
+
+Options
+  --jar <jar>    JAR to read (optional). Default: the running JAR.
+  --lang en|ko   Message language for this run only (optional).
+
+What it records (only successful config set / config embed-key; nothing for failures or no-op changes)
+  sequence number, UTC time, operator (--operator), command, reason (--reason), and for every changed setting its
+  name, value before and value after. Secret values are never recorded: a built-in key change shows
+  "crypto.key.embedded: (secret) -> (replaced)" together with the key ID change.
+  The full history is kept in every new JAR and after --replace. The initial build time comes from the manifest.
+
+Integrity check
+  Sequence numbers, a SHA-256 hash chain, the settings fingerprint after each change and the build-time settings
+  fingerprint are checked. If anything does not match (damaged file, settings changed outside config set), it is not
+  shown as a valid history: [reason: INTEGRITY] and exit code 1, and config set/embed-key refuse to change that JAR.
+  This detects accidents and simple edits. It is NOT a tamper-proof audit log: anyone who can modify the JAR can
+  rewrite it, and the operator ID is a record, not authentication.
+
+Examples
+  Windows PowerShell
+    java -jar .\java-crypto-kit-{version}-configured.jar config history
+  Linux
+    java -jar ./{jar} config history --jar /opt/tomcat/lib/{jar}
+
+Expected result
+  #1  2026-11-21T05:30:12Z (UTC)  operator example-admin  command config set
+      crypto.lang: ko -> en
+  #2  2026-11-21T05:40:00Z (UTC)  operator example-admin  command config embed-key
+      reason: user-provided key
+      crypto.key.embedded: (secret) -> (replaced)
+      crypto.key.id: default -> prod01
+  A JAR that was never changed prints: No change history (initial build state).
+
+Related: config show, config set, config embed-key

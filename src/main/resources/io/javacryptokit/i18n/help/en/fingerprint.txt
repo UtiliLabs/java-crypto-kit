@@ -1,0 +1,39 @@
+fingerprint - show the key fingerprint to check that two places use the same key (the key is never shown)
+
+Usage
+  java [-D...] -jar {jar} fingerprint [--config <file>] [--lang en|ko]
+  java -jar {jar} fingerprint --key-file <key file> [--lang en|ko]
+
+Options
+  --config <file>     External Properties file (optional). Without --key-file, the key of the current runtime
+                      settings is read (embedded, file, env, vault or aws-kms - remote sources are contacted).
+  --key-file <file>   Show the fingerprint of a key file (keygen format) instead. Cannot be used with --config.
+  --lang en|ko        Message language for this run only (optional).
+
+What it does
+  Fingerprint = SHA-256("java-crypto-kit/key-fingerprint/v1" || 0x00 || 32-byte key), 64 hex characters.
+  The same key always gives the same fingerprint on Windows and Linux; different keys give different ones.
+  For aws-kms it is the fingerprint of the AES data key restored by KMS, not of the KMS master key.
+
+Examples
+  Windows PowerShell
+    java -jar .\{jar} fingerprint
+    java -jar .\{jar} fingerprint --key-file "$HOME\jck-secure\example.key"
+  Linux
+    java -jar ./{jar} fingerprint --config /etc/java-crypto-kit/app.properties
+    java -jar ./java-crypto-kit-{version}-configured.jar fingerprint
+
+Expected result
+  Key source: embedded (JAR built-in (crypto.key.embedded))
+  Key ID: prod01
+  Key fingerprint (SHA-256, v1): 5b1c...e2
+  If this line is the same for the key file (--key-file) and for the key-embedded JAR, the key is the same.
+
+Errors and fixes
+  [reason: KEY_SOURCE] ... -> the key cannot be read; run doctor for the detailed cause.
+
+Security
+  A fingerprint is only for comparing keys. It is not authentication, proof of key ownership or a protection of the
+  secret. It is safe to share; the key itself never appears.
+
+Related: doctor, info, config show, rekey

@@ -1,0 +1,56 @@
+help vault - HashiCorp Vault KV version 2 as the key source (crypto.key.source=vault)
+
+What it is
+  The AES-256 key (Base64, keygen format) is stored in a field of a Vault KV v2 secret. At start the library reads
+  GET <crypto.vault.url>/v1/<crypto.vault.mount>/data/<crypto.vault.path>[?version=<crypto.vault.ver>] with the
+  X-Vault-Token header and uses the field crypto.vault.field. Only JDK standard HTTPS is used: no extra JAR.
+  Vault Transit (encryption inside Vault) is a different feature and is not supported.
+
+1) Prepare Vault (example with the vault CLI)
+  vault secrets enable -path=secret kv-v2                      (if not enabled yet)
+  java -jar {jar} keygen --out prod02.key
+  vault kv put secret/java-crypto-kit/prod key=@prod02.key     (note the version printed, e.g. 1)
+  Policy with read only (least privilege):
+    path "secret/data/java-crypto-kit/prod" { capabilities = ["read"] }
+  Issue a token with that policy for the WAS (or use Vault Agent and a token file).
+
+2) Settings (JAR built-in with config set, or external Properties)
+  crypto.key.source=vault
+  crypto.key.id=prod02
+  crypto.vault.url=https://vault.example.internal:8200
+  crypto.vault.mount=secret
+  crypto.vault.path=java-crypto-kit/prod
+  crypto.vault.field=key
+  crypto.vault.ver=1
+  crypto.vault.token.file=/run/secrets/vault-token      (or leave it empty and use crypto.vault.token.env=VAULT_TOKEN)
+  crypto.vault.ca.file=/etc/java-crypto-kit/vault-ca.pem  (private CA; empty = JVM trust store)
+  crypto.vault.timeout.ms=5000
+  java -jar {jar} config set crypto.key.source=vault crypto.key.id=prod02 crypto.vault.url=https://vault.example.internal:8200 crypto.vault.path=java-crypto-kit/prod crypto.vault.ver=1 crypto.vault.token.file=/run/secrets/vault-token --operator example-admin --yes
+
+3) Token supply (never in Properties, -D or the JAR)
+  Linux  : export VAULT_TOKEN=...  (or systemd Environment=, or a token file readable only by the WAS account)
+  Windows: setx VAULT_TOKEN ... for the service account, or a token file with restricted ACL.
+
+4) Check
+  java -jar {jar} doctor --offline      settings, token presence, CA file, version pinning (no network)
+  java -jar {jar} doctor                also connects, authenticates, reads the key and runs a self test
+  java -jar {jar} fingerprint           compare with: java -jar {jar} fingerprint --key-file prod02.key
+
+Behavior and failures
+  - TLS certificate and host name are always verified; redirects are not followed (the token stays on the server).
+  - Each attempt waits at most crypto.vault.timeout.ms for connecting and for the response. Connection errors,
+    timeouts and HTTP 429/500/502/503/504 are tried at most 3 times (0.5 s, 1 s pauses). TLS, authentication,
+    permission and missing-secret errors fail at once.
+  - 403 is checked with auth/token/lookup-self: "authentication rejected" (token expired or revoked) or
+    "permission denied" (policy). Vault answers "permission denied" rather than "not found" for paths outside the
+    policy, so for a permission error also check the mount and path for typos.
+    404 = secret or version missing on a path inside the policy (or not a KV v2 mount).
+  - Any failure stops the DataSource creation (Tomcat logs [java-crypto-kit] [reason: KEY_SOURCE] ...). It never
+    falls back to the built-in key. Fix the cause and restart the WAS (or the application).
+  - The key is read once per DataSource creation (not for every JDBC connection). A token that expires later does
+    not stop running pools, but the next restart needs a valid token.
+  - Pin crypto.vault.ver. With the latest version, writing a new version changes the key at the next restart.
+    Key rotation: write the new key as a new version with a new key ID, rekey the ciphertext
+    (rekey --from-config old.properties --to-config new.properties), then switch crypto.vault.ver and crypto.key.id.
+
+Related: doctor, fingerprint, rekey, config help

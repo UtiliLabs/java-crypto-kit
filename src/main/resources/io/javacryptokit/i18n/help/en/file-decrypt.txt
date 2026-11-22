@@ -1,0 +1,43 @@
+file decrypt - decrypt a file made by file encrypt (JCKF v1)
+
+Usage
+  java [-D...] -jar {jar} file decrypt --in <file> [--out <file>] [--config <file>] [--lang en|ko]
+
+Options
+  --in <file>       Encrypted file (required).
+  --out <file>      Decrypted file to create (optional). Default: the input name without .jck.
+                    Required when the input name does not end with .jck. It must not exist yet (never overwritten).
+  --config <file>   External Properties file (optional, same rules as encrypt).
+  --lang en|ko      Message language for this run only (optional).
+
+What it does
+  Checks the header (format, version, key ID) before reading the key, then decrypts chunk by chunk. Every chunk is
+  authenticated before it is written, and only into an owner-only temporary file (600 on Linux/macOS). The output
+  file appears only after the last chunk is verified. On any failure the temporary file is deleted.
+
+Examples
+  Windows PowerShell
+    java -jar .\{jar} file decrypt --in "C:/data/monthly report.pdf.jck"
+    java -jar .\{jar} file decrypt --in D:/backup/users.csv.jck --out C:/restore/users.csv
+  Linux
+    java -jar ./{jar} file decrypt --in /secure/img.png.jck --out /tmp/restore/img.png
+    java -jar ./{jar} file decrypt --in /data/export/users.csv.jck --config /etc/java-crypto-kit/batch.properties
+
+Expected result
+  Decrypted and authenticated: users.csv.jck -> users.csv (1048576 bytes)
+  The decrypted file is plaintext (owner-only permission 600 on Linux/macOS). Delete it securely after use.
+
+Errors and fixes
+  [reason: INVALID_TOKEN] It is not an encrypted file made by java-crypto-kit -> check --in.
+  [reason: KEY_ID_MISMATCH] -> the file was encrypted with another key ID; use the settings of that key.
+  [reason: INTEGRITY]       -> wrong key, or the file is tampered, damaged or truncated; no output was created.
+  [reason: INVALID_INPUT] The output file (...) already exists -> choose another --out.
+
+Security
+  - The result is plaintext. On Windows it inherits the folder permissions: decrypt into a protected folder.
+  - A file encrypted on Windows decrypts on Linux and vice versa (byte-identical).
+
+Java API (same implementation)
+  CredentialCrypto.fromDefaultConfiguration().decryptFile(Paths.get("users.csv.jck"), Paths.get("users.csv"));
+
+Related: file encrypt, fingerprint, doctor

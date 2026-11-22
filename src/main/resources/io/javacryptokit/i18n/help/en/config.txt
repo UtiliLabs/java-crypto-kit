@@ -1,0 +1,45 @@
+config help - every setting of java-crypto-kit and how to manage the JAR built-in settings
+
+Management commands (JAR file only, no rebuild)
+  java -jar {jar} config show              current built-in values and the last change      (config show --help)
+  java -jar {jar} config history           every change from the first one                  (config history --help)
+  java -jar {jar} config set <name>=<value> ... --operator <ID>   change values into a new JAR (config set --help)
+  java -jar {jar} config embed-key --from-file <key file> --key-id <ID> --operator <ID>       (config embed-key --help)
+  A new JAR <name>-configured.jar is created by default (an already changed JAR gives -configured-2.jar, -3 ...);
+  --replace backs up and replaces the original. The result path is printed: use that JAR for the next steps.
+
+Where settings come from (highest first)
+  1) JVM property -D<name>=<value>    only when crypto.jvm.override.enabled=true and the setting allows -D
+                                      (CLI: between java and -jar; Tomcat: CATALINA_OPTS / setenv)
+  2) external Properties file         CLI --config <file>, or -Dcrypto.config.file=<file>, or the environment variable
+                                      CRYPTO_CONFIG_FILE=<file> (checked in this order, the first one given is used)
+  3) JAR built-in values              defaults of the published JAR, or the values changed with config set
+  CLI one-run options such as --lang apply only to that command and change nothing.
+  info shows the final value and origin of each setting; config show shows only the JAR values.
+
+Rules
+  - An external config that is given but missing, empty or unreadable stops with an error (no fallback).
+  - Unknown names in the external Properties stop with an error (with a "Did you mean" hint).
+  - -Dcrypto.* names that look like a typo of a setting of this library stop with an error
+    (e.g. -Dcrypto.key.soruce); unrelated names such as -Dcrypto.policy are not affected.
+  - Settings are read when a DataSource or a CLI command starts. Restart the WAS after a change.
+  - Secrets are never settings: the key value is changed only with config embed-key, Vault tokens come from a
+    token file or environment variable, AWS credentials come from the AWS SDK standard chain.
+
+Message language (applies to the CLI, Java API exceptions, Tomcat Factory messages and Vault/KMS errors)
+  default ko.  Permanently:  java -jar {jar} config set crypto.lang=en --operator <ID>
+  For one run: --lang en  or  --lang ko.  Messages printed by Tomcat, JDBC drivers or the AWS SDK are not translated.
+
+Settings
+{settings}
+External Properties example (UTF-8, only the entries you want to override)
+  crypto.key.source=file
+  crypto.key.id=prod01
+  crypto.key.file=/etc/java-crypto-kit/prod01.key
+  crypto.warning.enabled=false
+  Windows: write paths with / (C:/secure/prod01.key); a backslash is an escape character in Properties.
+
+JVM property examples
+  Linux   : java -Dcrypto.config.file=/etc/java-crypto-kit/app.properties -jar ./{jar} info
+  Windows : java "-Dcrypto.key.source=env" "-Dcrypto.key.env=CRYPTO_KEY" -jar .\{jar} doctor
+  Tomcat  : CATALINA_OPTS="-Dcrypto.config.file=/etc/java-crypto-kit/app.properties"   (bin/setenv.sh)

@@ -1,0 +1,40 @@
+# 빌드·IDE 생성물
+.gradle/
+build/
+out/
+# VS Code Java(Eclipse JDT) 확장이 만드는 IDE 컴파일 출력. 빌드·배포에 필요 없는 생성물이다.
+bin/
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/*.log
+.tools/
+dist/
+
+# IDE 확장(예: Java 업그레이드 도구)이 남기는 작업 기록. 도구 호출 내역이 들어갈 수 있으므로 커밋하지 않는다.
+.github/modernize/
+
+# 실제 키·비밀값·로컬 설정은 저장소에 넣지 않는다(예제 파일만 허용)
+*.key
+*.secret
+*.token
+*.datakey
+# 인증서·키 스토어(개인 키가 들어 있을 수 있음). 공개 CA 인증서를 추적해야 한다면 검토 후 예외로 둔다.
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.pem
+*.env
+!.env.example
+docs/config/*.properties
+!docs/config/java-crypto-kit.example.properties
+
+# 사용자 지정 키가 들어갈 수 있는 JAR(config set·embed-key 결과 <이름>-configured*.jar, --out으로 지정한 이름 포함)와
+# --replace 백업(<이름>.jar.bak-<UTC>)은 저장소에 넣지 않는다. 저장소가 추적하는 JAR는 Gradle Wrapper 하나뿐이다.
+# (이미 추적 중인 파일은 무시 규칙과 무관하므로 CI가 git ls-files로 따로 검사한다)
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+*.jar.bak-*

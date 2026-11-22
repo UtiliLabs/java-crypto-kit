@@ -1,0 +1,39 @@
+info - final runtime settings and where each value comes from
+
+Usage
+  java [-D...] -jar {jar} info [--config <file>] [--lang en|ko]
+
+Options
+  --config <file>   External Properties file (optional, same rules as encrypt and Tomcat).
+  --lang en|ko      Message language for this run only (optional).
+
+What it does
+  Loads the settings exactly like the WAS (JVM -D > external Properties > JAR built-in values) and shows each final
+  value with its origin [origin: JAR built-in value | external config file | JVM property -D], the -D options that
+  were applied or ignored, the JAR history summary, and reads the key once to check it (remote sources are contacted).
+  Keys, tokens and full paths are never shown (file names only).
+
+  Three commands, three roles:
+    info          final values actually applied at runtime and their origin
+    config show   only the values stored inside a JAR file (no external Properties, no -D)
+    doctor        a full PASS/WARN/FAIL diagnosis including an encrypt/decrypt self test
+
+Examples
+  Windows PowerShell
+    java -jar .\{jar} info
+    java "-Dcrypto.lang=en" "-Dcrypto.warning.enabled=false" -jar .\{jar} info
+  Linux
+    java -Dcrypto.config.file=/etc/java-crypto-kit/app.properties -jar ./{jar} info
+    CRYPTO_CONFIG_FILE=/etc/java-crypto-kit/app.properties java -jar ./{jar} info
+
+Expected result (excerpt)
+  Key source: file (set in the external config)
+  Key location: file app.key [origin: external config file]
+  Message language (crypto.lang): ko -> ko [origin: JAR built-in value]
+  Key check: OK (32 bytes) - key fingerprint 5b1c...
+
+Errors and fixes
+  [reason: CONFIGURATION] ... -> fix the setting named in the message (config help); exit code 1.
+  Key check: failed - ...     -> exit code 1; run doctor for the action.
+
+Related: doctor, config show, config help, fingerprint

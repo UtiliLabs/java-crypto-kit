@@ -1,0 +1,47 @@
+kms datakey - create the AWS KMS protected data key file for crypto.key.source=aws-kms
+
+Usage (needs the optional AWS SDK bundle on the class path, see help aws-kms)
+  Windows: java -cp "{jar};aws-kms-lib/*" io.javacryptokit.cli.CryptoCli kms datakey --out <file> [--from-file <key file>] [--config <file>]
+  Linux  : java -cp "{jar}:aws-kms-lib/*" io.javacryptokit.cli.CryptoCli kms datakey --out <file> [--from-file <key file>] [--config <file>]
+
+Options
+  --out <file>             Data key file to create (required). Never overwritten; POSIX permission 600.
+  --from-file <key file>   Optional. Wrap an existing key (keygen format) with KMS Encrypt instead of creating a new
+                           one: the key and key ID stay the same, so existing ciphertext keeps working.
+  --config <file>          External Properties with crypto.key.source=aws-kms, crypto.aws.kms.key.id,
+                           crypto.aws.region (or AWS_REGION) and crypto.key.id (optional when they are in the JAR or -D).
+                           The same file becomes the runtime config after adding crypto.aws.kms.data-key.file.
+  --lang en|ko             Message language for this run only (optional).
+
+What it does
+  Without --from-file: KMS GenerateDataKey (AES_256) creates a new data key. With --from-file: KMS Encrypt wraps your
+  key. In both cases the result is checked with KMS Decrypt and only the encrypted data key (CiphertextBlob, Base64)
+  is written. The plaintext data key is never printed or stored. The encryption context
+  java-crypto-kit:key-id=<crypto.key.id> binds the data key to the key ID.
+  Create it once and keep it: every WAS start restores the same data key from this file.
+
+Required IAM permissions
+  kms:GenerateDataKey (new key) or kms:Encrypt (--from-file), and kms:Decrypt, on the key of crypto.aws.kms.key.id.
+  At run time the WAS needs only kms:Decrypt.
+
+Examples
+  Windows PowerShell
+    $env:AWS_REGION = "ap-northeast-2"
+    java -cp "{jar};aws-kms-lib/*" io.javacryptokit.cli.CryptoCli kms datakey --out C:/secure/prod.datakey --config C:/secure/kms.properties
+  Linux
+    java -cp "{jar}:aws-kms-lib/*" io.javacryptokit.cli.CryptoCli kms datakey --out /etc/java-crypto-kit/prod.datakey --config /etc/java-crypto-kit/kms.properties
+    java -cp "{jar}:aws-kms-lib/*" io.javacryptokit.cli.CryptoCli kms datakey --from-file /secure/example.key --out /etc/java-crypto-kit/prod.datakey
+
+Expected result
+  Encrypted data key file created: prod.datakey
+  Data key fingerprint: 9d2e... (the plaintext data key is never printed or stored)
+  [PASS] Restored with KMS Decrypt
+  Next: config set crypto.key.source=aws-kms crypto.aws.kms.data-key.file=... crypto.aws.kms.key.id=... --operator <ID>
+
+Errors and fixes
+  [reason: KEY_SOURCE] The AWS SDK for Java 2.x ... is not installed -> use java -cp with aws-kms-lib (help aws-kms).
+  [reason: KEY_SOURCE] AWS KMS denied access (AccessDeniedException) -> add the IAM/key policy permissions above.
+  [reason: KEY_SOURCE] No AWS credentials were found                 -> use an IAM role, a profile or environment variables.
+  [reason: KEY_SOURCE] No AWS region was found                       -> set crypto.aws.region or AWS_REGION.
+
+Related: help aws-kms, rekey, fingerprint, doctor

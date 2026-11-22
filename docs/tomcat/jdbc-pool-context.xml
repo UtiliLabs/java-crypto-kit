@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =======================================================================
+  java-crypto-kit 예제 | Tomcat JDBC Pool (기존 Pool 유지·전용 기능이 필요할 때)
+  =======================================================================
+  [이 파일]
+  - 예제 파일 이름이며 Tomcat은 이 파일을 직접 읽지 않는다.
+  - 아래 <Resource ... /> 하나를 실제 Context 파일의 <Context> 안에 붙여 넣는다
+    (웹앱의 META-INF/context.xml 또는 CATALINA_BASE/conf/Catalina/localhost/<앱>.xml).
+    CATALINA_BASE/conf/context.xml은 모든 웹앱의 기본 Context라 앱마다 Pool이 따로 생기므로 주의한다.
+  - 값은 모두 예시다. url·username·password를 실제 값으로 바꾼다.
+    password에는 Tomcat에 배포할 키 내장 JAR로 encrypt한 결과(ENC[...] 전체)를 넣는다.
+
+  [Pool 선택]
+  - 이미 Tomcat JDBC Pool을 쓰거나 jdbcInterceptors 같은 전용 기능이 필요할 때 이 예제를 쓴다.
+    신규·일반 DB 연결은 dbcp2-context.xml(DBCP2)을 권장한다.
+  - factory는 두 예제가 같다(EncryptedDataSourceFactory: 암호문 복호화 후 공식 Pool에 위임).
+  - Tomcat JDBC Pool을 쓰려면 설정 crypto.pool.factory=org.apache.tomcat.jdbc.pool.DataSourceFactory가 필요하다.
+    키 내장 JAR에 저장하려면 config set 명령을 쓴다(명령 예: help tomcat, config set 도움말).
+    외부 Properties나 CATALINA_OPTS의 -Dcrypto.pool.factory=... 로도 지정할 수 있다. 이 설정은 Tomcat JVM의
+    모든 Resource에 적용된다(Resource마다 다른 Pool이 필요하면 Tomcat 인스턴스를 나눈다).
+
+  [JNDI 표준 속성]
+  - name: 앱이 찾는 이름(java:comp/env/jdbc/myDB).
+  - auth="Container": 일반 DB Resource(권장). auth="Application"은 앱이 리소스 관리자에
+    직접 인증하는 설계용이며, 이것만 바꿔 DB 계정이 바뀌지는 않는다.
+  - type="javax.sql.DataSource": 이 Factory가 지원하는 타입(Tomcat 10.1·11도 javax.sql).
+  - scope(기본 Shareable)·singleton(기본 true)·closeMethod: 일반 DataSource는 기본값을 유지한다.
+
+  [DB·Pool 속성(Tomcat JDBC Pool 이름)]
+  - maxActive / maxWait: 최대 연결 수 / 연결을 기다리는 한도(ms). DB 세션 한도·WAS 노드 수·부하에 맞춘다.
+  - initialSize / minIdle / maxIdle: 기동 시 만드는 연결 수와 유휴 연결 수.
+  - validationQuery="SELECT 1"(MariaDB) + validationQueryTimeout(초): 연결 검사. DBMS가 다르면 그에 맞는 SQL.
+  - testOnBorrow: 빌려줄 때 검사. testWhileIdle + timeBetweenEvictionRunsMillis: 유휴 연결 주기 검사.
+  - 그 밖의 속성도 공식 Pool에 그대로 넘기지만 실제 지원·적용 여부는 Tomcat·Pool 버전이 결정한다.
+
+  [배포·참조]
+  - 키 내장 JAR와 JDBC 드라이버 JAR를 CATALINA_BASE/lib에 둔다. tomcat-jdbc.jar가 없으면
+    Tomcat 버전에 맞는 것을 같은 lib에 추가한다.
+  - 속성별 상세: docs/user-guide.md 3장(Tomcat JNDI 연동)·4장(Connection Pool 설정)
+  - Tomcat 공식 문서: https://tomcat.apache.org/tomcat-11.0-doc/jdbc-pool.html
+  ======================================================================= -->
+<Context>
+  <Resource name="jdbc/myDB"
+            auth="Container"
+            type="javax.sql.DataSource"
+            factory="io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory"
+            driverClassName="org.mariadb.jdbc.Driver"
+            url="jdbc:mariadb://db.example.com:3306/mydb"
+            username="app_user"
+            password="ENC[v1:key01:REPLACE_IV:REPLACE_CIPHERTEXT]"
+            initialSize="1"
+            maxActive="20"
+            minIdle="1"
+            maxIdle="10"
+            maxWait="5000"
+            validationQuery="SELECT 1"
+            validationQueryTimeout="3"
+            testOnBorrow="true"
+            testWhileIdle="true"
+            timeBetweenEvictionRunsMillis="30000" />
+  <!-- 추가 선택(기본 비활성): validationInterval, jdbcInterceptors, removeAbandoned,
+       removeAbandonedTimeout, logAbandoned 등은 Tomcat JDBC Pool 전용이다. 연결 누수 회수와
+       인터셉터는 성능·트랜잭션에 영향이 있으므로 운영 기준에 따라 별도로 설정한다. -->
+</Context>
