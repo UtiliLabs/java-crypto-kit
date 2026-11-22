@@ -1,49 +1,53 @@
-# java-crypto-kit CI/CD
-# - push(main)·Pull Request: 깨끗한 소스에서 빌드·전체 테스트·CLI 스모크 테스트(Linux JDK 8/17/21, Windows JDK 8/21)
-# - push(main) 성공: 개발용 Pre-release "dev-<커밋 SHA>" 자동 게시(정식 버전 아님)
-# - push(태그 v*) 성공: Gradle 버전과 태그가 같을 때만 정식 Release 게시(JAR + KMS 선택 묶음 + SHA256SUMS). 같은 태그의 기존
-#   Release는 덮어쓰지 않는다.
-# - 비밀값·외부 업로드·텔레메트리 없음. 기본 권한은 읽기 전용이고 게시 작업에만 contents: write를 준다(PR에서는 게시하지 않음).
-# - 외부 Action은 공식 Action만 쓰고 커밋 SHA로 고정한다(주석의 버전은 확인용). Release 게시는 러너에 포함된 gh CLI를 쓴다.
-# - 게시하는 JAR는 공개 예제 키만 들어 있는 기본 JAR다. 사용자 지정 키가 들어간 JAR는 만들거나 올리지 않는다(빌드 후 검사).
+
+# java-crypto-kit CI
+# - main Push: 소스·빌드·CI 관련 파일이 변경된 경우에만 전체 빌드·테스트 실행.
+# - README·docs 등 문서만 변경한 main Push는 CI 실행 생략.
+# - Pull Request: 소스·빌드·CI 관련 파일이 변경된 경우에만 전체 빌드·테스트 실행.
+# - workflow_dispatch: GitHub Actions 화면에서 필요한 때 수동 빌드·테스트 가능.
+# - Release/Pre-release는 자동 게시하지 않는다. 검증된 dist 산출물을 확인하고 GitHub Releases에서 수동 게시한다.
+# - Linux JDK 8/17/21, Windows JDK 8/21 검증.
+# - Git에 비밀값·사용자 지정 키·빌드 산출물 혼입을 검사한다.
+# - 외부 Action은 공식 Action을 커밋 SHA로 고정한다.
 name: CI
 
 on:
   push:
-    branches: [ main ]
-    tags: [ 'v*' ]
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - '.gitattributes'
+      - '.gitignore'
+      - '.github/workflows/**'
   pull_request:
+    paths:
+      - 'src/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - '.gitattributes'
+      - '.gitignore'
+      - '.github/workflows/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  # 같은 브랜치·태그의 빌드가 겹치면 이전 실행을 기다린다(게시 충돌 방지). PR은 최신 실행만 남긴다.
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  version-check:
-    name: version check (tag)
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Tag must match the Gradle project version
-        shell: bash
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          VERSION=$(sed -n "s/^version = '\(.*\)'/\1/p" build.gradle)
-          if [ "v$VERSION" != "$TAG" ]; then
-            echo "::error::태그($TAG)와 build.gradle 버전(v$VERSION)이 다릅니다. Release를 게시하지 않습니다."; exit 1
-          fi
-
   build:
     name: build (${{ matrix.os }}, JDK ${{ matrix.java }})
-    needs: [ version-check ]
-    if: always() && (needs.version-check.result == 'success' || needs.version-check.result == 'skipped')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: true
@@ -59,7 +63,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Validate Gradle Wrapper
-        # 저장소의 gradle-wrapper.jar가 공식 배포본과 같은지 확인한다(공급망 보호).
         uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
 
       - name: Set up JDK ${{ matrix.java }}
@@ -73,28 +76,25 @@ jobs:
         shell: bash
         run: |
           if grep -q $'\r' gradlew; then
-            echo "::error file=gradlew::gradlew에 CRLF 줄바꿈이 있습니다. LF로 저장하세요(.gitattributes 참조)."; exit 1
+            echo "::error file=gradlew::gradlew에 CRLF 줄바꿈이 있습니다."; exit 1
           fi
           if [ ! -x gradlew ]; then
-            echo "::error file=gradlew::gradlew에 실행 권한이 없습니다. git update-index --chmod=+x gradlew 후 커밋하세요."; exit 1
+            echo "::error file=gradlew::gradlew에 실행 권한이 없습니다."; exit 1
           fi
 
       - name: Repository hygiene and integration script check
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          # 사용자 지정 키가 들어갈 수 있는 JAR·키·토큰·백업이 Git에 추적되면 실패한다(Gradle Wrapper JAR만 예외).
           bad=$(git ls-files | grep -Ei '\.(jar|key|secret|token|datakey|p12|pfx|jks|keystore|pem)$|\.jar\.bak-|(^|/)\.env$' | grep -vx 'gradle/wrapper/gradle-wrapper.jar' || true)
           if [ -n "$bad" ]; then echo "::error::Git에 추적되면 안 되는 파일: $bad"; exit 1; fi
-          # 실서버 통합 시험 스크립트(Docker 시험 자체는 CI에서 돌리지 않음): 문법, 도움말, 실행 환경 오류 시 종료 코드 2
           bash -n src/test/integration/run-tomcat-integration.sh
           bash src/test/integration/run-tomcat-integration.sh --help | grep -q 'run-tomcat-integration.sh'
           set +e; bash src/test/integration/run-tomcat-integration.sh --jar does-not-exist.jar > /dev/null 2>&1; rc=$?; set -e
-          [ "$rc" = 2 ] || { echo "::error::통합 시험 스크립트의 환경 오류 종료 코드가 2가 아님($rc)"; exit 1; }
+          [ "$rc" = 2 ] || { echo "::error::통합 시험 스크립트 환경 오류 종료 코드가 2가 아님($rc)"; exit 1; }
 
       - name: Build and test (Linux)
         if: runner.os != 'Windows'
-        # build = test(JUnit 5) + selfTest(독립 자체 검증) + jar + KMS 선택 묶음 ZIP
         run: ./gradlew --no-daemon clean build
 
       - name: Build and test (Windows)
@@ -119,35 +119,43 @@ jobs:
           java -jar "$JAR" help --lang en | grep -q "Usage"
           java -jar "$JAR" config help --lang en | grep -q "crypto.lang"
           java -jar "$JAR" doctor --lang en
-          # 공개 JAR 안전 점검: 내장 설정이 빌드 상태 그대로(변경 이력 없음)이고 공개 예제 키인지 확인한다.
+
+          # 기본 JAR에 공개 예제 키만 포함됐는지 확인
           java -jar "$JAR" config history --lang en | grep -q "No change history"
           java -jar "$JAR" config show --lang en | grep -q "PUBLIC default key"
-          # 배포 JAR에는 웹 페이지(JSP·WAR)·테스트 클래스·외부 라이브러리가 없어야 한다.
+
+          # 테스트·웹·외부 라이브러리의 기본 JAR 혼입 방지
           if unzip -l "$JAR" | grep -qiE '\.(jsp|war)$|WEB-INF/|org/junit|software/amazon|Test\.class$'; then
-            echo "::error::기본 JAR에 웹 페이지·테스트·외부 라이브러리가 들어 있음"; exit 1
+            echo "::error::기본 JAR에 불필요한 파일 포함"; exit 1
           fi
-          # 사용자 지정 키 내장 흐름(CI 임시 키, 결과 JAR는 게시하지 않고 작업 폴더에서만 사용)
+
+          # 사용자 지정 키 내장과 변경 이력 검증
           mkdir -p ci-tmp
           java -jar "$JAR" keygen --out ci-tmp/ci.key
           java -jar "$JAR" config embed-key --from-file ci-tmp/ci.key --key-id ci01 --operator ci --yes --out ci-tmp/company.jar
           java -jar ci-tmp/company.jar config history --lang en | grep -q "crypto.key.id: default -> ci01"
-          # README 4장(운영용 사용자 지정 키)의 확인 단계: config show, 키 지문(키 내장 JAR = 키 파일), doctor(FAIL 없으면 종료 코드 0)
           java -jar ci-tmp/company.jar config show --lang en | grep -q "crypto.key.id = ci01"
+
+          # 키 지문 일치 확인
           fp_jar=$(java -jar ci-tmp/company.jar fingerprint | grep SHA-256 | sed 's/.*: //')
           fp_key=$(java -jar "$JAR" fingerprint --key-file ci-tmp/ci.key | grep SHA-256 | sed 's/.*: //')
-          [ -n "$fp_jar" ] && [ "$fp_jar" = "$fp_key" ] || { echo "::error::키 내장 JAR와 키 파일의 지문이 다름"; exit 1; }
+          [ -n "$fp_jar" ] && [ "$fp_jar" = "$fp_key" ] || { echo "::error::키 지문 불일치"; exit 1; }
           java -jar ci-tmp/company.jar doctor > /dev/null
-          # 연속 변경: 기본 결과 이름은 접미사를 겹치지 않고 순번을 올린다(company-configured.jar -> company-configured-2.jar)
+
+          # 연속 설정 변경 시 JAR 이름 검증
           java -jar ci-tmp/company.jar config set crypto.lang=en --operator ci > /dev/null
           java -jar ci-tmp/company-configured.jar config set crypto.warning.enabled=false --operator ci > /dev/null
           test -f ci-tmp/company-configured-2.jar
-          if ls ci-tmp | grep -q 'configured-.*configured'; then echo "::error::결과 JAR 이름에 접미사가 누적됨"; exit 1; fi
+          if ls ci-tmp | grep -q 'configured-.*configured'; then echo "::error::JAR 이름 접미사 누적"; exit 1; fi
           java -jar ci-tmp/company-configured-2.jar config history --lang en | grep -q "crypto.warning.enabled: true -> false"
+
+          # 파일 암복호화 왕복
           printf 'hello\n한글 파일\n' > "ci-tmp/in put.txt"
           java -jar ci-tmp/company.jar file encrypt --in "ci-tmp/in put.txt"
           java -jar ci-tmp/company.jar file decrypt --in "ci-tmp/in put.txt.jck" --out ci-tmp/out.txt
           cmp "ci-tmp/in put.txt" ci-tmp/out.txt
-          # 빈 파일과 큰 파일(32 MiB, 청크 512개 스트리밍)
+
+          # 빈 파일과 32MiB 파일 검증
           : > ci-tmp/empty.txt
           java -jar ci-tmp/company.jar file encrypt --in ci-tmp/empty.txt
           java -jar ci-tmp/company.jar file decrypt --in ci-tmp/empty.txt.jck --out ci-tmp/empty.out
@@ -164,11 +172,12 @@ jobs:
         run: |
           ZIP=$(ls build/distributions/java-crypto-kit-aws-kms-lib-*.zip)
           unzip -l "$ZIP" | grep -q 'aws-kms-lib/kms-' || { echo "::error::KMS SDK JAR 없음"; exit 1; }
-          if unzip -l "$ZIP" | grep -q 'java-crypto-kit-[0-9]'; then echo "::error::묶음에 기본 JAR가 들어 있음"; exit 1; fi
+          if unzip -l "$ZIP" | grep -q 'java-crypto-kit-[0-9]'; then echo "::error::기본 JAR 혼입"; exit 1; fi
           if unzip -l "$ZIP" | grep -qE 'apache-client|apache5-client|httpclient5|httpcore5|httpclient-4|httpcore-4|netty'; then echo "::error::불필요한 HTTP 클라이언트 포함"; exit 1; fi
-          [ "$(unzip -l "$ZIP" | grep -c 'aws-kms-lib/url-connection-client-')" = 1 ] || { echo "::error::url-connection-client가 없음"; exit 1; }
+          [ "$(unzip -l "$ZIP" | grep -c 'aws-kms-lib/url-connection-client-')" = 1 ] || { echo "::error::url-connection-client 없음"; exit 1; }
 
-      - name: Prepare release files (SHA-256)
+      # 산출물 생성은 배포가 아님. 실제 Release는 수동 게시.
+      - name: Prepare distribution files for manual release (SHA-256)
         if: matrix.publish
         shell: bash
         run: |
@@ -176,7 +185,7 @@ jobs:
           cp build/libs/java-crypto-kit-*.jar build/distributions/java-crypto-kit-aws-kms-lib-*.zip dist/
           (cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
 
-      - name: Upload release files
+      - name: Upload build artifacts (not a Release)
         if: matrix.publish
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -191,59 +200,3 @@ jobs:
           name: test-reports-${{ matrix.os }}-jdk${{ matrix.java }}
           path: build/reports/
           retention-days: 7
-
-  dev-release:
-    name: dev pre-release
-    needs: [ build ]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download release files
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: dist
-          path: dist
-      - name: Publish dev-<commit> pre-release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
-        run: |
-          TAG="dev-${SHA:0:12}"
-          if gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1; then
-            echo "$TAG 은 이미 게시되어 있습니다(같은 커밋 재실행)."; exit 0
-          fi
-          gh release create "$TAG" dist/* --repo "$REPO" --target "$SHA" --prerelease \
-            --title "개발용 빌드 $TAG (정식 버전 아님)" \
-            --notes "main 브랜치 커밋 ${SHA} 의 자동 빌드입니다. 시험용이며 정식 Release가 아닙니다. 내장 키는 공개 예제 키이므로 운영 전 config embed-key로 사용자 지정 키를 적용하세요."
-          echo "### 개발용 JAR: https://github.com/$REPO/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"
-
-  release:
-    name: release
-    needs: [ version-check, build ]
-    if: startsWith(github.ref, 'refs/tags/v') && needs.version-check.result == 'success' && needs.build.result == 'success'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download release files
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: dist
-          path: dist
-      - name: Publish release (never overwrite)
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          if gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1; then
-            echo "::error::$TAG Release가 이미 있습니다. 덮어쓰지 않습니다(새 버전 태그를 쓰세요)."; exit 1
-          fi
-          gh release create "$TAG" dist/* --repo "$REPO" --verify-tag --title "java-crypto-kit $TAG" \
-            --notes "java-crypto-kit $TAG. 기본 JAR(java-crypto-kit-*.jar) 하나로 Tomcat JDBC Pool·CLI·Java API를 사용합니다. AWS KMS를 쓸 때만 java-crypto-kit-aws-kms-lib-*.zip을 함께 설치하세요. 파일 무결성은 SHA256SUMS.txt로 확인합니다. 내장 키는 공개 예제 키이므로 운영 전 config embed-key로 사용자 지정 키를 적용하세요."
-          echo "### 정식 Release: https://github.com/$REPO/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"
