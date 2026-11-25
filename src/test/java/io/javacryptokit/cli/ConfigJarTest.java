@@ -31,6 +31,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * JAR 내부 설정 관리(config show / history / set / embed-key) 회귀 테스트. 실제 배포 JAR와 같은 구조의 JAR를 만들어 검증한다.
@@ -728,9 +730,14 @@ class ConfigJarTest {
         assertEquals("dummy", service.decryptText(service.encryptText("dummy".toCharArray(), null, "obf01")));
     }
 
-    @Test
-    void olderJarsWithPlainBuiltInKeysAreReadAndAnyEditRewritesThemAsObf1() throws Exception {
-        Path old = plainCopy(TestJars.build(dir.resolve("old-build.jar")), dir.resolve("old-plain.jar"));
+    @ParameterizedTest
+    @ValueSource(strings = {"\n", "\r\n"})
+    void olderJarsWithPlainBuiltInKeysAreReadAndAnyEditRewritesThemAsObf1(String lineEnding) throws Exception {
+        Path source = TestJars.build(dir.resolve("old-build.jar"));
+        // 체크아웃 OS와 관계없이 LF/CRLF 리소스를 모두 재현한다. plainCopy가 변환 후 Manifest 지문을 재계산한다.
+        String settings = readEntry(source, "java-crypto-kit.properties").replace("\r\n", "\n").replace("\n", lineEnding);
+        Path fixture = replaceEntry(source, dir.resolve("old-line-endings.jar"), "java-crypto-kit.properties", settings);
+        Path old = plainCopy(fixture, dir.resolve("old-plain.jar"));
         String oldSettings = readEntry(old, "java-crypto-kit.properties");
         assertTrue(oldSettings.contains("crypto.key.embedded=" + TestSupport.publicKeyBase64()), "구형 평문 표현으로 만든 사본");
         // 그대로 읽힌다(같은 키·지문, 이력 없음 정상).
@@ -808,7 +815,7 @@ class ConfigJarTest {
     private static Path plainCopy(Path source, Path target) throws Exception {
         String settings = readEntry(source, "java-crypto-kit.properties");
         StringBuilder plain = new StringBuilder();
-        for (String line : settings.split("\n", -1)) {
+        for (String line : settings.split("\\r?\\n", -1)) {
             java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(crypto\\.(?:key|keys\\.[A-Za-z0-9_-]+)\\.embedded)=(obf1:.*)$")
                     .matcher(line);
             if (m.matches()) {
