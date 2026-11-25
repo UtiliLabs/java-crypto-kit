@@ -1,0 +1,32 @@
+config key remove - remove a key from the key list (creates a new JAR)
+
+Usage
+  java -jar {jar} config key remove --key-id <ID>
+       --operator <ID> [--reason <text>] [--jar <jar>]
+       [--out <jar> | --replace] [--yes]
+       [--admin-pass-file <file>] [--lang en|ko]
+
+Options
+  --key-id <ID>     Key ID to remove (required)
+  --operator <ID>   Operator ID for the history (required)
+  --reason <text>   Reason for the history (required, asked interactively)
+  --jar <jar>       JAR to change (optional, default: the running JAR)
+  --out <jar>       Result JAR (optional, default <name>-configured.jar)
+  --replace         Replace the original (backup first)
+  --yes             Skip the CHANGE confirmation (not the reason)
+  --admin-pass-file <file>
+                    Admin password file (non-interactive, mode 600)
+                    Without it the admin password is asked (hidden)
+  --lang en|ko      Message language for this run (optional)
+  A default key and the crypto.key.* AES key cannot be removed. Ciphertext of
+  a removed key no longer decrypts with the result JAR, so rekey it first.
+  A removed key ID can be used again only to restore the same key.
+
+Result
+  Created JAR : /opt/app/java-crypto-kit-{version}-configured.jar
+  Changes     : crypto.keys.p1.type (pass -> (none))
+                ...
+  Removed key : p1
+
+Examples
+  java -jar {jar} config key remove --key-id p1 --operator ops

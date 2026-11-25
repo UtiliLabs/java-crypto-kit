@@ -1,0 +1,50 @@
+config key add - 키 목록에 키 추가(새 JAR 생성)
+
+사용법
+  java -jar {jar} config key add --key-id <ID>
+       --operator <ID> [--type pass|key]
+       [--generate [--export <파일>] | --from-file <파일>
+       | --from-jar <jar>] [--source <공급원> --location <위치>] [--active]
+       [--reason <사유>] [--jar <jar>] [--out <jar> | --replace] [--yes]
+       [--admin-pass-file <파일>] [--lang en|ko]
+
+재료(하나만, 없으면 pass는 Passphrase를 숨김 입력 2회로 받음)
+  --generate          새로 생성(pass: 32자 Passphrase, key: 32바이트 키).
+                      대화형이면 성공한 뒤 생성값을 한 번 보여 주고,
+                      비대화형이면 --export가 있어야 합니다.
+  --export <파일>     생성값을 이 파일에 한 번 저장(덮어쓰지 않음, POSIX
+                      600). key: keygen 키 파일 한 줄. pass: 복원 백업(키 ID·
+                      KDF·반복 횟수·Salt·지문·Passphrase)
+  --from-file <파일>  key: keygen 키 파일. pass: 위 복원 백업(같은 키 복원)
+                      또는 Passphrase 한 줄 파일(새 Salt로 새 키)
+  --from-jar <jar>    그 JAR에 있는 같은 키 ID의 정의를 복사(Passphrase 원문은
+                      어느 JAR에도 없음). --source·--location과 함께 못 씀
+공급(실행할 때 키를 읽는 곳)
+  --source <공급원>   embedded(기본), file, env, vault, aws-kms
+  --location <위치>   file: 파일 경로, env: 환경변수 이름, vault: 경로[#필드],
+                      aws-kms: 데이터 키 파일(재료가 있으면 새로 만듦)
+                      외부 공급원은 지금 한 번 읽어 키 지문을 고정합니다
+                      (실행 중 값이 바뀌면 실패, 바꾸려면 새 키 ID로 추가).
+그 밖
+  --key-id <ID>       새 키 ID(필수, 영문·숫자·_·- 1~64자). 이력에서 쓴 키 ID는
+                      같은 키를 되살릴 때(전체 지문 일치)만 다시 쓸 수 있음
+  --type pass|key     유형(선택, 기본 pass)
+  --active            추가한 키를 그 유형의 기본 키로 정함
+  --operator <ID>     이력에 남길 수정자 ID(필수)
+  --reason <사유>     이력에 남길 사유(필수). 없으면 대화형 터미널에서 묻고,
+                      비대화형이면 재료 입력·생성 전에 오류로 멈춥니다.
+  --jar <jar>         바꿀 JAR(선택, 기본: 실행 중인 JAR)
+  --out <jar>         결과 JAR(선택, 기본 <이름>-configured.jar)
+  --replace           원본 교체(백업 후)
+  --yes               CHANGE 확인 생략(사유는 생략할 수 없음)
+  --admin-pass-file <파일>
+                      관리자 비밀번호 파일(비대화형 인증, 한 줄, 권한 600)
+                      없으면 관리자 비밀번호를 숨김 입력으로 묻습니다
+  --lang en|ko        이번 실행의 메시지 언어(선택)
+
+생성값은 성공 직후 대화형 콘솔에 한 번 표시됩니다. 별도로 보관하세요.
+  원본 JAR 없이 pass 키를 복원하려면 --export 백업을 보관하세요.
+
+예제
+  java -jar {jar} config key add --key-id p2 --operator ops
+  (복원·--type key·--source env 등: docs/user-guide.md 2.18절, 5.6절)

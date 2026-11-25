@@ -1,38 +1,29 @@
-info - 실제 적용 설정과 각 값의 출처
+info - 실제 적용 설정과 출처, 등록된 키 확인(키 원문 미표시)
 
-사용 형식
-  java [-D...] -jar {jar} info [--config <파일>] [--lang en|ko]
+사용법
+  java [-D...] -jar {jar} info
+       [--config <파일>] [--lang en|ko]
 
 옵션
-  --config <파일>   외부 Properties 파일(선택, encrypt·Tomcat과 같은 규칙).
-  --lang en|ko      이번 실행의 메시지 언어(선택).
+  --config <파일>   외부 Properties 파일(선택, Tomcat과 같은 규칙)
+  --lang en|ko      이번 실행의 메시지 언어(선택)
 
-동작
-  WAS와 똑같이 설정을 읽고(JVM -D > 외부 Properties > JAR 내장 값) 각 최종값과 출처
-  [출처: JAR 기본값 | 외부 설정 파일 | JVM 속성 -D], 적용·무시된 -D, JAR 이력 요약을 보여 주고, 키를 한 번 읽어
-  확인합니다(원격 공급원은 실제로 연결). 키·토큰·전체 경로는 표시하지 않습니다(파일 이름만).
+결과(일부)
+  기본 유형 : pass [JAR 기본값]
+  pass 기본 : pass-default [JAR 기본값]
+  key 기본  : key01 [JAR 기본값]
 
-  세 명령의 역할
-    info          실행 시 실제로 적용되는 최종값과 출처
-    config show   JAR 파일 안에 저장된 값만(외부 Properties·-D 미반영)
-    doctor        암복호화 자체 검증까지 포함한 PASS/WARN/FAIL 진단
+  키 key01 (key, 기본, crypto.key.*)
+    공급원 : embedded [JAR 기본값]
+    상태   : 사용자 지정
+    지문   : ab12cd34ef56...7890abcd     (정확한 비교는 fingerprint)
+    조회   : OK
+  ...
+  JVM -D    : 허용 [JAR 기본값]
+  적용 -D   : crypto.lang
+  [ ]는 값의 출처(JAR 기본값, 외부 설정 파일, JVM 속성 -D)입니다.
+  키를 하나라도 읽지 못하면 조회 FAIL과 오류 한 줄, 종료 코드 1.
 
 예제
-  Windows PowerShell
-    java -jar .\{jar} info
-    java "-Dcrypto.lang=en" "-Dcrypto.warning.enabled=false" -jar .\{jar} info
-  Linux
-    java -Dcrypto.config.file=/etc/java-crypto-kit/app.properties -jar ./{jar} info
-    CRYPTO_CONFIG_FILE=/etc/java-crypto-kit/app.properties java -jar ./{jar} info
-
-예상 결과(일부)
-  키 공급 방식: file (외부 설정에서 지정)
-  키 위치: 파일 app.key [출처: 외부 설정 파일]
-  메시지 언어(crypto.lang): ko -> ko [출처: JAR 기본값]
-  키 확인: 정상(32바이트) - 키 지문 5b1c...
-
-대표 오류와 해결
-  [사유: CONFIGURATION] ... -> 메시지의 설정을 고치세요(config help). 종료 코드 1.
-  키 확인: 실패 - ...        -> 종료 코드 1. doctor로 조치를 확인하세요.
-
-관련 명령: doctor, config show, config help, fingerprint
+  java -jar {jar} info
+  java -Dcrypto.config.file=app.properties -jar {jar} info

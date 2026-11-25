@@ -104,7 +104,8 @@ class JvmOverrideTest {
         assertEquals(32, resolved.length);
         Arrays.fill(resolved, (byte) 0);
         CryptoService service = CryptoService.of(settings);
-        String token = service.encryptText("dummy-b-값".toCharArray());
+        // -D로만 설정한 crypto.key.* AES 키로 암호화한다(유형 미지정 기본은 pass이므로 key를 지정).
+        String token = service.encryptText("dummy-b-값".toCharArray(), io.javacryptokit.KeyType.KEY, null);
         assertTrue(token.startsWith("ENC[v1:prod01:"));
         assertEquals("dummy-b-값", service.decryptText(token));
     }
@@ -312,7 +313,7 @@ class JvmOverrideTest {
                 "crypto.key.file=" + TestSupport.propertiesPath(dir.resolve("missing.key"))));
         assertThrows(NoSuchFileException.class, () -> KeyResolver.resolve(settings));
         CredentialCryptoException ex = assertThrows(CredentialCryptoException.class,
-                () -> CryptoService.of(settings).encryptText("dummy".toCharArray()));
+                () -> CryptoService.of(settings).encryptText("dummy".toCharArray(), io.javacryptokit.KeyType.KEY, null));
         assertEquals(CredentialCryptoException.Reason.KEY_SOURCE, ex.getReason());
     }
 
@@ -321,7 +322,7 @@ class JvmOverrideTest {
         String unset = "JAVA_CRYPTO_KIT_UNSET_" + Integer.toHexString(new SecureRandom().nextInt() & 0x7fffffff);
         CryptoSettings settings = load(null, jvm("crypto.key.source=env", "crypto.key.env=" + unset));
         CredentialCryptoException ex = assertThrows(CredentialCryptoException.class,
-                () -> CryptoService.of(settings).encryptText("dummy".toCharArray()));
+                () -> CryptoService.of(settings).encryptText("dummy".toCharArray(), io.javacryptokit.KeyType.KEY, null));
         assertEquals(CredentialCryptoException.Reason.KEY_SOURCE, ex.getReason());
     }
 
@@ -335,12 +336,21 @@ class JvmOverrideTest {
         }
         assertFalse(CryptoSettings.JVM_OVERRIDABLE_KEYS.contains(CryptoSettings.KEY_EMBEDDED), "키 원문은 -D 금지");
         assertFalse(CryptoSettings.JVM_OVERRIDABLE_KEYS.contains(CryptoSettings.JVM_OVERRIDE_ENABLED), "정책 항목은 -D 금지");
+        int fixed = 0;
         for (String name : defaults.stringPropertyNames()) {
+            if (SettingCatalog.isProfileSetting(name)) {
+                // 키 프로필 항목은 항목 정의로 분류한다: 위치 항목만 같은 이름의 -D 허용, 정체 항목(유형·공급원·내장 값·KDF 등)은 -D 거부.
+                SettingCatalog.ProfileItem item = SettingCatalog.profileItem(SettingCatalog.parseProfileName(name)[1]);
+                assertTrue(item != null, "정의되지 않은 키 프로필 항목: " + name);
+                assertFalse(CryptoSettings.JVM_OVERRIDABLE_KEYS.contains(name), "키 프로필 항목은 고정 목록에 넣지 않는다: " + name);
+                continue;
+            }
+            fixed++;
             boolean classified = CryptoSettings.JVM_OVERRIDABLE_KEYS.contains(name)
                     || CryptoSettings.KEY_EMBEDDED.equals(name) || CryptoSettings.JVM_OVERRIDE_ENABLED.equals(name);
             assertTrue(classified, "분류되지 않은 설정 항목: " + name);
         }
-        assertEquals(defaults.stringPropertyNames().size(), CryptoSettings.JVM_OVERRIDABLE_KEYS.size() + 2);
+        assertEquals(fixed, CryptoSettings.JVM_OVERRIDABLE_KEYS.size() + 2);
     }
 
     // ===== QA-03: 이 라이브러리 설정의 오타로 보이는 -Dcrypto.* 이름은 실패, 무관한 이름은 영향 없음 =====

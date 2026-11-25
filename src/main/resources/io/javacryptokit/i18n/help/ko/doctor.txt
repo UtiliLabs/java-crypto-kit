@@ -1,47 +1,26 @@
-doctor - WAS 기동 전 설정·키·암복호화 진단
+doctor - 설정 적용과 키·암복호화 동작 점검(WAS 기동 전)
 
-사용 형식
-  java [-D...] -jar {jar} doctor [--config <파일>] [--offline] [--lang en|ko]
+사용법
+  java [-D...] -jar {jar} doctor
+       [--config <파일>] [--offline] [--lang en|ko]
 
 옵션
-  --config <파일>   외부 Properties 파일(선택, Tomcat과 같은 규칙).
-  --offline         Vault·AWS KMS에 연결하지 않고 설정·토큰·SDK·파일 준비 상태만 점검합니다(SKIP 표시).
-  --lang en|ko      이번 실행의 메시지 언어(선택).
+  --config <파일>   외부 Properties 파일(선택, Tomcat과 같은 규칙)
+  --offline         Vault·AWS KMS에 연결하지 않고 설정·토큰·SDK·파일만
+                    점검합니다(SKIP 표시).
+  --lang en|ko      이번 실행의 메시지 언어(선택)
 
-점검 항목
-  JAR 내장 설정, JAR 이력, 설정 로딩(오타·충돌은 여기서 중단), 외부 설정, 적용·무시된 -D, 알고리즘, 언어, 경고 정책,
-  키 공급 방식·키ID, 키 파일 존재·종류·권한, 키 환경변수 존재, Vault 토큰·CA·버전 고정, AWS SDK·데이터 키 파일·리전·
-  -D 자격증명, 키 읽기(길이·형식), 공개 기본 키 여부, 변조 탐지를 포함한 암복호화 자체 검증.
-
-출력
-  [PASS] ...   [WARN] ...   [FAIL] ...   [INFO] ...   [SKIP] ...
-         조치: ...  (WARN·FAIL 아래)
-  결과: PASS n, WARN n, FAIL n, SKIP n
-  상태 코드는 언어와 관계없이 같습니다. 종료 코드: FAIL이 없으면 0, 있으면 1.
-  WARN(예: 공개 기본 키)만 있어도 0이므로 0을 운영 승인 기준으로 쓰지 마세요. config show(공개 키 여부)·fingerprint·
-  실제 DB 연결을 함께 확인합니다.
+결과
+  [PASS] 설정 로딩 정상
+  [INFO] 기본 유형 pass, pass 기본 pass-default, key 기본 key01
+  [INFO] 키 key01 (key, 기본, crypto.key.*):
+         embedded, JAR 내장(crypto.key.embedded)
+  [PASS] 키 로딩 정상: key01, 사용자 지정, 지문 ab12cd34ef56...7890abcd
+  [PASS] 암호화·복호화·변조 거부 검사 정상
+  결과: PASS
+  등록된 키마다 따로 점검합니다. 실패 항목은 [FAIL]과 바로 아래 조치 한 줄.
+  FAIL이 있으면 종료 코드 1. Tomcat 기동·DB 연결은 점검하지 않습니다.
 
 예제
-  Windows PowerShell
-    java -jar .\{jar} doctor
-    java "-Dcrypto.key.source=env" -jar .\{jar} doctor
-  Linux
-    java -Dcrypto.config.file=/etc/java-crypto-kit/vault.properties -jar ./{jar} doctor --offline
-    java -jar ./{jar} doctor || echo "Tomcat 시작 전에 FAIL 항목을 고치세요"
-
-예상 결과(일부)
-  [PASS] 설정 로딩 정상(JAR + 외부 Properties + JVM -D)
-  [PASS] 키 읽기 정상: 32바이트, 형식 정상, 키 지문 5b1c...
-  [PASS] 암복호화 자체 검증 정상(변조한 암호문 거부 확인)
-  [WARN] 공개 기본 키를 사용 중입니다(누구나 복호화 가능).
-         조치: 사용자 지정 키를 내장하거나(keygen 후 config embed-key) ...
-
-대표 오류와 해결
-  [FAIL] crypto.key.file의 파일(...)이 없습니다  -> 경로와 WAS 실행 계정의 읽기 권한을 확인하세요.
-  [FAIL] Vault가 인증을 거부했습니다 ...           -> 새 토큰을 발급하세요(help vault).
-  [FAIL] aws-kms에 필요한 AWS SDK ... 설치되어 있지 않습니다 -> KMS 묶음을 설치하세요(help aws-kms).
-
-참고
-  doctor PASS는 Tomcat 기동·DB 연결 성공을 뜻하지 않습니다. 키·토큰·평문은 출력하지 않습니다.
-
-관련 명령: info, config show, fingerprint, help vault, help aws-kms
+  java -jar {jar} doctor
+  java -jar {jar} doctor --config app.properties --offline

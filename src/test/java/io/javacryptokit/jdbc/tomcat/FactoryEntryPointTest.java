@@ -116,7 +116,7 @@ class FactoryEntryPointTest {
                 "crypto.key.file=" + TestSupport.propertiesPath(key), "crypto.key.id=prod01",
                 "crypto.algorithm=AES/GCM/NoPadding", "crypto.warning.enabled=false");
              TestSupport.LogCapture log = new TestSupport.LogCapture()) {
-            String token = CredentialCrypto.fromDefaultConfiguration().encryptText("dummy-jvm-pw");
+            String token = CredentialCrypto.fromDefaultConfiguration().encryptText("dummy-jvm-pw", io.javacryptokit.KeyType.KEY);
             assertTrue(token.startsWith("ENC[v1:prod01:"));
             load().getObjectInstance(resource("u", token), null, null, null);
             assertEquals("dummy-jvm-pw", BasicDataSourceFactory.lastPassword);
@@ -130,7 +130,7 @@ class FactoryEntryPointTest {
         Path publicKey = TestSupport.writeKeyFile(dir, "public.key", TestSupport.publicKeyBase64());
         Path config = TestSupport.writeConfig(dir, "mixed.properties", "crypto.key.source=file",
                 "crypto.key.file=" + TestSupport.propertiesPath(publicKey), "crypto.warning.enabled=true");
-        String token = CredentialCrypto.fromConfigFile(config).encryptText("dummy-mixed-pw");
+        String token = CredentialCrypto.fromConfigFile(config).encryptText("dummy-mixed-pw", io.javacryptokit.KeyType.KEY);
         DefaultKeyWarning.resetForTests();
         try (AutoCloseable path = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY, config.toString());
              AutoCloseable jvm = TestSupport.jvmSettings("crypto.warning.enabled=false");

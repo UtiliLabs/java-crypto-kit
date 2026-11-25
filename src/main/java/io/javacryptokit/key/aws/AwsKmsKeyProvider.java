@@ -1,6 +1,7 @@
 package io.javacryptokit.key.aws;
 
 import io.javacryptokit.config.CryptoSettings;
+import io.javacryptokit.config.KeyProfile;
 import io.javacryptokit.config.SafeMessageException;
 import io.javacryptokit.i18n.Messages;
 import io.javacryptokit.key.Diagnostic;
@@ -21,9 +22,12 @@ import java.util.List;
  * 복원해 기존 AES-GCM 엔진에 넘긴다. 데이터 키 파일은 {@code kms datakey} 명령으로 한 번 만들고 계속 재사용한다(WAS를
  * 다시 시작할 때마다 새 데이터 키를 만들지 않는다. 새로 만들면 기존 암호문을 복호화할 수 없다).</p>
  *
- * <p><b>Encryption Context</b>: {@code java-crypto-kit:key-id = <crypto.key.id>}를 항상 함께 보낸다(설정 불필요). 데이터 키가
- * 다른 키ID용으로 만들어졌거나 파일이 바뀌면 KMS가 복원을 거부한다. 그래서 {@code crypto.key.id}를 바꾸면 데이터 키도 새로
- * 만들어야 한다(rekey로 기존 암호문을 다시 암호화).</p>
+ * <p><b>Encryption Context</b>: {@code java-crypto-kit:key-id = <Key ID>}를 항상 함께 보낸다(설정 불필요). 데이터 키가
+ * 다른 Key ID용으로 만들어졌거나 파일이 바뀌면 KMS가 복원을 거부한다. 그래서 Key ID를 바꾸면 데이터 키도 새로 만들어야 한다
+ * (rekey로 기존 암호문을 다시 암호화). 레거시 슬롯의 Key ID는 {@code crypto.key.id}다.</p>
+ *
+ * <p><b>pass 유형</b>: 등록할 때 Passphrase로 파생한 32바이트 키를 같은 방식(KMS Encrypt, 같은 컨텍스트)으로 감싸 같은 형식의
+ * 데이터 키 파일에 둔다. 실행 중에는 KMS Decrypt만 하므로 기존 데이터 키 파일과 형식이 같다(KDF 메타데이터는 프로필에 기록).</p>
  *
  * <p><b>의존성 격리</b>: 이 클래스는 AWS SDK 형식을 필드·메서드 형식에 쓰지 않는다. SDK 호출은 {@link AwsKmsSupport}에만 있고,
  * 실제로 이 공급원을 쓸 때만 로딩된다. 그래서 기본 설치(JAR 하나, SDK 없음)의 embedded/file/env/vault 동작에 영향이 없다.
@@ -53,15 +57,15 @@ public final class AwsKmsKeyProvider implements KeyProvider {
     }
 
     @Override
-    public String describe(CryptoSettings settings) {
+    public String describe(CryptoSettings settings, KeyProfile profile) {
         String region = settings.get(CryptoSettings.AWS_REGION);
-        return Messages.get("key.describe.aws", SecretFiles.fileName(settings.get(CryptoSettings.AWS_KMS_DATA_KEY_FILE)),
+        return Messages.get("key.describe.aws", SecretFiles.fileName(profile.value(KeyProfile.AWS_KMS_DATA_KEY_FILE)),
                 settings.get(CryptoSettings.AWS_KMS_KEY_ID),
                 region.isEmpty() ? Messages.get("key.aws.regionDefault") : region);
     }
 
     @Override
-    public List<Diagnostic> offlineChecks(CryptoSettings settings) {
+    public List<Diagnostic> offlineChecks(CryptoSettings settings, KeyProfile profile) {
         List<Diagnostic> results = new ArrayList<>();
         results.add(sdkAvailable() ? Diagnostic.pass(Messages.get("key.check.awsSdk"))
                 : Diagnostic.fail(Messages.get("key.aws.err.sdkMissing"), Messages.get("key.action.awsSdk")));
@@ -69,12 +73,12 @@ public final class AwsKmsKeyProvider implements KeyProvider {
             results.add(Diagnostic.fail(Messages.get("config.err.required", "aws-kms", CryptoSettings.AWS_KMS_KEY_ID),
                     Messages.get("key.action.awsSettings")));
         }
-        String file = settings.get(CryptoSettings.AWS_KMS_DATA_KEY_FILE);
-        List<Diagnostic> fileChecks = SecretFiles.check(CryptoSettings.AWS_KMS_DATA_KEY_FILE, file, false);
+        String file = profile.value(KeyProfile.AWS_KMS_DATA_KEY_FILE);
+        List<Diagnostic> fileChecks = SecretFiles.check(profile.settingName(KeyProfile.AWS_KMS_DATA_KEY_FILE), file);
         results.addAll(fileChecks);
         if (fileChecks.size() == 1 && fileChecks.get(0).status == Diagnostic.Status.PASS) {
             try {
-                readBlob(settings);
+                readBlob(profile);
                 results.add(Diagnostic.pass(Messages.get("key.check.awsDataKeyFormat")));
             } catch (IOException | IllegalArgumentException e) {
                 results.add(Diagnostic.fail(Messages.get("key.aws.err.dataKeyFormat"), Messages.get("key.action.awsDataKey")));
@@ -83,67 +87,89 @@ public final class AwsKmsKeyProvider implements KeyProvider {
         String region = settings.get(CryptoSettings.AWS_REGION);
         results.add(Diagnostic.info(region.isEmpty() ? Messages.get("key.check.awsRegionDefault")
                 : Messages.get("key.check.awsRegion", region)));
+        // 엔드포인트를 바꾼 사실만 알린다(값은 출력하지 않음). 엔드포인트·자격증명 운영 방식은 사용자 가이드의 운영·보안 참고.
         for (String env : new String[]{"AWS_ENDPOINT_URL_KMS", "AWS_ENDPOINT_URL"}) {
             String endpoint = System.getenv(env);
             if (endpoint != null && !endpoint.trim().isEmpty()) {
-                results.add(endpoint.trim().startsWith("https://")
-                        ? Diagnostic.info(Messages.get("key.check.awsEndpoint", env))
-                        : Diagnostic.warn(Messages.get("key.check.awsEndpointHttp", env), Messages.get("key.action.awsEndpoint")));
-            }
-        }
-        for (String property : new String[]{"aws.accessKeyId", "aws.secretAccessKey", "aws.sessionToken"}) {
-            if (System.getProperty(property) != null) {
-                results.add(Diagnostic.warn(Messages.get("key.check.awsJvmCredential", property),
-                        Messages.get("key.action.awsJvmCredential")));
+                results.add(Diagnostic.info(Messages.get("key.check.awsEndpoint", env)));
             }
         }
         return results;
     }
 
     @Override
-    public byte[] loadKey(CryptoSettings settings) throws IOException {
-        requireSettings(settings);
-        byte[] blob = readBlob(settings);
+    public boolean textMaterial() {
+        return false;
+    }
+
+    @Override
+    public byte[] loadMaterial(CryptoSettings settings, KeyProfile profile) throws IOException {
+        requireKeyId(settings);
+        byte[] blob = readBlob(profile);
         requireSdk();
-        return AwsKmsSupport.decrypt(settings, blob);
+        return AwsKmsSupport.decrypt(settings, profile.id(), blob);
     }
 
     /**
-     * 새 AES-256 데이터 키를 KMS {@code GenerateDataKey}로 만든다({@code kms datakey}).
+     * 레거시 AES 슬롯({@code crypto.key.id})용 새 데이터 키를 KMS {@code GenerateDataKey}로 만든다({@code kms datakey}).
      *
-     * @param settings 검증된 설정(리전·KMS 키·키ID·제한 시간)
+     * @param settings 검증된 설정(리전·KMS 키·제한 시간)
      * @return 평문 데이터 키와 암호화된 데이터 키(호출자가 {@link DataKey#wipe()}로 지운다)
      */
     public static DataKey generate(CryptoSettings settings) {
+        return generate(settings, settings.keyId());
+    }
+
+    /**
+     * 새 AES-256 데이터 키를 KMS {@code GenerateDataKey}로 만든다(지정한 Key ID에 묶음).
+     *
+     * @param settings 검증된 설정(리전·KMS 키·제한 시간)
+     * @param keyId    데이터 키를 묶을 Key ID(Encryption Context)
+     * @return 평문 데이터 키와 암호화된 데이터 키(호출자가 {@link DataKey#wipe()}로 지운다)
+     */
+    public static DataKey generate(CryptoSettings settings, String keyId) {
         requireKeyId(settings);
         requireSdk();
-        return AwsKmsSupport.generate(settings);
+        return AwsKmsSupport.generate(settings, keyId);
     }
 
     /**
      * 이미 쓰고 있는 32바이트 키를 KMS {@code Encrypt}로 감싸 데이터 키 파일 내용을 만든다(기존 암호문·키ID 유지 이전용).
      *
-     * @param settings 검증된 설정
+     * @param settings 검증된 설정(레거시 AES 슬롯의 Key ID에 묶음)
      * @param key      32바이트 키(바꾸지 않는다)
      * @return 암호화된 데이터 키(CiphertextBlob)
      */
     public static byte[] wrap(CryptoSettings settings, byte[] key) {
+        return wrap(settings, settings.keyId(), key);
+    }
+
+    /**
+     * 32바이트 키를 KMS {@code Encrypt}로 감싸 데이터 키 파일 내용을 만든다(지정한 Key ID에 묶음).
+     *
+     * @param settings 검증된 설정
+     * @param keyId    데이터 키를 묶을 Key ID(Encryption Context)
+     * @param key      32바이트 키(바꾸지 않는다)
+     * @return 암호화된 데이터 키(CiphertextBlob)
+     */
+    public static byte[] wrap(CryptoSettings settings, String keyId, byte[] key) {
         requireKeyId(settings);
         requireSdk();
-        return AwsKmsSupport.wrap(settings, key);
+        return AwsKmsSupport.wrap(settings, keyId, key);
     }
 
     /**
      * KMS로 복원해 평문 데이터 키를 돌려준다({@code kms datakey}의 왕복 검증용).
      *
      * @param settings 검증된 설정
+     * @param keyId    데이터 키를 묶은 Key ID(Encryption Context)
      * @param blob     암호화된 데이터 키
      * @return 평문 데이터 키(호출자가 지운다)
      */
-    public static byte[] unwrap(CryptoSettings settings, byte[] blob) {
+    public static byte[] unwrap(CryptoSettings settings, String keyId, byte[] blob) {
         requireKeyId(settings);
         requireSdk();
-        return AwsKmsSupport.decrypt(settings, blob);
+        return AwsKmsSupport.decrypt(settings, keyId, blob);
     }
 
     /** @return AWS SDK(KMS·URLConnection HTTP 클라이언트)가 이 라이브러리와 같은 클래스로더에 설치되어 있으면 true */
@@ -158,12 +184,13 @@ public final class AwsKmsKeyProvider implements KeyProvider {
     }
 
     /** 데이터 키 파일(CiphertextBlob 표준 Base64 한 줄)을 읽는다. 비밀은 아니지만 바뀌면 복원이 실패한다. */
-    static byte[] readBlob(CryptoSettings settings) throws IOException {
-        String file = settings.get(CryptoSettings.AWS_KMS_DATA_KEY_FILE);
+    static byte[] readBlob(KeyProfile profile) throws IOException {
+        String name = profile.settingName(KeyProfile.AWS_KMS_DATA_KEY_FILE);
+        String file = profile.value(KeyProfile.AWS_KMS_DATA_KEY_FILE);
         if (file.isEmpty()) {
-            throw new SafeMessageException(Messages.get("config.err.required", "aws-kms", CryptoSettings.AWS_KMS_DATA_KEY_FILE));
+            throw new SafeMessageException(Messages.get("config.err.required", "aws-kms", name));
         }
-        String text = SecretFiles.readText(Paths.get(file), MAX_DATA_KEY_FILE_BYTES, CryptoSettings.AWS_KMS_DATA_KEY_FILE);
+        String text = SecretFiles.readText(Paths.get(file), MAX_DATA_KEY_FILE_BYTES, name);
         byte[] blob;
         try {
             blob = Base64.getDecoder().decode(text);
@@ -175,13 +202,6 @@ public final class AwsKmsKeyProvider implements KeyProvider {
             throw new SafeMessageException(Messages.get("key.aws.err.dataKeyFormat"));
         }
         return blob;
-    }
-
-    private static void requireSettings(CryptoSettings settings) {
-        requireKeyId(settings);
-        if (settings.get(CryptoSettings.AWS_KMS_DATA_KEY_FILE).isEmpty()) {
-            throw new SafeMessageException(Messages.get("config.err.required", "aws-kms", CryptoSettings.AWS_KMS_DATA_KEY_FILE));
-        }
     }
 
     private static void requireKeyId(CryptoSettings settings) {

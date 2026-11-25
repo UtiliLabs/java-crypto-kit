@@ -1,5 +1,6 @@
 package io.javacryptokit.config;
 
+import io.javacryptokit.key.SecretFiles;
 import io.javacryptokit.i18n.Messages;
 import java.io.IOException;
 import java.io.InputStream;
@@ -88,11 +89,17 @@ public final class CryptoSettings {
     public static final String KEY_FILE = "crypto.key.file";
     /** 키 환경변수 이름(env). 이미 배포된 이름이라 하위 호환을 위해 유지한다. */
     public static final String KEY_ENV = "crypto.key.env";
+    /** 유형을 생략한 새 암호화의 유형(pass·key, 기본 pass). 이 항목이 없는 설정(이전 형식 JAR)은 레거시 단일 키(key)로 본다. */
+    public static final String KEY_TYPE = "crypto.key.type";
+    /** pass 유형의 기본 Key ID(템플릿 pass 프로필). */
+    public static final String KEY_ACTIVE_PASS = "crypto.key.active.pass";
+    /** key 유형의 기본 Key ID. 비우면 레거시 AES 슬롯({@code crypto.key.*})이 key 유형의 기본 키다. */
+    public static final String KEY_ACTIVE_KEY = "crypto.key.active.key";
     /** [Tomcat] 위임할 공식 Pool Factory. */
     public static final String POOL_FACTORY = "crypto.pool.factory";
     /** [Tomcat] 평문 비밀번호 거부 정책(true 고정). */
     public static final String REQUIRE_ENCRYPTED_PASSWORD = "crypto.require.encrypted.password";
-    /** 안내 WARNING 표시 정책. */
+    /** 공개 기본 키 경고(WARN 한 줄, JVM당 1회) 표시 정책. */
     public static final String WARNING_ENABLED = "crypto.warning.enabled";
     /** 암호문 출력 표현(enc/base64). */
     public static final String OUTPUT_ENCODING = "crypto.output.encoding";
@@ -231,6 +238,16 @@ public final class CryptoSettings {
     private final boolean warningEnabled;
     /** crypto.output.encoding 해석 결과. */
     private final OutputFormat outputFormat;
+    /** 등록된 키 프로필(레거시 AES 슬롯이 먼저, 그다음 템플릿 프로필을 Key ID 순서로). */
+    private final List<KeyProfile> profiles;
+    /** Key ID → 프로필. */
+    private final java.util.Map<String, KeyProfile> profilesById;
+    /** 유형을 생략한 새 암호화의 유형. */
+    private final io.javacryptokit.KeyType defaultType;
+    /** pass 유형의 기본 키(없을 수 있음). */
+    private final KeyProfile activePass;
+    /** key 유형의 기본 키(없을 수 있음). */
+    private final KeyProfile activeKey;
 
     /**
      * 기본값·외부 설정·JVM 개별 속성을 정해진 순서로 합치고 모든 규칙을 즉시 검증한다.
@@ -278,6 +295,24 @@ public final class CryptoSettings {
             // 정책 항목을 -D로 지정해도 적용하지 않는다(운영 정책 우회 방지). 진단에서 보이도록 이름만 남긴다.
             ignored.add(JVM_OVERRIDE_ENABLED);
         }
+        // [3-1] 키 프로필(crypto.keys.<id>.*): -D는 이미 등록된 프로필의 위치 항목만 덮어쓴다(서버마다 다른 경로·변수 이름).
+        //       유형·공급원·비밀·KDF·지문은 키의 정체성이라 -D로 받지 않는다(정책과 관계없이 오류, 아래 [6]).
+        String rejectedProfileJvm = null;
+        for (String id : profileIds(merged)) {
+            for (SettingCatalog.ProfileItem item : SettingCatalog.PROFILE_ITEMS) {
+                String name = KeyProfile.PREFIX + id + "." + item.name;
+                String value = jvmProperties.apply(name);
+                if (value == null) continue;
+                if (!item.location) {
+                    if (rejectedProfileJvm == null) rejectedProfileJvm = name;
+                } else if (jvmOverrideEnabled) {
+                    merged.setProperty(name, value);
+                    applied.add(name);
+                } else {
+                    ignored.add(name);
+                }
+            }
+        }
         this.jvmKeys = Collections.unmodifiableSet(applied);
         this.ignoredJvmKeys = Collections.unmodifiableSet(ignored);
         this.properties = merged;
@@ -295,15 +330,249 @@ public final class CryptoSettings {
             if (jvmProperties.apply(KEY_EMBEDDED) != null) {
                 throw new SafeMessageException(Messages.get("config.err.embeddedJvm", KEY_EMBEDDED));
             }
+            if (rejectedProfileJvm != null) {
+                throw new SafeMessageException(Messages.get("config.err.profileJvm", rejectedProfileJvm));
+            }
             // [7] 최종값 검증. 값의 출처(JAR·외부 파일·JVM)와 관계없이 같은 규칙을 적용한다.
             validateCatalogValues();
             validateFormats();
             validateKeySourceIntent();
             this.warningEnabled = parseStrictBoolean(properties.getProperty(WARNING_ENABLED), WARNING_ENABLED);
             this.outputFormat = parseOutputFormat();
+            // [8] Keyring: 레거시 AES 슬롯 + 템플릿 프로필(계층 간 합집합), 유형별 기본 키.
+            KeyProfile legacy = legacyProfile(properties);
+            java.util.Map<String, KeyProfile> byId = new java.util.LinkedHashMap<>();
+            byId.put(legacy.id(), legacy);
+            java.util.TreeMap<String, KeyProfile> templates = new java.util.TreeMap<>();
+            for (String id : profileIds(merged)) {
+                checkProfileLayers(id, defaults, external);
+                KeyProfile profile = templateProfile(id);
+                if (profile.id().equals(legacy.id())) {
+                    throw new SafeMessageException(Messages.get("config.err.profileIdConflict", id, KEY_ID));
+                }
+                templates.put(id, profile);
+            }
+            byId.putAll(templates);
+            List<KeyProfile> ordered = new java.util.ArrayList<>(byId.values());
+            this.profiles = Collections.unmodifiableList(ordered);
+            this.profilesById = Collections.unmodifiableMap(byId);
+            String typeValue = properties.getProperty(KEY_TYPE);
+            // 이 항목이 없는 설정은 이전 형식 JAR의 내장 설정(레거시 단일 키)이므로 key가 기본이다. 새 JAR·외부 설정은 JAR 기본값 pass.
+            this.defaultType = typeValue == null ? io.javacryptokit.KeyType.KEY
+                    : io.javacryptokit.KeyType.fromCode(typeValue.trim());
+            this.activePass = activeFor(io.javacryptokit.KeyType.PASS, get(KEY_ACTIVE_PASS), null);
+            this.activeKey = activeFor(io.javacryptokit.KeyType.KEY, get(KEY_ACTIVE_KEY), legacy);
+            if (activeProfile(defaultType) == null) {
+                throw new SafeMessageException(Messages.get("config.err.noDefaultKey", defaultType.code(),
+                        defaultType == io.javacryptokit.KeyType.PASS ? KEY_ACTIVE_PASS : KEY_ACTIVE_KEY));
+            }
         } finally {
             scope.close();
         }
+    }
+
+    /** @return 설정 이름에서 찾은 템플릿 프로필 Key ID(정렬, 중복 없음) */
+    private static Set<String> profileIds(Properties source) {
+        Set<String> ids = new java.util.TreeSet<>();
+        for (String name : source.stringPropertyNames()) {
+            String[] parts = SettingCatalog.parseProfileName(name);
+            if (parts != null && SettingCatalog.profileItem(parts[1]) != null) ids.add(parts[0]);
+        }
+        return ids;
+    }
+
+    /**
+     * 계층 규칙: JAR에 등록된 프로필은 외부 설정이 위치 항목만 덮어쓸 수 있다(같은 Key ID에 다른 키가 생기지 않게). 외부 설정은
+     * 새 프로필을 더할 수 있지만 JAR 프로필을 지우거나 정체성 항목을 바꿀 수 없다. 같은 값을 다시 적는 것은 허용한다.
+     */
+    private static void checkProfileLayers(String id, Properties defaults, Properties external) {
+        boolean jarProfile = defaults.getProperty(KeyProfile.PREFIX + id + "." + KeyProfile.TYPE) != null;
+        if (!jarProfile) return;
+        for (SettingCatalog.ProfileItem item : SettingCatalog.PROFILE_ITEMS) {
+            if (item.location) continue;
+            String name = KeyProfile.PREFIX + id + "." + item.name;
+            String outer = external.getProperty(name);
+            if (outer != null && !trimToEmpty(outer).equals(trimToEmpty(defaults.getProperty(name)))) {
+                throw new SafeMessageException(Messages.get("config.err.profileImmutable", name));
+            }
+        }
+    }
+
+    /** 레거시 AES 슬롯의 프로필 항목 → 실제 설정 이름(이전 형식와 같은 자리). 이력의 유형 분류도 이 표를 쓴다. */
+    private static final String[][] LEGACY_SLOT_MAPPING = {
+            {KeyProfile.SOURCE, KEY_SOURCE}, {KeyProfile.EMBEDDED, KEY_EMBEDDED}, {KeyProfile.FILE, KEY_FILE},
+            {KeyProfile.ENV, KEY_ENV}, {KeyProfile.VAULT_PATH, VAULT_PATH}, {KeyProfile.VAULT_FIELD, VAULT_FIELD},
+            {KeyProfile.VAULT_VER, VAULT_VER}, {KeyProfile.AWS_KMS_DATA_KEY_FILE, AWS_KMS_DATA_KEY_FILE}};
+
+    /**
+     * 레거시 AES 슬롯({@code crypto.key.*})의 키를 정하는 설정 이름: Key ID와 공급원·내장 값·위치 항목. 바꾸면 그 슬롯의 AES 키가
+     * 바뀐다(변경 이력의 key 유형 분류에 쓴다).
+     */
+    public static final Set<String> LEGACY_SLOT_SETTINGS;
+
+    static {
+        Set<String> names = new java.util.LinkedHashSet<>();
+        names.add(KEY_ID);
+        for (String[] pair : LEGACY_SLOT_MAPPING) names.add(pair[1]);
+        LEGACY_SLOT_SETTINGS = Collections.unmodifiableSet(names);
+    }
+
+    /** 레거시 AES 슬롯({@code crypto.key.*})을 key 유형 프로필로 만든다(이름·의미는 이전 형식와 같다). */
+    private static KeyProfile legacyProfile(Properties merged) {
+        java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
+        java.util.Map<String, String> names = new java.util.LinkedHashMap<>();
+        for (String[] pair : LEGACY_SLOT_MAPPING) {
+            values.put(pair[0], trimToEmpty(merged.getProperty(pair[1])));
+            names.put(pair[0], pair[1]);
+        }
+        values.put(KeyProfile.TYPE, io.javacryptokit.KeyType.KEY.code());
+        return new KeyProfile(trimToEmpty(merged.getProperty(KEY_ID)), io.javacryptokit.KeyType.KEY, true, values, names);
+    }
+
+    /** 템플릿 프로필 하나를 검증해 만든다(값은 오류 메시지에 넣지 않는다). */
+    private KeyProfile templateProfile(String id) {
+        java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
+        for (SettingCatalog.ProfileItem item : SettingCatalog.PROFILE_ITEMS) {
+            String name = KeyProfile.PREFIX + id + "." + item.name;
+            String raw = properties.getProperty(name);
+            if (raw == null) continue;
+            if (hasControl(raw)) throw new SafeMessageException(Messages.get("config.err.control", name));
+            values.put(item.name, raw.trim());
+        }
+        String typeName = KeyProfile.PREFIX + id + "." + KeyProfile.TYPE;
+        String typeValue = values.get(KeyProfile.TYPE);
+        if (typeValue == null || typeValue.isEmpty()) {
+            throw new SafeMessageException(Messages.get("config.err.profileType", typeName));
+        }
+        io.javacryptokit.KeyType type = io.javacryptokit.KeyType.fromCode(typeValue);
+        if (type == null) {
+            throw new SafeMessageException(Messages.get("config.err.profileValue", typeName,
+                    String.join(", ", SettingCatalog.KEY_TYPES)));
+        }
+        String source = values.containsKey(KeyProfile.SOURCE) ? values.get(KeyProfile.SOURCE) : "";
+        if (!SettingCatalog.KEY_SOURCES.contains(source)) {
+            throw new SafeMessageException(Messages.get("config.err.profileValue", KeyProfile.PREFIX + id + "." + KeyProfile.SOURCE,
+                    String.join(", ", SettingCatalog.KEY_SOURCES)));
+        }
+        // 공급원마다 필요한 위치 항목. 다른 공급원의 위치 항목이 섞여 있으면 의도와 다르게 동작할 수 있으므로 거부한다.
+        String required = requiredItem(source);
+        for (SettingCatalog.ProfileItem item : SettingCatalog.PROFILE_ITEMS) {
+            boolean sourceItem = item.location || KeyProfile.EMBEDDED.equals(item.name);
+            if (!sourceItem || !values.containsKey(item.name) || values.get(item.name).isEmpty()) continue;
+            if (!belongsTo(item.name, source)) {
+                throw new SafeMessageException(Messages.get("config.err.profileItemSource",
+                        KeyProfile.PREFIX + id + "." + item.name, source));
+            }
+        }
+        if (value(values, required).isEmpty()) {
+            throw new SafeMessageException(Messages.get("config.err.profileRequired", id, source,
+                    KeyProfile.PREFIX + id + "." + required));
+        }
+        checkProfileFormat(id, values, KeyProfile.ENV, ENV_NAME);
+        checkProfileFormat(id, values, KeyProfile.VAULT_PATH, "[A-Za-z0-9_.-]{1,128}(/[A-Za-z0-9_.-]{1,128}){0,15}");
+        checkProfileFormat(id, values, KeyProfile.VAULT_FIELD, "[A-Za-z0-9_.-]{1,128}");
+        checkProfileFormat(id, values, KeyProfile.VAULT_VER, "[1-9][0-9]{0,8}");
+        if (value(values, KeyProfile.VAULT_PATH).matches("(.*/)?\\.{1,2}(/.*)?")) {
+            throw new SafeMessageException(Messages.get("config.err.profileValue", KeyProfile.PREFIX + id + "." + KeyProfile.VAULT_PATH,
+                    "secret/path"));
+        }
+        // 외부 공급 키는 등록할 때 확인한 지문을 고정한다(외부 비밀값이 바뀌면 같은 Key ID로 조용히 받지 않음).
+        String pin = value(values, KeyProfile.FINGERPRINT);
+        if (!"embedded".equals(source) && pin.isEmpty()) {
+            throw new SafeMessageException(Messages.get("config.err.profileRequired", id, source,
+                    KeyProfile.PREFIX + id + "." + KeyProfile.FINGERPRINT));
+        }
+        if (!pin.isEmpty() && !pin.matches("[0-9a-f]{64}")) {
+            throw new SafeMessageException(Messages.get("config.err.profilePin", KeyProfile.PREFIX + id + "." + KeyProfile.FINGERPRINT));
+        }
+        // Passphrase 파생 메타데이터: pass는 모두 필요하고 key에는 쓰지 않는다.
+        String[] kdfItems = {KeyProfile.KDF, KeyProfile.KDF_ITERATIONS, KeyProfile.SALT};
+        for (String item : kdfItems) {
+            String name = KeyProfile.PREFIX + id + "." + item;
+            if (type == io.javacryptokit.KeyType.KEY) {
+                if (!value(values, item).isEmpty()) throw new SafeMessageException(Messages.get("config.err.profilePassOnly", name));
+            } else if (value(values, item).isEmpty()) {
+                throw new SafeMessageException(Messages.get("config.err.profileRequired", id, source, name));
+            }
+        }
+        if (type == io.javacryptokit.KeyType.PASS) {
+            if (!SettingCatalog.KDF_NAMES.contains(value(values, KeyProfile.KDF))) {
+                throw new SafeMessageException(Messages.get("config.err.profileValue", KeyProfile.PREFIX + id + "." + KeyProfile.KDF,
+                        String.join(", ", SettingCatalog.KDF_NAMES)));
+            }
+            String iterations = value(values, KeyProfile.KDF_ITERATIONS);
+            boolean inRange = iterations.matches("[0-9]{1,9}") && Integer.parseInt(iterations) >= SettingCatalog.KDF_MIN_ITERATIONS
+                    && Integer.parseInt(iterations) <= SettingCatalog.KDF_MAX_ITERATIONS;
+            if (!inRange) {
+                throw new SafeMessageException(Messages.get("config.err.number", KeyProfile.PREFIX + id + "." + KeyProfile.KDF_ITERATIONS,
+                        SettingCatalog.KDF_MIN_ITERATIONS, SettingCatalog.KDF_MAX_ITERATIONS));
+            }
+            byte[] salt;
+            try {
+                salt = java.util.Base64.getDecoder().decode(value(values, KeyProfile.SALT));
+            } catch (IllegalArgumentException e) {
+                salt = new byte[0];
+            }
+            if (salt.length != 16) {
+                throw new SafeMessageException(Messages.get("config.err.profileSalt", KeyProfile.PREFIX + id + "." + KeyProfile.SALT));
+            }
+        }
+        return new KeyProfile(id, type, false, values, Collections.<String, String>emptyMap());
+    }
+
+    /** @return 공급원이 반드시 써야 하는 위치 항목(embedded는 내장 키) */
+    private static String requiredItem(String source) {
+        switch (source) {
+            case "file": return KeyProfile.FILE;
+            case "env": return KeyProfile.ENV;
+            case "vault": return KeyProfile.VAULT_PATH;
+            case "aws-kms": return KeyProfile.AWS_KMS_DATA_KEY_FILE;
+            default: return KeyProfile.EMBEDDED;
+        }
+    }
+
+    /** @return 위치·내장 항목이 그 공급원에서 쓰이면 true */
+    private static boolean belongsTo(String item, String source) {
+        switch (item) {
+            case KeyProfile.EMBEDDED: return "embedded".equals(source);
+            case KeyProfile.FILE: return "file".equals(source);
+            case KeyProfile.ENV: return "env".equals(source);
+            case KeyProfile.VAULT_PATH:
+            case KeyProfile.VAULT_FIELD:
+            case KeyProfile.VAULT_VER: return "vault".equals(source);
+            case KeyProfile.AWS_KMS_DATA_KEY_FILE: return "aws-kms".equals(source);
+            default: return true;
+        }
+    }
+
+    private static String value(java.util.Map<String, String> values, String item) {
+        String value = values.get(item);
+        return value == null ? "" : value;
+    }
+
+    private static void checkProfileFormat(String id, java.util.Map<String, String> values, String item, String regex) {
+        String value = value(values, item);
+        if (!value.isEmpty() && !value.matches(regex)) {
+            throw new SafeMessageException(Messages.get("config.err.profileFormat", KeyProfile.PREFIX + id + "." + item));
+        }
+    }
+
+    /**
+     * 유형별 기본 키를 정한다. 지정한 Key ID가 없거나 유형이 다르면 오류다(다른 키로 바꾸지 않음).
+     *
+     * @param type     유형
+     * @param id       설정한 Key ID(빈 값이면 fallback)
+     * @param fallback 빈 값일 때의 기본 키(key는 레거시 AES 슬롯, pass는 없음)
+     */
+    private KeyProfile activeFor(io.javacryptokit.KeyType type, String id, KeyProfile fallback) {
+        String setting = type == io.javacryptokit.KeyType.PASS ? KEY_ACTIVE_PASS : KEY_ACTIVE_KEY;
+        if (id.isEmpty()) return fallback;
+        KeyProfile profile = profilesById.get(id);
+        if (profile == null) throw new SafeMessageException(Messages.get("config.err.activeMissing", setting, id));
+        if (profile.type() != type) {
+            throw new SafeMessageException(Messages.get("config.err.activeType", setting, id, type.code()));
+        }
+        return profile;
     }
 
     /**
@@ -379,7 +648,7 @@ public final class CryptoSettings {
         if (path != null) {
             Path externalPath = Paths.get(path);
             Path name = externalPath.getFileName();
-            fileName = name == null ? null : name.toString();
+            fileName = name == null ? null : SecretFiles.fileName(externalPath);
             // 파일이 없으면 NoSuchFileException, UTF-8이 아니면 MalformedInputException이 발생한다.
             try (Reader reader = Files.newBufferedReader(externalPath, StandardCharsets.UTF_8)) {
                 external.load(reader);
@@ -387,6 +656,38 @@ public final class CryptoSettings {
         }
         // [3] 생성자에서 JVM 덮어쓰기 정책 적용, 언어 결정, 모르는 항목 검사, 허용값·모호성 검증을 한다.
         return new CryptoSettings(defaults, external, jvmProperties, origin, fileName, jvmPropertyNames);
+    }
+
+    /**
+     * <b>내부 전용</b>: 공개 API로 직접 준 키 하나만 가진 메모리 안 설정({@code CredentialCrypto.fromRawKey}·{@code fromPassphrase}).
+     * JAR 내부 설정·외부 설정 파일·JVM 속성·환경변수를 전혀 읽지 않고, 키 목록·이력·공개 기본 키 경고와 무관하다. 그 키가 유형의 기본
+     * 키이자 유일한 키이며(다른 Key ID는 등록되지 않음), 출력 형식은 {@code ENC[v1:...]}다. 키 값은 들어 있지 않다.
+     *
+     * @param profile  직접 주입 키의 프로필({@link KeyProfile#direct})
+     * @param language 메시지 언어
+     * @return 설정
+     */
+    public static CryptoSettings direct(KeyProfile profile, Messages.Language language) {
+        return new CryptoSettings(profile, language);
+    }
+
+    private CryptoSettings(KeyProfile profile, Messages.Language language) {
+        this.properties = new Properties();
+        this.externalKeys = Collections.emptySet();
+        this.jvmKeys = Collections.emptySet();
+        this.ignoredJvmKeys = Collections.emptySet();
+        this.knownKeys = Collections.emptySet();
+        this.origin = ConfigOrigin.NONE;
+        this.configFileName = null;
+        this.jvmOverrideEnabled = false;
+        this.language = language;
+        this.warningEnabled = false;
+        this.outputFormat = OutputFormat.ENC;
+        this.profiles = Collections.singletonList(profile);
+        this.profilesById = Collections.singletonMap(profile.id(), profile);
+        this.defaultType = profile.type();
+        this.activePass = profile.type() == io.javacryptokit.KeyType.PASS ? profile : null;
+        this.activeKey = profile.type() == io.javacryptokit.KeyType.KEY ? profile : null;
     }
 
     /**
@@ -496,7 +797,11 @@ public final class CryptoSettings {
             }
             switch (setting.type) {
                 case CHOICE:
-                    if (raw == null && (LANG.equals(setting.key) || OUTPUT_ENCODING.equals(setting.key))) break;
+                    // 이전 버전 설정에 없던 항목은 기본 동작을 쓴다(crypto.key.type이 없으면 이전 형식 단일 키 설정).
+                    if (raw == null && (LANG.equals(setting.key) || OUTPUT_ENCODING.equals(setting.key)
+                            || KEY_TYPE.equals(setting.key))) {
+                        break;
+                    }
                     if (!setting.choices.contains(trimToEmpty(raw))) {
                         String specific = "config.err.choice." + setting.key;
                         throw new SafeMessageException(Messages.has(Messages.current(), specific) ? Messages.get(specific)
@@ -519,6 +824,11 @@ public final class CryptoSettings {
     private void validateFormats() {
         if (!get(KEY_ID).matches("[A-Za-z0-9_-]{1,64}")) {
             throw new SafeMessageException(Messages.get("config.err.keyId"));
+        }
+        for (String active : new String[]{KEY_ACTIVE_PASS, KEY_ACTIVE_KEY}) {
+            if (!get(active).isEmpty() && !get(active).matches("[A-Za-z0-9_-]{1,64}")) {
+                throw new SafeMessageException(Messages.get("config.err.activeId", active));
+            }
         }
         checkFormat(VAULT_URL, "https://([A-Za-z0-9.-]{1,253}|\\[[0-9A-Fa-f:]{2,45}\\])(:[0-9]{1,5})?/?");
         checkFormat(VAULT_MOUNT, "[A-Za-z0-9_-]{1,64}(/[A-Za-z0-9_-]{1,64}){0,7}");
@@ -622,7 +932,8 @@ public final class CryptoSettings {
     private void rejectUnknownExternalKeys(Properties external) {
         Set<String> unknown = new java.util.TreeSet<>();
         for (String name : external.stringPropertyNames()) {
-            if (!knownKeys.contains(name)) unknown.add(name);
+            // 키 프로필(crypto.keys.<Key ID>.<항목>)은 Key ID가 자유이므로 항목 이름이 정의에 있으면 지원 항목이다.
+            if (!knownKeys.contains(name) && !SettingCatalog.isProfileSetting(name)) unknown.add(name);
         }
         if (unknown.isEmpty()) return;
         String first = unknown.iterator().next();
@@ -651,6 +962,11 @@ public final class CryptoSettings {
     private void rejectMisspelledJvmKeys(Iterable<String> jvmPropertyNames) {
         Set<String> names = new HashSet<>(knownKeys);
         names.add(CONFIG_FILE_PROPERTY);
+        // 등록된 키 프로필의 정식 항목 이름은 알려진 이름이다(위치 항목은 적용, 나머지는 [6]에서 오류). 등록되지 않은 Key ID의
+        // crypto.keys.* 는 -D로 새 키를 만들려는 것이므로 오타와 같이 거부한다(암시적 등록 금지).
+        for (String id : profileIds(properties)) {
+            for (SettingCatalog.ProfileItem item : SettingCatalog.PROFILE_ITEMS) names.add(KeyProfile.PREFIX + id + "." + item.name);
+        }
         Set<String> areas = new HashSet<>();
         for (String known : names) {
             if (known.startsWith("crypto.")) areas.add(areaOf(known));
@@ -754,11 +1070,66 @@ public final class CryptoSettings {
         return raw == null ? fallback : Integer.parseInt(raw.trim());
     }
 
-    /** @return 키 식별자({@code crypto.key.id}). 암호문 봉투에 기록되는 논리적 이름이며 실제 키가 아니다. */
+    /** @return 레거시 AES 슬롯의 키 식별자({@code crypto.key.id}). 실제 암호화에 쓰는 키는 {@link #select}로 정한다. */
     public String keyId() { return get(KEY_ID); }
 
-    /** @return 키 공급 방식({@code crypto.key.source}): {@link SettingCatalog#KEY_SOURCES} 중 하나 */
+    /** @return 레거시 AES 슬롯의 키 공급 방식({@code crypto.key.source}): {@link SettingCatalog#KEY_SOURCES} 중 하나 */
     public String keySource() { return get(KEY_SOURCE); }
+
+    /** @return 등록된 키 프로필(레거시 AES 슬롯이 먼저, 그다음 템플릿 프로필을 Key ID 순서로, 변경 불가) */
+    public List<KeyProfile> profiles() { return profiles; }
+
+    /**
+     * @param id Key ID
+     * @return 그 Key ID의 프로필, 등록되지 않았으면 null
+     */
+    public KeyProfile profile(String id) { return id == null ? null : profilesById.get(id); }
+
+    /** @return 레거시 AES 슬롯 프로필({@code crypto.key.*}) */
+    public KeyProfile legacyProfile() { return profilesById.get(keyId()); }
+
+    /** @return 유형을 생략한 새 암호화의 유형({@code crypto.key.type}, 이전 형식 설정은 key) */
+    public io.javacryptokit.KeyType defaultType() { return defaultType; }
+
+    /**
+     * @param type 유형
+     * @return 그 유형의 기본 키, 없으면 null(그 유형을 지정한 암호화는 실패한다)
+     */
+    public KeyProfile activeProfile(io.javacryptokit.KeyType type) {
+        return type == io.javacryptokit.KeyType.PASS ? activePass : activeKey;
+    }
+
+    /**
+     * 새 암호화에 쓸 키를 고른다. 규칙: Key ID를 주면 그 키(유형도 주면 같아야 함), 유형만 주면 그 유형의 기본 키, 둘 다 없으면
+     * 기본 유형({@code crypto.key.type})의 기본 키. 고르지 못하면 다른 키로 바꾸지 않고 오류로 끝낸다.
+     *
+     * @param type  유형(없으면 null)
+     * @param keyId Key ID(없으면 null)
+     * @return 고른 프로필
+     * @throws IllegalArgumentException 등록되지 않은 Key ID, 유형 불일치, 그 유형의 기본 키 없음({@link SafeMessageException})
+     */
+    public KeyProfile select(io.javacryptokit.KeyType type, String keyId) {
+        if (keyId != null) {
+            KeyProfile profile = profilesById.get(keyId);
+            if (profile == null) throw new SafeMessageException(Messages.get("config.err.keyIdUnknown", safeId(keyId)));
+            if (type != null && profile.type() != type) {
+                throw new SafeMessageException(Messages.get("config.err.keyTypeMismatch", keyId, profile.type().code(), type.code()));
+            }
+            return profile;
+        }
+        io.javacryptokit.KeyType chosen = type == null ? defaultType : type;
+        KeyProfile active = activeProfile(chosen);
+        if (active == null) {
+            throw new SafeMessageException(Messages.get("config.err.noActiveKey", chosen.code(),
+                    chosen == io.javacryptokit.KeyType.PASS ? KEY_ACTIVE_PASS : KEY_ACTIVE_KEY));
+        }
+        return active;
+    }
+
+    /** Key ID 형식이면 그대로, 아니면 표시하지 않는다(입력값이 메시지에 섞이지 않게). */
+    private static String safeId(String id) {
+        return id.matches("[A-Za-z0-9_-]{1,64}") ? id : "?";
+    }
 
     /** @return [Tomcat 연동] 위임할 공식 Pool Factory 클래스 이름({@code crypto.pool.factory}) */
     public String poolFactory() { return get(POOL_FACTORY); }
@@ -796,7 +1167,7 @@ public final class CryptoSettings {
     /** @return 외부 설정 파일 이름(경로 제외). 외부 설정이 없으면 null */
     public String configFileName() { return configFileName; }
 
-    /** @return 비차단형 안내 WARNING 표시 여부(crypto.warning.enabled) */
+    /** @return 공개 기본 키 경고(비차단 WARN 한 줄) 표시 여부(crypto.warning.enabled) */
     public boolean warningEnabled() { return warningEnabled; }
 
     /** @return 암호문 출력 표현(crypto.output.encoding) */

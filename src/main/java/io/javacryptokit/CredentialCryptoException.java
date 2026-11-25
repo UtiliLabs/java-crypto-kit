@@ -103,6 +103,11 @@ public final class CredentialCryptoException extends GeneralSecurityException {
      * 이 한 곳에서 만들어 CLI·Java API·JNDI가 같은 의미를 갖게 한다.
      */
     private static String buildMessage(Reason reason, String safeDetail, Throwable cause) {
+        // 원인과 조치를 모두 제공한 작업별 메시지에는 포괄적인 Reason 안내를 다시 붙이지 않는다.
+        if ((reason == Reason.INVALID_INPUT || reason == Reason.INVALID_TOKEN || reason == Reason.INTEGRITY)
+                && safeDetail != null && safeDetail.contains(Messages.get("exception.action", ""))) {
+            return safeDetail;
+        }
         StringBuilder message = new StringBuilder(reason.description());
         if (safeDetail != null && !safeDetail.isEmpty()) {
             message.append(' ').append(safeDetail);

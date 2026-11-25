@@ -12,14 +12,25 @@ import io.javacryptokit.CredentialCryptoException;
 import io.javacryptokit.TestSupport;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import io.javacryptokit.i18n.Messages;
+import io.javacryptokit.key.SecretFiles;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -122,6 +133,175 @@ class FileCipherTest {
         assertEquals(reason, ex.getReason(), ex.getMessage());
     }
 
+    /** 두 작업을 동시에 시작해 성공한 입력 번호를 반환한다(둘 다 거부되면 -1). */
+    private static int race(Action first, Action second) throws Exception {
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        AtomicInteger winner = new AtomicInteger(-1);
+        List<Throwable> unexpected = Collections.synchronizedList(new ArrayList<>());
+        Thread[] threads = new Thread[2];
+        Action[] actions = {first, second};
+        for (int i = 0; i < 2; i++) {
+            final int index = i;
+            Action action = actions[i];
+            threads[i] = new Thread(() -> {
+                try {
+                    barrier.await();
+                    action.run();
+                    assertTrue(winner.compareAndSet(-1, index), "두 작업이 같은 출력에 성공함");
+                } catch (CredentialCryptoException e) {
+                    if (e.getReason() != CredentialCryptoException.Reason.INVALID_INPUT) unexpected.add(e);
+                } catch (Throwable e) {
+                    unexpected.add(e);
+                }
+            });
+            threads[i].start();
+        }
+        for (Thread thread : threads) {
+            thread.join(60_000);
+            assertFalse(thread.isAlive(), "파일 작업 시간 초과");
+        }
+        assertTrue(unexpected.isEmpty(), unexpected.toString());
+        return winner.get();
+    }
+
+    private static byte[] decryptToBytes(CredentialCrypto crypto, Path sealed, Path scratch) throws Exception {
+        crypto.decryptFile(sealed, scratch);
+        try {
+            return Files.readAllBytes(scratch);
+        } finally {
+            Files.delete(scratch);
+        }
+    }
+
+    /**
+     * QA P1-01: 같은 출력 경로에 서로 다른 입력을 동시에 암호화·복호화하면 하나만 성공하고 덮어쓰지 않는다(존재 확인과 이름 변경 사이의
+     * 경쟁). 관리형·직접 키 API 모두 같은 처리 경로(FileCipher)를 쓰는지 함께 확인한다. 성공한 결과는 이긴 쪽 입력과 같고, 이미 있던
+     * 파일은 바뀌지 않으며, 임시 파일·빈 자리 파일이 남지 않는다. 경로 별칭·심볼릭 링크 출력 거부도 그대로다.
+     */
+    @Test
+    void concurrentWritersToTheSameOutputPathNeverOverwrite() throws Exception {
+        byte[][] plain = {new byte[FileCipher.CHUNK], new byte[FileCipher.CHUNK + 7]};
+        RANDOM.nextBytes(plain[0]);
+        RANDOM.nextBytes(plain[1]);
+        Path[] in = {Files.write(dir.resolve("a.bin"), plain[0]), Files.write(dir.resolve("b.bin"), plain[1])};
+        CredentialCrypto[] cryptos = {CredentialCrypto.fromRawKey("race01", key()), TestSupport.jarDefaults()};
+        String[] names = {"direct", "managed"};
+        for (int c = 0; c < cryptos.length; c++) {
+            CredentialCrypto crypto = cryptos[c];
+            Path[] sealed = {dir.resolve(names[c] + "-a.jck"), dir.resolve(names[c] + "-b.jck")};
+            crypto.encryptFile(in[0], sealed[0]);
+            crypto.encryptFile(in[1], sealed[1]);
+            Path encOut = dir.resolve(names[c] + "-race.jck");
+            Path decOut = dir.resolve(names[c] + "-race.bin");
+            Path check = dir.resolve(names[c] + "-check.bin");
+            for (int round = 0; round < 25; round++) {
+                int encrypted = race(() -> crypto.encryptFile(in[0], encOut), () -> crypto.encryptFile(in[1], encOut));
+                assertTrue(encrypted >= 0, "암호화 결과가 있어야 한다");
+                assertArrayEquals(plain[encrypted], decryptToBytes(crypto, encOut, check));
+                Files.delete(encOut);
+                int decrypted = race(() -> crypto.decryptFile(sealed[0], decOut), () -> crypto.decryptFile(sealed[1], decOut));
+                assertTrue(decrypted >= 0, "복호화 결과가 있어야 한다");
+                assertArrayEquals(plain[decrypted], Files.readAllBytes(decOut));
+                Files.delete(decOut);
+            }
+            // 이미 있는 파일: 동시에 써도 둘 다 실패하고 내용은 그대로
+            byte[] keep = "기존 파일".getBytes(StandardCharsets.UTF_8);
+            Files.write(decOut, keep);
+            assertEquals(-1, race(() -> crypto.decryptFile(sealed[0], decOut), () -> crypto.decryptFile(sealed[1], decOut)));
+            assertArrayEquals(keep, Files.readAllBytes(decOut));
+            // 같은 파일을 가리키는 다른 경로 표기(별칭)도 기존 파일로 보고 거부
+            Path alias = dir.resolve("sub").resolve("..").resolve(decOut.getFileName());
+            Files.createDirectories(dir.resolve("sub"));
+            assertReason(CredentialCryptoException.Reason.INVALID_INPUT, () -> crypto.encryptFile(in[0], alias));
+            assertArrayEquals(keep, Files.readAllBytes(decOut));
+            Files.delete(decOut);
+        }
+        // 출력 자리에 있는 심볼릭 링크(대상이 없어도)는 따라가지 않고 거부한다
+        Path target = dir.resolve("link-target.bin");
+        Path link = null;
+        try {
+            link = Files.createSymbolicLink(dir.resolve("link-out.jck"), target);
+        } catch (UnsupportedOperationException | java.io.IOException | SecurityException e) {
+            // 이 환경에서는 심볼릭 링크를 만들 수 없음(Windows 일반 권한 등): 링크 부분만 건너뛴다
+        }
+        if (link != null) {
+            Path out = link;
+            assertReason(CredentialCryptoException.Reason.INVALID_INPUT, () -> cryptos[0].encryptFile(in[0], out));
+            assertFalse(Files.exists(target), "링크 대상에 쓰면 안 된다");
+        }
+        try (Stream<Path> files = Files.list(dir)) {
+            List<String> left = files.map(p -> p.getFileName().toString())
+                    .filter(n -> n.endsWith(FileCipher.TEMP_SUFFIX) || n.contains("-race.") || n.contains("-check.")).collect(Collectors.toList());
+            assertTrue(left.isEmpty(), "임시 파일·빈 자리 파일이 남으면 안 된다: " + left);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ko", "en"})
+    void cleanupFailureBeforeAndAfterPublicationPreservesPrimaryState(String language) throws Exception {
+        boolean korean = language.equals("ko");
+        try (Messages.Scope ignored = Messages.use(korean ? Messages.Language.KO : Messages.Language.EN)) {
+            byte[] key = key();
+            byte[] plain = "private test content".getBytes(StandardCharsets.UTF_8);
+            byte[] sealed = encrypt(plain, "sample", key);
+            Path input = Files.write(dir.resolve("input.jck"), sealed);
+            Path output = dir.resolve("완성본.txt");
+            List<Path> leftover = new ArrayList<>();
+            FileCipher.TempDeletion denied = path -> {
+                leftover.add(path);
+                throw new IOException("private diagnostic: " + dir);
+            };
+
+            CredentialCryptoException published = assertThrows(CredentialCryptoException.class,
+                    () -> FileCipher.process(input, output, false, "sample", key, denied));
+            assertEquals(CredentialCryptoException.Reason.INVALID_INPUT, published.getReason());
+            assertEquals(0, published.getSuppressed().length);
+            assertEquals("IOException", published.getCauseType());
+            assertEquals(null, published.getCause());
+            assertTrue(published.getMessage().contains(korean ? "완성되었습니다" : "is complete"));
+            assertTrue(published.getMessage().contains(SecretFiles.fileName(leftover.get(0))));
+            assertFalse(published.getMessage().contains(dir.toString()));
+            assertFalse(published.getMessage().contains("private"));
+            assertFalse(published.getMessage().contains("12KB"));
+            assertTrue(Files.isSameFile(output, leftover.get(0)));
+            Files.delete(leftover.get(0));
+            assertArrayEquals(plain, Files.readAllBytes(output));
+
+            sealed[sealed.length - 1] ^= 1;
+            Files.write(input, sealed);
+            Path other = dir.resolve("unpublished.txt");
+            CredentialCryptoException primary = assertThrows(CredentialCryptoException.class,
+                    () -> FileCipher.process(input, other, false, "sample", key, denied));
+            assertEquals(CredentialCryptoException.Reason.INTEGRITY, primary.getReason());
+            assertTrue(primary.getMessage().contains(korean ? "인증에 실패" : "failed authentication"));
+            assertFalse(Files.exists(other));
+            assertEquals(1, primary.getSuppressed().length);
+            Throwable cleanup = primary.getSuppressed()[0];
+            assertTrue(cleanup.getMessage().contains(SecretFiles.fileName(leftover.get(1))));
+            assertTrue(cleanup.getMessage().contains(korean ? "임시 파일만 삭제" : "delete only"));
+            assertFalse(cleanup.getMessage().contains(dir.toString()));
+            assertFalse(cleanup.getMessage().contains("private"));
+            assertEquals(null, cleanup.getCause());
+            assertTrue(Files.deleteIfExists(leftover.get(1)));
+            assertArrayEquals(plain, Files.readAllBytes(output));
+        }
+    }
+
+    @Test
+    void unsupportedOutputFileSystemLeavesNoPartialResult() throws Exception {
+        Path archive = dir.resolve("results.zip");
+        Path source = Files.write(dir.resolve("original.bin"), new byte[] {1, 2, 3});
+        CredentialCrypto crypto = CredentialCrypto.fromRawKey("local", key());
+        try (FileSystem zip = FileSystems.newFileSystem(URI.create("jar:" + archive.toUri()), Collections.singletonMap("create", "true"))) {
+            Path folder = zip.getPath("/");
+            assertReason(CredentialCryptoException.Reason.INVALID_INPUT, () -> crypto.encryptFile(source, folder.resolve("out.jck")));
+            try (Stream<Path> contents = Files.list(folder)) {
+                assertEquals(0, contents.count());
+            }
+        }
+        assertArrayEquals(new byte[] {1, 2, 3}, Files.readAllBytes(source));
+    }
+
     @Test
     void publicApiProtectsPathsKeepsOriginalAndLeavesNoTemporaryFiles() throws Exception {
         CredentialCrypto crypto = TestSupport.jarDefaults();
@@ -169,7 +349,8 @@ class FileCipherTest {
     void decryptFileChecksKeyIdBeforeReadingTheKey() throws Exception {
         Path in = Files.write(dir.resolve("a.bin"), new byte[]{1, 2, 3});
         Path sealed = dir.resolve("a.bin.jck");
-        TestSupport.jarDefaults().encryptFile(in, sealed);
+        // 공개 AES 키(default)로 만든 파일: 아래 설정에는 그 Key ID가 없다(crypto.key.*가 other01로 바뀜).
+        TestSupport.jarDefaults().encryptFile(in, sealed, io.javacryptokit.KeyType.KEY);
         Path config = TestSupport.writeConfig(dir, "other.properties", "crypto.key.source=file", "crypto.key.id=other01",
                 "crypto.key.file=" + TestSupport.propertiesPath(dir.resolve("does-not-exist.key")));
         CredentialCryptoException ex = assertThrows(CredentialCryptoException.class,

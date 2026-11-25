@@ -31,7 +31,7 @@ class BoundaryRegressionTest {
                 + (token.charAt(token.length() - 3) == 'A' ? 'B' : 'A') + token.substring(token.length() - 2);
         assertEquals(CredentialCryptoException.Reason.INTEGRITY,
                 assertThrows(CredentialCryptoException.class, () -> crypto.decryptText(tampered)).getReason());
-        Path missing = TestSupport.writeConfig(dir, "quiet-missing.properties", "crypto.key.source=file",
+        Path missing = TestSupport.writeConfig(dir, "quiet-missing.properties", "crypto.key.type=key", "crypto.key.source=file",
                 "crypto.key.file=" + TestSupport.propertiesPath(dir.resolve("gone.key")), "crypto.warning.enabled=false");
         assertEquals(CredentialCryptoException.Reason.KEY_SOURCE, assertThrows(CredentialCryptoException.class,
                 () -> CredentialCrypto.fromConfigFile(missing).encryptText("dummy")).getReason());
@@ -50,7 +50,8 @@ class BoundaryRegressionTest {
     @Test
     void dynamicKeyIsNotAutomaticRotation() throws Exception {
         Path key = TestSupport.writeRandomKeyFile(dir, "old.key");
-        Path oldConfig = TestSupport.writeConfig(dir, "old.properties", "crypto.key.source=file", "crypto.key.id=prod01",
+        Path oldConfig = TestSupport.writeConfig(dir, "old.properties", "crypto.key.type=key", "crypto.key.source=file",
+                "crypto.key.id=prod01",
                 "crypto.key.file=" + TestSupport.propertiesPath(key));
         String oldToken = CredentialCrypto.fromConfigFile(oldConfig).encryptText("dummy");
         // 같은 키ID에 새 키 값 → 무결성 실패
@@ -58,7 +59,8 @@ class BoundaryRegressionTest {
         assertEquals(CredentialCryptoException.Reason.INTEGRITY, assertThrows(CredentialCryptoException.class,
                 () -> CredentialCrypto.fromConfigFile(oldConfig).decryptText(oldToken)).getReason());
         // 새 키ID → 키ID 불일치
-        Path newConfig = TestSupport.writeConfig(dir, "new.properties", "crypto.key.source=file", "crypto.key.id=prod02",
+        Path newConfig = TestSupport.writeConfig(dir, "new.properties", "crypto.key.type=key", "crypto.key.source=file",
+                "crypto.key.id=prod02",
                 "crypto.key.file=" + TestSupport.propertiesPath(key));
         assertEquals(CredentialCryptoException.Reason.KEY_ID_MISMATCH, assertThrows(CredentialCryptoException.class,
                 () -> CredentialCrypto.fromConfigFile(newConfig).decryptText(oldToken)).getReason());

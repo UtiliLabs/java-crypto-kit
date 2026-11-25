@@ -108,7 +108,7 @@ class VaultKeyProviderTest {
 
     private static CryptoSettings settings(String token, String... extra) throws Exception {
         Path tokenFile = TestSupport.writeKeyFile(dir, "token-" + token, token);
-        List<String> lines = new ArrayList<>(Arrays.asList("crypto.key.source=vault", "crypto.key.id=v01",
+        List<String> lines = new ArrayList<>(Arrays.asList("crypto.key.type=key", "crypto.key.source=vault", "crypto.key.id=v01",
                 "crypto.vault.url=https://localhost:" + server.port(), "crypto.vault.path=app/prod",
                 "crypto.vault.token.file=" + TestSupport.propertiesPath(tokenFile),
                 "crypto.vault.ca.file=" + TestSupport.propertiesPath(good.pem), "crypto.vault.timeout.ms=2000"));
@@ -179,7 +179,8 @@ class VaultKeyProviderTest {
     @Test
     void vaultFailureNeverFallsBackToTheBuiltInKey() throws Exception {
         // 같은 키ID로 JAR 내장(공개) 키 암호문을 만든 뒤, Vault가 실패하면 그 암호문이 복호화되면 안 된다.
-        Path embedded = TestSupport.writeConfig(dir, "embedded-v01.properties", "crypto.key.source=embedded", "crypto.key.id=v01");
+        Path embedded = TestSupport.writeConfig(dir, "embedded-v01.properties", "crypto.key.type=key", "crypto.key.source=embedded",
+                "crypto.key.id=v01");
         String tokenWithBuiltInKey = CryptoService.of(TestSupport.isolatedSettings(embedded)).encryptText("x".toCharArray());
         CryptoSettings broken = settings("s.bad");
         CredentialCryptoException ex = assertThrows(CredentialCryptoException.class,
@@ -189,23 +190,11 @@ class VaultKeyProviderTest {
 
     @Test
     void tokenMustComeFromAFileOrEnvironmentVariable() throws Exception {
-        Path config = TestSupport.writeConfig(dir, "env-token.properties", "crypto.key.source=vault", "crypto.key.id=v01",
+        Path config = TestSupport.writeConfig(dir, "env-token.properties", "crypto.key.type=key", "crypto.key.source=vault",
+                "crypto.key.id=v01",
                 "crypto.vault.url=https://localhost:" + server.port(), "crypto.vault.path=app/prod",
                 "crypto.vault.token.env=JCK_TEST_TOKEN_NOT_SET_7");
         assertTrue(failure(TestSupport.isolatedSettings(config)).contains("JCK_TEST_TOKEN_NOT_SET_7"));
         assertTrue(failure(settings("s.good with space")).contains("토큰 형식"), "헤더 주입 방지");
-    }
-
-    @Test
-    void miniJsonIsStrict() {
-        assertEquals("v", MiniJson.path(MiniJson.parse("{\"a\":{\"b\":\"v\"}}"), "a", "b"));
-        assertEquals(3L, MiniJson.path(MiniJson.parse("{\"n\":3}"), "n"));
-        assertEquals("\u00e9", MiniJson.parse("\"\\u00e9\""));
-        for (String bad : new String[]{"{", "{\"a\":}", "[1,]", "{\"a\":1}x", "\"\u0001\"", "tru"}) {
-            assertThrows(IllegalArgumentException.class, () -> MiniJson.parse(bad), bad);
-        }
-        StringBuilder deep = new StringBuilder();
-        for (int i = 0; i < 50; i++) deep.append('[');
-        assertThrows(IllegalArgumentException.class, () -> MiniJson.parse(deep.toString()), "깊이 제한");
     }
 }

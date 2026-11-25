@@ -57,14 +57,18 @@ public final class TestSupport {
         return path.toAbsolutePath().toString().replace(File.separatorChar, '/');
     }
 
-    /** JAR 기본 설정에 들어 있는 공개 기본 키(Base64). 공개 값이며 비밀이 아니다. */
+    /**
+     * JAR 기본 설정에 들어 있는 공개 기본 키의 표준 Base64(keygen 키 파일 형식). JAR 안에는 obf1(경량 난독화)로 저장되어 있으므로
+     * 되돌려서 돌려준다. 공개 값이며 비밀이 아니다.
+     */
     public static String publicKeyBase64() throws IOException {
         Properties defaults = new Properties();
         try (InputStream in = TestSupport.class.getResourceAsStream("/java-crypto-kit.properties");
              Reader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
             defaults.load(reader);
         }
-        return defaults.getProperty("crypto.key.embedded").trim();
+        byte[] key = io.javacryptokit.key.KeyResolver.decodeEmbedded(defaults.getProperty("crypto.key.embedded"));
+        return java.util.Base64.getEncoder().encodeToString(key);
     }
 
     /** 실제 JVM 속성·환경변수의 설정 경로를 무시하고 지정한 파일만으로 설정을 읽는다(null이면 JAR 기본값만). */

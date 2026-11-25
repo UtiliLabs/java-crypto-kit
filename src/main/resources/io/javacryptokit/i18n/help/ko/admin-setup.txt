@@ -1,0 +1,35 @@
+admin setup - CLI 관리자 비밀번호 최초 설정(새 JAR)
+
+사용법
+  java -jar {jar} admin setup [--operator <ID>]
+       [--admin-pass-file <파일>] [--out <jar>] [--lang en|ko]
+
+옵션
+  --operator <ID>   작업자 ID(이력 기록용). 없으면 대화형에서 묻습니다.
+  --admin-pass-file <파일>
+                    비대화형(CI 등): 새 비밀번호 한 줄이 든 파일
+                    (권한 600 임시 파일, 쓰고 나서 삭제)
+  --out <jar>       결과 JAR(선택, 기본 <이름>-configured.jar)
+  --lang en|ko      이번 실행의 메시지 언어(선택)
+  관리자 비밀번호가 없는 JAR에서만 실행합니다(설정된 JAR은 덮어쓰지 않음).
+  대화형: 작업자 ID → 새 비밀번호 → 비밀번호 확인(2회, 화면 비표시).
+  미설정 JAR로 다른 명령을 실행해도 같은 설정 절차로 들어갑니다(그 명령은
+  실행하지 않고, 생성 JAR로 다시 실행하라고 안내).
+
+규칙
+  10~128자, 영문자(A-Z, a-z)·숫자(0-9)·특수문자 각 1자 이상.
+  특수문자는 ASCII 기호(!@#$% 등)이며 공백·한글 등은 쓸 수 없습니다.
+  대문자·소문자를 따로 요구하지 않습니다. 운영은 12~16자 이상 권장.
+
+결과
+  관리자    : 비밀번호 설정 완료
+  생성 JAR  : C:\work\java-crypto-kit-{version}-configured.jar
+  원본 JAR  : java-crypto-kit-{version}.jar (그대로, 관리자 비밀번호 미설정)
+  작업자    : ops
+  안내      : 이후에는 생성 JAR로 CLI를 실행하세요.
+  키·키 ID·기존 이력은 그대로이고 이력에 관리자 설정 1건이 더해집니다
+  (비밀번호·해시 없음). Java API·Tomcat은 관리자 비밀번호 없이 동작합니다.
+
+예제
+  java -jar {jar} admin setup --operator ops
+  java -jar {jar} admin setup --operator ci --admin-pass-file admin.pw

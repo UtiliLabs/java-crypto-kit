@@ -1,38 +1,39 @@
-config history - every successful change of the JAR built-in settings, from the first one
+config history - change history of the JAR built-in settings (admin)
 
 Usage
-  java -jar {jar} config history [--jar <jar>] [--lang en|ko]
+  java -jar {jar} config history
+       [--type pass|key | --all] [--jar <jar>]
+       [--admin-pass-file <file>] [--lang en|ko]
 
 Options
-  --jar <jar>    JAR to read (optional). Default: the running JAR.
-  --lang en|ko   Message language for this run only (optional).
+  --type pass|key   Only changes about keys of that type (default pass)
+  --all             The whole history (both types, other settings, admin)
+  --jar <jar>       JAR to read (optional, default: the running JAR)
+  --admin-pass-file <file>
+                    Admin password file (non-interactive, mode 600)
+                    Without it the admin password is asked (hidden)
+  --lang en|ko      Message language for this run (optional)
+  --type and --all cannot be used together. The whole history is verified
+  before it is filtered, and entries keep their original numbers.
 
-What it records (only successful config set / config embed-key; nothing for failures or no-op changes)
-  sequence number, UTC time, operator (--operator), command, reason (--reason), and for every changed setting its
-  name, value before and value after. Secret values are never recorded: a built-in key change shows
-  "crypto.key.embedded: (secret) -> (replaced)" together with the key ID change.
-  The full history is kept in every new JAR and after --replace. The initial build time comes from the manifest.
+Result (part, --type key)
+  History check: OK (3 changes, hash chain and current settings match)
+  Showing      : key-related 1 of 3 changes
 
-Integrity check
-  Sequence numbers, a SHA-256 hash chain, the settings fingerprint after each change and the build-time settings
-  fingerprint are checked. If anything does not match (damaged file, settings changed outside config set), it is not
-  shown as a valid history: [reason: INTEGRITY] and exit code 1, and config set/embed-key refuse to change that JAR.
-  This detects accidents and simple edits. It is NOT a tamper-proof audit log: anyone who can modify the JAR can
-  rewrite it, and the operator ID is a record, not authentication.
+  #1  2026-11-22T05:30:12Z  operator ops  config embed-key  [key]
+      reason: rotate the production key
+      crypto.key.id: default -> key01
+      key key01: (none) -> key, embedded, crypto.key.*, file
+        Fingerprint:
+          ab12cd34...(all 64)
+  Only successful changes are recorded; management info (full fingerprint,
+  KDF, rounds, salt, operator, reason) is shown unmasked. Key values and the
+  admin password are never in the history. Items an older format did not
+  record show (not recorded). Admin password setup/changes appear only with
+  --all, tagged [admin]. A damaged history or one that does not match the
+  settings gives [reason: INTEGRITY] and exit code 1.
 
 Examples
-  Windows PowerShell
-    java -jar .\java-crypto-kit-{version}-configured.jar config history
-  Linux
-    java -jar ./{jar} config history --jar /opt/tomcat/lib/{jar}
-
-Expected result
-  #1  2026-11-21T05:30:12Z (UTC)  operator example-admin  command config set
-      crypto.lang: ko -> en
-  #2  2026-11-21T05:40:00Z (UTC)  operator example-admin  command config embed-key
-      reason: user-provided key
-      crypto.key.embedded: (secret) -> (replaced)
-      crypto.key.id: default -> prod01
-  A JAR that was never changed prints: No change history (initial build state).
-
-Related: config show, config set, config embed-key
+  java -jar {jar} config history
+  java -jar {jar} config history --type key --jar new.jar
+  java -jar {jar} config history --all

@@ -34,8 +34,9 @@ class CredentialCryptoApiTest {
     @BeforeEach
     void setUp() throws Exception {
         keyFile = TestSupport.writeRandomKeyFile(dir, "api.key");
-        fileConfig = TestSupport.writeConfig(dir, "api.properties", "crypto.key.source=file", "crypto.key.id=api01",
-                "crypto.key.file=" + TestSupport.propertiesPath(keyFile), "crypto.warning.enabled=false");
+        // crypto.key.* AES 키(file) 설정을 검증한다. 유형 미지정 기본은 pass이므로 이 AES 키를 기본으로 쓰려면 key를 지정한다.
+        fileConfig = TestSupport.writeConfig(dir, "api.properties", "crypto.key.type=key", "crypto.key.source=file",
+                "crypto.key.id=api01", "crypto.key.file=" + TestSupport.propertiesPath(keyFile), "crypto.warning.enabled=false");
         crypto = CredentialCrypto.fromConfigFile(fileConfig);
     }
 
@@ -68,7 +69,8 @@ class CredentialCryptoApiTest {
         assertTrue(crypto.verify(token));
         assertFalse(crypto.verify("not-a-token"));
         assertFalse(crypto.verify(token.replace("ENC[v1:api01:", "ENC[v1:other:")));
-        assertFalse(crypto.verify(TestSupport.jarDefaults().encryptText("dummy")));
+        // 이 설정에 없는 Key ID(공개 AES 키 default)로 만든 암호문은 "토큰 문제"(false)다.
+        assertFalse(crypto.verify(TestSupport.jarDefaults().encryptText("dummy", KeyType.KEY)));
         // 키 공급원 자체의 문제는 "검증 실패"로 숨기지 않고 예외로 알린다.
         Files.delete(keyFile);
         CredentialCryptoException ex = assertThrows(CredentialCryptoException.class, () -> crypto.verify(token));
@@ -105,7 +107,7 @@ class CredentialCryptoApiTest {
     @Test
     void failuresDoNotCarryPathsCausesOrInput() throws Exception {
         Path secretDir = Files.createDirectory(dir.resolve("secret-dir-9f3a"));
-        Path config = TestSupport.writeConfig(secretDir, "c.properties", "crypto.key.source=file",
+        Path config = TestSupport.writeConfig(secretDir, "c.properties", "crypto.key.type=key", "crypto.key.source=file",
                 "crypto.key.file=" + TestSupport.propertiesPath(secretDir.resolve("missing.key")));
         CredentialCrypto broken = CredentialCrypto.fromConfigFile(config);
         CredentialCryptoException ex = assertThrows(CredentialCryptoException.class, () -> broken.encryptText("dummy-pw-xyz"));

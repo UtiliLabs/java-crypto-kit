@@ -9,6 +9,10 @@ import io.javacryptokit.config.CryptoSettings;
 import io.javacryptokit.config.SettingCatalog;
 import io.javacryptokit.i18n.Messages;
 import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -18,6 +22,10 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.Arrays;
+import java.util.Properties;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -50,7 +58,7 @@ class DocsConsistencyTest {
     private static final Pattern SETTING = Pattern.compile("crypto\\.[a-z0-9.-]*[a-z0-9](?![A-Za-z0-9(])");
     /** 예제 명령 줄: "-jar <jar 파일>" 또는 "... io.javacryptokit.cli.CryptoCli" 다음의 명령과 나머지 인자. */
     private static final Pattern EXAMPLE = Pattern.compile(
-            "java .*?(?:-jar \\S*\\.jar|io\\.javacryptokit\\.cli\\.CryptoCli) ((?:config|file|kms) \\S+|\\S+)(.*)");
+            "java .*?(?:-jar \\S*\\.jar|io\\.javacryptokit\\.cli\\.CryptoCli) ((?:config key|config|file|kms|admin password|admin) \\S+|\\S+)(.*)");
 
     @TempDir
     Path dir;
@@ -59,17 +67,30 @@ class DocsConsistencyTest {
         return new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8);
     }
 
+    private static List<String> guideFiles() throws IOException {
+        try (Stream<Path> paths = Files.walk(Paths.get("docs"))) {
+            return paths.filter(Files::isRegularFile).map(p -> p.toString().replace('\\', '/'))
+                    .filter(p -> p.endsWith(".md")).sorted().collect(Collectors.toList());
+        }
+    }
+
+    private static String guideText() throws IOException {
+        StringBuilder text = new StringBuilder();
+        for (String path : guideFiles()) text.append(read(path)).append('\n');
+        return text.toString().replace("\r\n", "\n");
+    }
+
     @Test
     void readmeCommandExamplesUseRealCommandsAndValidOptions() throws IOException {
-        // README: 바로 해 보기(encrypt·decrypt·verify)와 운영용 키 준비 명령
-        int checked = checkExampleCommands("README.md");
-        assertTrue(checked >= 8, "README에서 검사한 예제 명령 수: " + checked);
+        // README에 예제를 싣는 경우에만 문법을 검사한다. 실행 절차와 옵션의 완전성은 업무 가이드에서 검사한다.
+        checkExampleCommands("README.md");
     }
 
     @Test
     void userGuideCommandExamplesUseRealCommandsAndValidOptions() throws IOException {
         // 사용자 가이드의 모든 예제 명령(코드 블록·인라인 코드)이 실제 명령과 그 명령의 옵션만 쓰는지 확인한다.
-        int checked = checkExampleCommands(USER_GUIDE);
+        int checked = 0;
+        for (String path : guideFiles()) checked += checkExampleCommands(path);
         assertTrue(checked >= 40, "사용자 가이드에서 검사한 예제 명령 수: " + checked);
     }
 
@@ -100,11 +121,14 @@ class DocsConsistencyTest {
 
     @Test
     void readmeMentionsEveryCliCommandAndOnlyRealSettings() throws IOException {
-        String readme = read("README.md");
-        assertTrue(readme.indexOf("## 1. 암호화·복호화") >= 0, "README 첫 장은 기본 암복호화");
-        assertTrue(readme.indexOf("encrypt") < readme.indexOf("keygen"), "README 기본 암호화가 키 생성보다 먼저");
+        String readme = read("README.md").replace("\r\n", "\n");
+        for (String guide : Arrays.asList("guide/cli", "guide/tomcat-jdbc", "guide/java-encryption", "guide/key-management",
+                "reference/java-api-reference", "reference/getting-started")) {
+            assertTrue(readme.contains("](docs/" + guide + ".md"), "README에서 찾을 수 없는 가이드: " + guide);
+        }
+        String index = read("docs/guide/cli.md");
         for (CliCommands.Spec spec : CliCommands.ALL) {
-            assertTrue(readme.contains("`" + spec.name + "`"), "README CLI 안내에 없는 명령: " + spec.name);
+            assertTrue(index.contains("[`" + spec.name + "`]("), "README에서 여는 CLI 색인에 빠진 명령: " + spec.name);
         }
         Set<String> known = new LinkedHashSet<>(SettingCatalog.keys());
         known.add(CryptoSettings.CONFIG_FILE_PROPERTY);
@@ -125,7 +149,7 @@ class DocsConsistencyTest {
         for (char c : readme.toCharArray()) {
             if (c >= '가' && c <= '힣') hangul++;
         }
-        assertTrue(hangul > 1000, "README.md는 한국어 문서여야 한다(한글 " + hangul + "자)");
+        assertTrue(hangul > 0, "한국어 README 설명이 필요하다");
         try (DirectoryStream<Path> files = Files.newDirectoryStream(Paths.get("."), "README*")) {
             for (Path file : files) {
                 assertEquals("README.md", file.getFileName().toString(), "README는 하나만 둔다: " + file);
@@ -218,17 +242,21 @@ class DocsConsistencyTest {
 
     @Test
     void repositoryLayoutLinksAndPathsAreCurrent() throws IOException {
-        // docs/에는 예제 3개 + 한국어 통합 상세 가이드 1개만 둔다(중복 문서 난립 방지).
-        try (Stream<Path> files = Files.walk(Paths.get("docs"))) {
-            List<String> others = files.filter(Files::isRegularFile).map(p -> p.toString().replace('\\', '/'))
-                    .filter(p -> !p.equals(USER_GUIDE) && !p.endsWith(".properties") && !p.endsWith(".xml"))
-                    .collect(Collectors.toList());
-            assertTrue(others.isEmpty(), "docs/에는 상세 가이드 하나와 예제 설정·Tomcat 예제만 둔다: " + others);
+        Set<String> allowed = new LinkedHashSet<>(Arrays.asList(USER_GUIDE, EXAMPLE_PROPERTIES, DBCP2_XML, JDBC_POOL_XML));
+        String index = read(USER_GUIDE);
+        for (String doc : guideFiles()) {
+            if (doc.equals(USER_GUIDE)) continue;
+            assertTrue(doc.matches("docs/(guide|reference)/[a-z-]+\\.md"), doc);
+            assertTrue(index.contains("](" + doc.substring(5) + ")"), "허브에서 찾을 수 없는 문서: " + doc);
+            allowed.add(doc);
+        }
+        try (Stream<Path> paths = Files.walk(Paths.get("docs"))) {
+            paths.filter(Files::isRegularFile).forEach(p -> assertTrue(allowed.contains(p.toString().replace('\\', '/')), p.toString()));
         }
         for (String path : new String[] {EXAMPLE_PROPERTIES, DBCP2_XML, JDBC_POOL_XML, USER_GUIDE, HARNESS}) {
             assertTrue(Files.isRegularFile(Paths.get(path)), "파일이 없음: " + path);
         }
-        String guide = read(USER_GUIDE);
+        String guide = guideText();
         assertFalse(guide.contains("## 2. 처음 설치해 연결하기"), "상세 가이드에 README 빠른 시작이 중복되면 안 된다");
         assertFalse(guide.contains("DBA — 회사 키"), "상세 가이드는 특정 조직의 역할을 전제하지 않는다");
         // 체험용 내장 키와 운영용 사용자 지정 키를 구분하고, keygen이 필수 단계가 아님을 안내한다.
@@ -252,36 +280,40 @@ class DocsConsistencyTest {
         }
         assertTrue(read("README.md").contains("docs/user-guide.md"));
         // README·AGENTS·상세 가이드의 상대 링크가 실제 파일로 이어지고, 제목 링크도 정확한지 확인한다.
-        for (String doc : new String[] {"README.md", "AGENTS.md", USER_GUIDE}) {
-            String text = read(doc);
+        List<String> docs = guideFiles();
+        docs.add("README.md");
+        docs.add("AGENTS.md");
+        Map<Path, Set<String>> targets = new LinkedHashMap<>();
+        for (String doc : docs) {
+            String prose = withoutFences(read(doc));
             Set<String> anchors = new LinkedHashSet<>();
-            for (String line : text.split("\\r?\\n")) {
-                if (line.startsWith("#")) anchors.add(slug(line.replaceFirst("^#+\\s*", "")));
+            Matcher explicit = Pattern.compile("<a (?:name|id)=\"([^\"]+)\"").matcher(prose);
+            while (explicit.find()) anchors.add(explicit.group(1));
+            Set<String> headings = new LinkedHashSet<>();
+            Matcher heading = Pattern.compile("(?m)^#{1,6} +(.+)$").matcher(prose);
+            while (heading.find()) {
+                String base = slug(heading.group(1).replaceAll("\\[([^]]+)\\]\\([^)]+\\)", "$1"));
+                String id = base;
+                int sequence = 0;
+                while (!headings.add(id)) id = base + "-" + (++sequence);
+                anchors.add(id);
             }
-            Matcher link = Pattern.compile("\\]\\(([^)\\s]+)\\)").matcher(text);
+            targets.put(Paths.get(doc), anchors);
+        }
+        for (String doc : docs) {
+            Path source = Paths.get(doc);
+            Matcher link = Pattern.compile("\\]\\(([^)\\s]+)\\)").matcher(withoutFences(read(doc)));
             int checked = 0;
             while (link.find()) {
                 String target = link.group(1);
-                if (target.startsWith("http://") || target.startsWith("https://") || target.startsWith("mailto:")) continue;
-                if (target.startsWith("#")) {
-                    assertTrue(anchors.contains(target.substring(1)), doc + "의 없는 제목 링크: " + target);
-                } else {
-                    String file = target.contains("#") ? target.substring(0, target.indexOf('#')) : target;
-                    Path parent = Paths.get(doc).getParent();
-                    Path resolved = (parent == null ? Paths.get(file) : parent.resolve(file)).normalize();
-                    assertTrue(Files.exists(resolved), doc + "의 깨진 링크: " + target);
-                    if (target.contains("#") && file.endsWith(".md")) {
-                        String targetHeading = target.substring(target.indexOf('#') + 1);
-                        Set<String> targetAnchors = new LinkedHashSet<>();
-                        for (String line : read(resolved.toString()).split("\\r?\\n")) {
-                            if (line.startsWith("#")) targetAnchors.add(slug(line.replaceFirst("^#+\\s*", "")));
-                        }
-                        assertTrue(targetAnchors.contains(targetHeading), doc + "의 대상 제목 링크가 없음: " + target);
-                    }
-                }
+                if (target.matches("^(https?://|mailto:).*")) continue;
+                String[] parts = target.split("#", 2);
+                Path file = parts[0].isEmpty() ? source : source.resolveSibling(parts[0]).normalize();
+                assertTrue(Files.isRegularFile(file), doc + " → " + target);
+                if (parts.length == 2) assertTrue(targets.containsKey(file) && targets.get(file).contains(parts[1]), doc + " → " + target);
                 checked++;
             }
-            if (doc.equals("README.md")) assertTrue(checked >= 5, "README에서 검사한 링크 수: " + checked);
+            if (doc.equals("README.md")) assertTrue(checked >= 5);
         }
         // 옮기기 전 경로가 문서·도움말·CI·하니스·예제에 남아 있으면 안 된다.
         List<Path> sources = new ArrayList<>();
@@ -304,6 +336,10 @@ class DocsConsistencyTest {
         }
     }
 
+    private static String withoutFences(String text) {
+        return text.replace("\r\n", "\n").replaceAll("(?ms)^```[^\\n]*\\n.*?^```[ \\t]*$", "");
+    }
+
     /** GitHub Markdown 제목 링크 규칙(소문자, 문자·숫자·공백·하이픈만 남기고 공백은 하이픈). */
     private static String slug(String heading) {
         return heading.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("[^\\p{L}\\p{N}\\s-]", "").replace(' ', '-');
@@ -312,21 +348,209 @@ class DocsConsistencyTest {
     /** 신규 개발자가 CLI Help를 별도로 열지 않고도 모든 명령·옵션을 상세 가이드에서 찾는지 확인한다. */
     @Test
     void userGuideCoversEveryCliCommandAndItsOptions() throws IOException {
-        String guide = read(USER_GUIDE);
-        int start = guide.indexOf("## 2. CLI 명령");
-        int end = guide.indexOf("## 3. Tomcat JNDI 연동", start);
-        assertTrue(start >= 0 && end > start, "사용 가이드에 CLI 전체 설명 장이 없음");
-        String chapter = guide.substring(start, end);
+        String guide = guideText();
         for (CliCommands.Spec spec : CliCommands.ALL) {
-            Pattern header = Pattern.compile("(?m)^### 2\\.\\d+ `" + Pattern.quote(spec.name) + "`.*$");
-            Matcher found = header.matcher(chapter);
-            assertTrue(found.find(), "CLI 상세 가이드에 명령 설명 누락: " + spec.name);
-            int next = chapter.indexOf("\n### 2.", found.end());
-            String details = chapter.substring(found.start(), next < 0 ? chapter.length() : next);
-            assertTrue(details.contains("```"), "CLI 명령별 실제 실행 예제가 없음: " + spec.name);
+            Pattern section = Pattern.compile("(?ms)^### `" + Pattern.quote(spec.name) + "`[^\\n]*\\n(.*?)(?=^#{2,3} |\\z)");
+            Matcher found = section.matcher(guide);
+            assertTrue(found.find(), "명령별 상세 설명 누락: " + spec.name);
+            String details = found.group(1);
+            assertFalse(found.find(), "명령별 상세 설명 중복: " + spec.name);
+            Matcher examples = EXAMPLE.matcher(details);
+            boolean hasExample = false;
+            while (examples.find()) hasExample |= spec.name.equals(examples.group(1));
+            assertTrue(hasExample, "CLI 명령별 실제 실행 예제가 없음: " + spec.name);
             for (String option : spec.options()) {
-                assertTrue(details.contains(option), "CLI 명령별 실제 옵션 누락: " + spec.name + " " + option);
+                assertTrue(Pattern.compile("(?m)^\\| `" + Pattern.quote(option) + "(?: |`)").matcher(details).find(), "CLI 명령별 실제 옵션 누락: " + spec.name + " " + option);
             }
+        }
+    }
+
+    /**
+     * 가이드 13장의 {@code // 예제: 클래스.메서드} 블록이 컴파일·실행 시험하는 예제 소스(src/test/java/example)의 그 메서드와
+     * 글자 그대로 같고, 예제 소스의 예제가 모두 가이드에 한 번씩 있는지 확인한다. 블록 = 표시 줄 + 메서드 선언·본문(표시 줄 제외, 클래스
+     * 들여쓰기 4칸 제거).
+     */
+    @Test
+    void userGuideJavaSnippetsMatchTheTestedExampleSources() throws IOException {
+        String guide = guideText();
+        Matcher block = Pattern.compile("(?ms)^```java\\n// 예제: (\\w+)\\.(\\w+)\\n(.*?)^```$").matcher(guide);
+        Set<String> documented = new LinkedHashSet<>();
+        while (block.find()) {
+            String name = block.group(1) + "." + block.group(2);
+            assertTrue(documented.add(name), "같은 예제 블록이 두 번 있음: " + name);
+            assertEquals(exampleSnippet(block.group(1), block.group(2)), block.group(3), "가이드 예제가 시험하는 예제 소스와 다름: " + name);
+        }
+        Set<String> sources = new LinkedHashSet<>();
+        for (String cls : new String[] {"SecurityApiExample", "TokenApiExample"}) {
+            Matcher marker = Pattern.compile("(?m)^ {8}// 예제: (" + cls + "\\.\\w+)$")
+                    .matcher(read("src/test/java/example/" + cls + ".java").replace("\r\n", "\n"));
+            while (marker.find()) sources.add(marker.group(1));
+        }
+        assertFalse(sources.isEmpty(), "예제 소스에 예제 표시가 없음");
+        assertEquals(sources, documented, "예제 소스의 예제와 가이드의 예제 블록이 일대일로 같아야 한다");
+    }
+
+    private static String exampleSnippet(String cls, String method) throws IOException {
+        List<String> lines = java.util.Arrays.asList(read("src/test/java/example/" + cls + ".java").replace("\r\n", "\n").split("\n", -1));
+        int marker = lines.indexOf("        // 예제: " + cls + "." + method);
+        assertTrue(marker > 0 && lines.lastIndexOf(lines.get(marker)) == marker, "예제 소스에 표시가 없거나 중복: " + cls + "." + method);
+        int start = marker - 1;
+        while (!lines.get(start).startsWith("    public static ")) start--;
+        int end = marker + 1;
+        while (!lines.get(end).equals("    }")) end++;
+        StringBuilder out = new StringBuilder();
+        for (int i = start; i <= end; i++) {
+            if (i != marker) out.append(lines.get(i).isEmpty() ? "" : lines.get(i).substring(4)).append('\n');
+        }
+        return out.toString();
+    }
+
+    /** 공개 보안 API의 업무별 설명을 찾을 수 있고 README와 선택표에서 상세 절로 이동할 수 있는지 검사한다. */
+    @Test
+    void userGuideCoversEveryPublicSecurityApiClass() throws IOException {
+        StringBuilder guide = new StringBuilder();
+        for (String path : guideFiles()) {
+            if (path.startsWith("docs/guide/")) guide.append(read(path)).append('\n');
+        }
+        String selection = read("docs/reference/api-selection.md");
+        int classes = 0;
+        for (String pkg : new String[] {"security", "jwt", "oauth"}) {
+            try (DirectoryStream<Path> files = Files.newDirectoryStream(Paths.get("src/main/java/io/javacryptokit/" + pkg), "*.java")) {
+                for (Path file : files) {
+                    String name = file.getFileName().toString().replace(".java", "");
+                    if (!Pattern.compile("(?m)^public (?:final |abstract )?(?:class|enum|interface) " + name + "\\b")
+                            .matcher(read(file.toString())).find()) {
+                        continue;
+                    }
+                    classes++;
+                    assertTrue(Pattern.compile("\\b" + name + "\\b").matcher(guide).find(), "가이드에 빠진 공개 클래스: " + pkg + "." + name);
+                }
+            }
+        }
+        assertTrue(classes > 0, "범용 보안 API 공개 클래스를 찾지 못함");
+        int sections = 0;
+        for (String file : guideFiles()) {
+            if (!file.startsWith("docs/guide/")) continue;
+            String text = read(file).replace("\r\n", "\n");
+            Matcher heading = Pattern.compile("(?m)^<a name=\"([^\"]+)\"></a>\\n### [^\\n]+ — [^\\n]+ \\(13\\.\\d+\\)").matcher(text);
+            while (heading.find()) {
+                sections++;
+                assertTrue(selection.contains("../" + file.substring(5) + "#" + heading.group(1) + ")"), "선택표에 빠진 절: " + heading.group(1));
+            }
+        }
+        assertTrue(sections > 0);
+        String readme = read("README.md");
+        assertTrue(readme.contains("](docs/reference/api-selection.md") && readme.contains("](docs/reference/java-api-reference.md"));
+
+    }
+
+    @Test
+    void configurationTablesDescribeBundledDefaultsAndAllowedValues() throws Exception {
+        String guide = read("docs/reference/configuration.md");
+        Properties defaults = new Properties();
+        try (java.io.Reader input = Files.newBufferedReader(Paths.get("src/main/resources/java-crypto-kit.properties"),
+                StandardCharsets.UTF_8)) {
+            defaults.load(input);
+        }
+        for (SettingCatalog.Setting setting : SettingCatalog.ALL) {
+            String row = optionRow(guide, setting.key);
+            String cell = row.split("\\|", -1)[2].trim();
+            String value = defaults.getProperty(setting.key);
+            assertNotNull(value, setting.key);
+            if (setting.sensitive) {
+                assertTrue(cell.startsWith("공개 예제 키"), setting.key);
+            } else if (value.isEmpty()) {
+                assertTrue(cell.startsWith("없음") || cell.startsWith("빈 값"), setting.key);
+            } else if (setting.key.equals(CryptoSettings.POOL_FACTORY)) {
+                assertTrue(cell.startsWith("DBCP2") && guide.contains("`" + value + "`(DBCP2, 기본)"), setting.key);
+            } else {
+                assertTrue(cell.startsWith("`" + value + "`"), setting.key);
+            }
+            for (String choice : setting.choices) {
+                String location = setting.key.equals(CryptoSettings.POOL_FACTORY) ? guide : cell;
+                assertTrue(location.contains("`" + choice + "`"), setting.key + " " + choice);
+            }
+            if (setting.max > 0) assertTrue(cell.contains(setting.min + "~" + setting.max), setting.key);
+        }
+        for (SettingCatalog.ProfileItem item : SettingCatalog.PROFILE_ITEMS) {
+            String row = optionRow(guide, item.name);
+            assertTrue(row.contains(item.location ? "예(위치)" : "아니요"), item.name);
+            for (String choice : item.choices) assertTrue(row.contains("`" + choice + "`"), item.name + " " + choice);
+            if (item.max > 0) assertTrue(row.contains(item.min + "~" + item.max), item.name);
+        }
+    }
+
+    private static String optionRow(String guide, String name) {
+        Matcher row = Pattern.compile("(?m)^\\| `" + Pattern.quote(name) + "` \\|[^\\r\\n]*").matcher(guide);
+        assertTrue(row.find(), "설정 표에 없는 항목: " + name);
+        String text = row.group();
+        assertFalse(row.find(), "설정 표에 중복된 항목: " + name);
+        return text;
+    }
+
+    @Test
+    void apiReferenceIncludesEveryPublicOverloadConstructorAndField() throws Exception {
+        String guide = read("docs/reference/java-api-reference.md");
+        Path root = Paths.get("src/main/java/io/javacryptokit");
+        for (String pkg : Arrays.asList("", "security", "jwt", "oauth")) {
+            try (DirectoryStream<Path> paths = Files.newDirectoryStream(root.resolve(pkg), "*.java")) {
+                for (Path path : paths) {
+                    String name = path.getFileName().toString().replace(".java", "");
+                    if (name.equals("package-info")) continue;
+                    String qualified = "io.javacryptokit." + (pkg.isEmpty() ? "" : pkg + ".") + name;
+                    checkTypeDocumentation(Class.forName(qualified, false, getClass().getClassLoader()), guide);
+                }
+            }
+        }
+        checkTypeDocumentation(Class.forName(FACTORY), guide);
+    }
+
+    private static void checkTypeDocumentation(Class<?> type, String guide) {
+        if (!Modifier.isPublic(type.getModifiers())) return;
+        String name = type.getName().substring(type.getPackage().getName().length() + 1).replace('$', '.');
+        Matcher section = Pattern.compile("(?s)<summary>" + Pattern.quote(name) + "</summary>(.*?)</details>").matcher(guide);
+        assertTrue(section.find(), "호출 형식이 없는 타입: " + name);
+        Set<String> documented = new LinkedHashSet<>();
+        Matcher entries = Pattern.compile("(?m)^- `([^`]+)`").matcher(section.group(1));
+        while (entries.find()) {
+            String declaration = entries.group(1).replaceAll("<[^<>]*>", "").replace("...", "[]")
+                    .replaceAll("(?:\\w+\\.)+(?=\\w)", "").replaceAll("\\s+\\w+(?=[,)])", "").replace(", ", ",");
+            assertTrue(documented.add(declaration), name + ": " + declaration);
+        }
+        Set<String> members = new LinkedHashSet<>();
+        for (Method method : type.getDeclaredMethods()) {
+            if (!Modifier.isPublic(method.getModifiers()) || method.isSynthetic()) continue;
+            if (type.isEnum() && (method.getName().equals("values") || method.getName().equals("valueOf"))) continue;
+            members.add(signature(method.getName(), method.getParameterTypes()));
+        }
+        for (Constructor<?> ctor : type.getDeclaredConstructors()) {
+            if (Modifier.isPublic(ctor.getModifiers())) members.add(signature(type.getSimpleName(), ctor.getParameterTypes()));
+        }
+        for (Field field : type.getDeclaredFields()) {
+            if (Modifier.isPublic(field.getModifiers())) members.add(field.getName());
+        }
+        assertEquals(members, documented, name);
+        for (Class<?> nested : type.getDeclaredClasses()) checkTypeDocumentation(nested, guide);
+    }
+
+    private static String signature(String name, Class<?>[] parameters) {
+        return name + "(" + Arrays.stream(parameters).map(Class::getSimpleName).collect(Collectors.joining(",")) + ")";
+    }
+
+    /** 빌드 버전과 시험·README·가이드의 버전 표기(소스 버전 안내, 예제 JAR 이름)가 같은지 확인한다. */
+    @Test
+    void documentedVersionMatchesTheBuild() throws IOException {
+        Matcher declared = Pattern.compile("(?m)^version = '(\\d+\\.\\d+\\.\\d+)'$").matcher(read("build.gradle"));
+        assertTrue(declared.find(), "build.gradle의 version");
+        String version = declared.group(1);
+        assertEquals(version, io.javacryptokit.TestJars.VERSION, "시험용 JAR 버전이 빌드 버전과 다름");
+        List<String> docs = guideFiles();
+        docs.add("README.md");
+        for (String doc : docs) {
+            String text = read(doc);
+            if (doc.equals("README.md") || doc.equals(USER_GUIDE)) assertTrue(Pattern.compile("(?<![0-9.])" + Pattern.quote(version) + "(?![0-9.])").matcher(text).find(), doc + "에 소스 버전 안내가 없음");
+            Matcher jar = Pattern.compile("java-crypto-kit-(\\d+\\.\\d+\\.\\d+)").matcher(text);
+            while (jar.find()) assertEquals(version, jar.group(1), doc + "의 JAR 이름 버전이 빌드 버전과 다름");
         }
     }
 

@@ -61,38 +61,38 @@ final class AwsKmsSupport {
     private AwsKmsSupport() { }
 
     /** KMS Decrypt로 평문 데이터 키를 복원한다. */
-    static byte[] decrypt(CryptoSettings settings, byte[] blob) {
+    static byte[] decrypt(CryptoSettings settings, String keyId, byte[] blob) {
         return call(settings, kms -> kms.decrypt(DecryptRequest.builder()
                 .ciphertextBlob(SdkBytes.fromByteArray(blob))
                 .keyId(settings.get(CryptoSettings.AWS_KMS_KEY_ID))
-                .encryptionContext(context(settings))
+                .encryptionContext(context(keyId))
                 .build()).plaintext().asByteArray());
     }
 
     /** KMS GenerateDataKey(AES_256)로 새 데이터 키를 만든다. */
-    static AwsKmsKeyProvider.DataKey generate(CryptoSettings settings) {
+    static AwsKmsKeyProvider.DataKey generate(CryptoSettings settings, String keyId) {
         return call(settings, kms -> {
             GenerateDataKeyResponse response = kms.generateDataKey(GenerateDataKeyRequest.builder()
                     .keyId(settings.get(CryptoSettings.AWS_KMS_KEY_ID))
                     .keySpec(DataKeySpec.AES_256)
-                    .encryptionContext(context(settings))
+                    .encryptionContext(context(keyId))
                     .build());
             return new AwsKmsKeyProvider.DataKey(response.plaintext().asByteArray(), response.ciphertextBlob().asByteArray());
         });
     }
 
     /** KMS Encrypt로 기존 키를 감싼다. */
-    static byte[] wrap(CryptoSettings settings, byte[] key) {
+    static byte[] wrap(CryptoSettings settings, String keyId, byte[] key) {
         return call(settings, kms -> kms.encrypt(EncryptRequest.builder()
                 .keyId(settings.get(CryptoSettings.AWS_KMS_KEY_ID))
                 .plaintext(SdkBytes.fromByteArray(key))
-                .encryptionContext(context(settings))
+                .encryptionContext(context(keyId))
                 .build()).ciphertextBlob().asByteArray());
     }
 
-    /** 고정 Encryption Context: 데이터 키를 키ID에 묶는다(암호화·복호화에서 항상 같다). */
-    static Map<String, String> context(CryptoSettings settings) {
-        return Collections.singletonMap(AwsKmsKeyProvider.CONTEXT_KEY, settings.keyId());
+    /** 고정 Encryption Context: 데이터 키를 Key ID에 묶는다(암호화·복호화에서 항상 같다). */
+    static Map<String, String> context(String keyId) {
+        return Collections.singletonMap(AwsKmsKeyProvider.CONTEXT_KEY, keyId);
     }
 
     /** 클라이언트를 만들어 한 번 호출하고 닫는다. SDK 예외는 정제된 고정 문구로 바꾼다. */

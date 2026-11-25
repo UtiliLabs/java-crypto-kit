@@ -1,0 +1,50 @@
+
+# java-crypto-kit 문서 정합성(경량)
+# - README·AGENTS·docs만 바뀐 main Push·Pull Request에서 문서 정합성 시험만 실행한다(Linux·JDK 8 한 작업).
+#   문서의 명령·옵션·설정 이름·링크·예제 JAR 이름과 한·영 도움말을 실제 CLI 정의와 대조하고, 가이드의 Java 예제 블록·범용 보안 API
+#   공개 클래스 문서화·버전 표기를 예제 소스·공개 API·빌드 설정과 대조한다(DocsConsistencyTest·DoctorAndHelpTest).
+# - 코드·빌드 설정이 바뀌면 ci.yml이 전체 매트릭스 빌드·시험(같은 문서 시험 포함)을 한다(이 작업은 그 범위를 줄이지 않는다).
+# - 빌드 산출물을 올리거나 Release를 게시하지 않는다. 외부 Action은 ci.yml과 같은 커밋 SHA로 고정한다.
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'README.md'
+      - 'AGENTS.md'
+      - 'docs/**'
+  pull_request:
+    paths:
+      - 'README.md'
+      - 'AGENTS.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    name: docs consistency (ubuntu, JDK 8)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+
+      - name: Set up JDK 8
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '8'
+
+      - name: Documentation consistency tests
+        run: ./gradlew --no-daemon test --tests 'io.javacryptokit.cli.DocsConsistencyTest' --tests 'io.javacryptokit.cli.DoctorAndHelpTest'

@@ -1,45 +1,23 @@
-file encrypt - 일반 파일 암호화(텍스트, CSV, JSON, PDF, 이미지, 압축 파일 등)
+file encrypt - 파일 암호화(내용 형식 무관, JCKF v1, 큰 파일도 스트리밍)
 
-사용 형식
-  java [-D...] -jar {jar} file encrypt --in <파일> [--out <파일>] [--config <파일>] [--lang en|ko]
+사용법
+  java [-D...] -jar {jar} file encrypt --in <파일>
+       [--out <파일>] [--type pass|key] [--key-id <ID>]
+       [--config <파일>] [--lang en|ko]
 
 옵션
-  --in <파일>       암호화할 파일(필수). 일반 파일만, 일반 파일을 가리키는 심볼릭 링크는 허용.
-  --out <파일>      만들 암호화 파일(선택). 기본값: 같은 폴더의 <입력>.jck.
-                    아직 없어야 하며(덮어쓰지 않음) 입력과 달라야 합니다.
-  --config <파일>   외부 Properties 파일(선택, encrypt와 같은 규칙).
-  --lang en|ko      이번 실행의 메시지 언어(선택).
+  --in <파일>       암호화할 파일(필수)
+  --out <파일>      결과 파일(선택, 기본 <입력>.jck).
+                    이미 있으면 덮어쓰지 않습니다.
+  --type pass|key   키 유형(선택, encrypt와 같은 규칙)
+  --key-id <ID>     등록된 키 ID(선택, 유형 자동)
+  --config <파일>   외부 Properties 파일(선택, encrypt와 같은 규칙)
+  --lang en|ko      이번 실행의 메시지 언어(선택)
+  원본은 바꾸지 않습니다. 같은 파일도 매번 다른 결과가 나옵니다.
 
-동작
-  JCKF v1 형식으로 씁니다: 헤더(버전, 키ID) + 64KiB 청크(청크마다 AES-256-GCM, 각자 새 난수 IV). 헤더·청크 순서·
-  마지막 청크를 인증하므로 변조·순서 바꾸기·잘라내기·덧붙이기를 복호화 때 탐지합니다. 큰 파일도 청크 하나씩
-  스트리밍합니다. 결과는 출력 폴더의 임시 파일에 쓰고 다 쓴 뒤에만 이름을 바꿉니다. 원본은 바꾸지 않습니다.
-  문자열 형식 ENC[v1:...]과는 별개 형식입니다.
+결과
+  암호화 완료: data.csv -> data.jck (키 ID key01, 1048650바이트)
 
 예제
-  Windows PowerShell
-    java -jar .\{jar} file encrypt --in "C:/data/monthly report.pdf"
-    java -jar .\{jar} file encrypt --in C:/data/users.csv --out D:/backup/users.csv.jck
-  Linux
-    java -jar ./{jar} file encrypt --in /data/export/users.csv
-    java -jar ./{jar} file encrypt --in /data/img.png --out /secure/img.png.jck --config /etc/java-crypto-kit/batch.properties
-
-예상 결과
-  암호화 완료: users.csv -> users.csv.jck (JCKF v1, 키ID prod01, 1048650바이트)
-  원본 파일은 바꾸지 않았습니다.
-
-대표 오류와 해결
-  [사유: INVALID_INPUT] 출력 파일(...)이 이미 있습니다     -> 다른 --out을 지정하거나 기존 파일을 옮기세요.
-  [사유: INVALID_INPUT] 입력 파일(...)이 없습니다          -> --in을 확인하세요(공백이 있는 경로는 따옴표).
-  [사유: INVALID_INPUT] 입력과 출력이 같은 경로입니다      -> 다른 --out을 지정하세요.
-  [사유: KEY_SOURCE] ...                                   -> 키를 읽지 못함. doctor로 점검하세요.
-
-보안 주의
-  - 복호화에는 같은 키·키ID가 필요합니다. 키(또는 키 내장 JAR)를 안전하게 보관하세요.
-  - 암호화 파일에서 파일 크기와 키ID는 드러나지만 내용은 드러나지 않습니다.
-  - 암호화하는 동안 입력 파일을 바꾸지 마세요.
-
-Java API(같은 구현)
-  CredentialCrypto.fromDefaultConfiguration().encryptFile(Paths.get("users.csv"), Paths.get("users.csv.jck"));
-
-관련 명령: file decrypt, fingerprint, doctor
+  java -jar {jar} file encrypt --in "monthly report.pdf"
+  java -jar {jar} file encrypt --in data.csv --type key

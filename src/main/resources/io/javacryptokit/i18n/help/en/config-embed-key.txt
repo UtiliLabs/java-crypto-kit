@@ -1,67 +1,43 @@
-config embed-key - embed your own AES-256 key and a new key ID into the JAR (CLI only, no rebuild)
+config embed-key - build a crypto.key.* AES key and a new key ID into a new JAR
 
 Usage
-  java -jar {jar} config embed-key --from-file <key file> --key-id <new key ID> --operator <ID>
-                  [--source embedded] [--reason <text>] [--jar <jar>] [--out <jar> | --replace] [--yes] [--lang en|ko]
+  java -jar {jar} config embed-key --from-file <key file>
+       --key-id <new key ID> --operator <ID> [--source embedded]
+       [--reason <text>] [--jar <jar>] [--out <jar> | --replace]
+       [--yes] [--admin-pass-file <file>] [--lang en|ko]
 
 Options
-  --from-file <key file>   Key file made by keygen (required). The key is never taken as an argument.
-  --key-id <new key ID>    New key ID (required): letters, digits, _ and -, 1-64 characters, e.g. prod01.
-                           The current key ID of the JAR and every key ID used in its change history are refused,
-                           so ciphertext of an old key stays distinguishable. To go back to an earlier key, deploy
-                           the earlier JAR (or its .bak backup) again.
-  --operator <ID>          Operator ID recorded in the history (required, not authentication).
-  --source embedded        Needed only when crypto.key.source of the JAR is not embedded: switches it to embedded and
-                           embeds the key. If it is already embedded (default), embedding works without it. If it is not
-                           embedded and the option is omitted, the command stops with an error and the JAR is not changed.
-  --reason <text>          Reason recorded in the history (optional).
-  --jar <jar>              JAR to change (optional, default: the running JAR).
-  --out <jar>              Result JAR (optional, default <name>-configured.jar; for an already changed JAR the next
-                           number, e.g. -configured-2.jar). Never overwritten.
-  --replace                Replace the source JAR after a backup (not the running JAR; not with --out).
-  --yes                    Skip the CHANGE confirmation (unattended automation).
-  --lang en|ko             Message language for this run only (optional).
+  --from-file <key file>   Key file in keygen format (required, no raw key)
+  --key-id <new key ID>    New key ID (required, 1-64 letters, digits, _ or -).
+                           Registered and public default key IDs cannot be
+                           used; an ID used in the history only to restore the
+                           same key (matching full fingerprint).
+  --operator <ID>          Operator ID for the history (required)
+  --source embedded        Needed only when the target JAR's crypto.key.source
+                           is not embedded (switches it). Omit it otherwise.
+  --reason <text>          Reason for the history (required, asked
+                           interactively)
+  --jar <jar>              JAR to change (optional, default: the running JAR)
+  --out <jar>              Result JAR (optional, default <name>-configured.jar)
+                           An existing file is never overwritten.
+  --replace                Replace the original (backup first)
+  --yes                    Skip the CHANGE confirmation (not the reason)
+  --admin-pass-file <file> Admin password file (non-interactive, mode 600)
+                           Without it the admin password is asked (hidden)
+  --lang en|ko             Message language for this run (optional)
+  The previous AES key stays in the key list with its key ID, so existing
+  ciphertext still decrypts (an external key that cannot be read now is not
+  kept; this is shown). Pass keys and other keys are unchanged.
+  Adding and rotating keys: help config key
 
-User-provided key procedure (public JAR -> key-embedded JAR)
-  1) java -jar {jar} keygen --out example.key   # only when you need a new key (start at 2) if you have a key file)
-  2) java -jar {jar} config embed-key --from-file example.key --key-id prod01 --operator example-admin
-  3) java -jar java-crypto-kit-{version}-configured.jar config show      (key: replaced key, fingerprint)
-     java -jar java-crypto-kit-{version}-configured.jar config history   (crypto.key.embedded: (secret) -> (replaced))
-     java -jar java-crypto-kit-{version}-configured.jar fingerprint --key-file example.key   (same fingerprint)
-  4) Re-encrypt existing ciphertext (made with the old key):
-     java -jar java-crypto-kit-{version}-configured.jar rekey --from-jar java-crypto-kit-{version}.jar
-     or simply encrypt the DB passwords again with the new JAR (encrypt).
-  5) Replace password="..." in the JNDI Resources, put the new JAR in CATALINA_BASE/lib (remove the old one), restart.
-  6) Store example.key and the key-embedded JAR safely (if both are lost, the ciphertext cannot be recovered).
-
-What it does
-  Validates the key file (Base64, exactly 32 bytes, not the public key, not the current key), shows the impact on
-  existing ciphertext, asks for CHANGE (or --yes), writes crypto.key.embedded and crypto.key.id (and
-  crypto.key.source=embedded with --source) into a new JAR, checks a real encrypt/decrypt with the new key, and
-  records the change in the history without the key value.
+Result
+  Created JAR : C:\work\java-crypto-kit-{version}-configured.jar
+  Changes     : crypto.key.embedded (secret)
+                crypto.key.id (default -> key01)
+                crypto.keys.default.type ((none) -> key)
+                ...
+  Fingerprint : ab12cd34ef56...7890abcd
 
 Examples
-  Windows PowerShell
-    java -jar .\{jar} config embed-key --from-file "$HOME\jck-secure\example.key" --key-id prod01 --operator example-admin
-  Linux
-    java -jar ./{jar} config embed-key --from-file /secure/example.key --key-id prod01 --operator example-admin --reason "initial user-provided key" --yes
-    java -jar ./{jar} config embed-key --from-file ./new.key --key-id prod02 --source embedded --jar ./app/{jar} --out ./dist/{jar} --operator example-admin
-
-Expected result
-  [CAUTION] The JAR built-in key will be replaced (key file: example.key). Key ID default -> prod01, ...
-  [DONE] A new JAR with changed internal settings was created (the original was not changed).
-  Next steps: 1) first setup: encrypt (rekey if ciphertext of the old key exists) 2) replace the JNDI password
-             3) replace the JAR and restart Tomcat
-
-Errors and fixes
-  [reason: USAGE] Key ID conflict                         -> use a --key-id never used before (see config history).
-  [reason: USAGE] The public default key cannot be embedded -> create a new key with keygen.
-  [reason: USAGE] The built-in key source of this JAR is ...  -> add --source embedded.
-  [reason: KEY_SOURCE] An AES-256 key must be exactly 32 bytes -> use a key file made by keygen.
-
-Security
-  - The default key of the published JAR is PUBLIC: never use it in production.
-  - A built-in key can be extracted from the JAR. Never publish the key-embedded JAR (GitHub, public repositories) and
-    restrict read access (chmod 640). For stronger separation use file/env keys, Vault or AWS KMS instead.
-
-Related: keygen, rekey, fingerprint, config show, config history
+  java -jar {jar} config embed-key --from-file example.key --key-id key01 --operator ops
+  java -jar java-crypto-kit-{version}-configured.jar fingerprint --type key

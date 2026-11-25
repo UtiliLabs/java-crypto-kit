@@ -1,47 +1,36 @@
-keygen - create a new random AES-256 key file
+keygen - create a new AES-256 key file (only when you need a key-type key)
 
 Usage
-  java -jar {jar} keygen --out <key file> [--lang en|ko]
+  java -jar {jar} keygen --out <key file>
+       [--reason <text>] [--operator <ID>]
+       [--admin-pass-file <file>] [--lang en|ko]
 
 Options
-  --out <key file>   Key file to create (required). The parent folder must exist. An existing file is never
-                     overwritten (losing a key makes its ciphertext undecryptable).
-  --lang en|ko       Message language for this run only (optional).
+  --out <key file>   Key file to create (required). The parent folder must
+                     exist; an existing file is never overwritten.
+  --reason <text>    Reason (required). Asked in an interactive terminal;
+                     otherwise an error before any key is made.
+  --operator <ID>    Operator ID (optional, shown in the result only)
+  --admin-pass-file <file>
+                     Admin password file (non-interactive, mode 600)
+                     Without it the admin password is asked (hidden)
+  --lang en|ko       Message language for this run (optional)
+  Writes 32 secure random bytes as one standard Base64 line (mode 600 on
+  Linux/macOS). An interactive terminal shows that same line (the generated
+  value) once; a non-interactive run does not (the key file is the original).
+  keygen changes no JAR, so the reason and operator are not stored anywhere.
+  It does not create passphrases (pass keys: config key add --generate).
 
-What it does
-  Creates 32 random bytes with SecureRandom and writes them as one line of standard Base64 (44 characters).
-  On Linux/macOS the file is created with permission 600. The key is never printed; only its fingerprint.
-  keygen does not read any settings or keys.
+Result
+  Key file    : C:\Users\me\jck-secure\example.key
+  Fingerprint : 3f9a... (64 characters)
+  Reason      : prepare the production key
+  History     : not stored (no JAR is changed, so config history has none)
+  Interactive: then type, key ID (not registered), format, value line, note.
 
-Examples (create the parent folder first)
-  Windows PowerShell (a folder under your user profile: only you and administrators by default)
-    New-Item -ItemType Directory -Force -Path "$HOME\jck-secure" | Out-Null
-    java -jar .\{jar} keygen --out "$HOME\jck-secure\example.key"
-    icacls "$HOME\jck-secure\example.key" /inheritance:r /grant:r "${env:USERNAME}:(R)"
-    A folder created directly under C:\ (e.g. C:\secure) inherits read access for other local users by default;
-    remove inheritance with icacls and allow only the accounts that need it (operator, Tomcat service account).
-  Linux (for embedding, your own folder)
-    mkdir -p -m 700 ~/jck-secure
-    java -jar ./{jar} keygen --out ~/jck-secure/example.key
-  Linux server (file key read by the Tomcat account - run as root, adjust the account name)
-    install -d -m 750 -g tomcat /etc/java-crypto-kit
-    java -jar ./{jar} keygen --out /etc/java-crypto-kit/example.key
-    chown tomcat:tomcat /etc/java-crypto-kit/example.key
-
-Expected result
-  The key file was created. Key fingerprint: 3f9a...
-  Next: build the key-embedded JAR with config embed-key --from-file example.key --key-id <new key ID> --operator <ID>, or ...
-
-Next
-  - Embed it into the JAR:   java -jar {jar} config embed-key --from-file example.key --key-id prod01 --operator <ID>
-  - Or use it as a file key: crypto.key.source=file and crypto.key.file=/etc/java-crypto-kit/example.key
-  - Or store it in Vault KV v2 (help vault) or wrap it with AWS KMS (kms datakey --help).
-
-Errors and fixes
-  [reason: USAGE] The key file already exists (FileAlreadyExistsException) -> choose another name.
-  [reason: USAGE] The folder for the key file does not exist               -> create the folder first.
-
-Security
-  Keep a protected backup of every key that is in use. Never commit key files or send them by e-mail or chat.
-
-Related: config embed-key, fingerprint, rekey
+Examples (Windows PowerShell)
+  mkdir $HOME\jck-secure
+  java -jar {jar} keygen --out $HOME\jck-secure\example.key
+Examples (Linux)
+  mkdir -m 700 ~/jck-secure
+  java -jar {jar} keygen --out ~/jck-secure/example.key

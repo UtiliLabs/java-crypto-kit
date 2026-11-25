@@ -45,7 +45,7 @@ class AwsKmsKeyProviderTest {
 
     private CryptoSettings settings(String keyId, String kmsKey, Path dataKey) throws Exception {
         return TestSupport.isolatedSettings(TestSupport.writeConfig(dir, "kms-" + System.nanoTime() + ".properties",
-                "crypto.key.source=aws-kms", "crypto.key.id=" + keyId, "crypto.aws.region=us-east-1",
+                "crypto.key.type=key", "crypto.key.source=aws-kms", "crypto.key.id=" + keyId, "crypto.aws.region=us-east-1",
                 "crypto.aws.kms.key.id=" + kmsKey,
                 "crypto.aws.kms.data-key.file=" + (dataKey == null ? "" : TestSupport.propertiesPath(dataKey))));
     }

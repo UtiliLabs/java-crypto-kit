@@ -26,7 +26,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * 키 공급 방식 3종(embedded/file/env) × 경고 정책(crypto.warning.enabled=true/false) 시나리오 검증.
- * 경고 표시 여부만 바뀌고 암복호화 동작·Fail Closed는 그대로인지 확인한다.
+ * 자동 경고는 실제 적용 키가 공개 기본 키일 때의 한 줄뿐이며(공급 방식 무관, JVM당 1회), 사용자 지정 키(교체한 내장 키
+ * 포함)·외부 키에는 0건이다. 경고 표시 여부만 바뀌고 암복호화 동작·Fail Closed는 그대로인지 확인한다.
  */
 class KeyModeWarningMatrixTest {
     @TempDir
@@ -72,9 +73,9 @@ class KeyModeWarningMatrixTest {
             assertEquals("dummy", crypto.decryptText(crypto.encryptText("dummy")));
             List<String> warnings = log.warnings();
             if (warningEnabled) {
+                // 공급 방식과 관계없이 같은 한 줄 경고(키 값으로 판정)
                 assertEquals(1, warnings.size(), warnings.toString());
-                assertTrue(warnings.get(0).contains("공개 기본 키"));
-                assertTrue(warnings.get(0).contains("키 공급 방식: " + source));
+                assertTrue(warnings.get(0).contains("공개 기본 키 사용 중"), warnings.get(0));
                 assertFalse(warnings.get(0).contains(TestSupport.publicKeyBase64()), "키 값이 로그에 나오면 안 된다");
             } else {
                 assertTrue(warnings.isEmpty(), warnings.toString());
@@ -84,21 +85,33 @@ class KeyModeWarningMatrixTest {
 
     @ParameterizedTest(name = "교체한 내장 키, crypto.warning.enabled={0}")
     @ValueSource(booleans = {true, false})
-    void replacedEmbeddedKeyWarnsAboutExtractionOnlyWhenEnabled(boolean warningEnabled) throws Exception {
+    void replacedEmbeddedKeyNeverWarns(boolean warningEnabled) throws Exception {
+        // 사용자 지정 내장 키는 정책성 경고 대상이 아니다(경고 정책과 무관하게 0건).
         String randomKey = new String(java.nio.file.Files.readAllBytes(TestSupport.writeRandomKeyFile(dir, "r.key")),
                 java.nio.charset.StandardCharsets.US_ASCII).trim();
-        Path config = TestSupport.writeConfig(dir, "embedded-custom.properties",
+        Path config = TestSupport.writeConfig(dir, "embedded-custom.properties", "crypto.key.type=key",
                 "crypto.key.source=embedded", "crypto.key.embedded=" + randomKey,
                 "crypto.warning.enabled=" + warningEnabled);
         try (TestSupport.LogCapture log = new TestSupport.LogCapture()) {
             CredentialCrypto crypto = CredentialCrypto.fromConfigFile(config);
             crypto.decryptText(crypto.encryptText("dummy"));
-            List<String> warnings = log.warnings();
-            assertEquals(warningEnabled ? 1 : 0, warnings.size(), warnings.toString());
-            if (warningEnabled) {
-                assertTrue(warnings.get(0).contains("JAR 내장 키"));
-                assertFalse(warnings.get(0).contains(randomKey));
+            assertTrue(log.warnings().isEmpty(), log.warnings().toString());
+        }
+    }
+
+    @Test
+    void explicitDiagnosticsDoNotRepeatTheWarningAndDoNotConsumeIt() throws Exception {
+        // info·doctor·fingerprint는 키 상태를 직접 보여 주므로 그 범위(quiet)에서는 자동 경고를 내지 않는다.
+        Path config = configFor("embedded", true, false);
+        try (TestSupport.LogCapture log = new TestSupport.LogCapture()) {
+            CredentialCrypto crypto = CredentialCrypto.fromConfigFile(config);
+            try (DefaultKeyWarning.Quiet ignored = DefaultKeyWarning.quiet()) {
+                crypto.decryptText(crypto.encryptText("dummy"));
             }
+            assertTrue(log.warnings().isEmpty(), log.warnings().toString());
+            // 범위를 벗어난 실제 사용에서는 JVM당 한 번 정상적으로 나온다("이미 경고함"을 소모하지 않음).
+            crypto.decryptText(crypto.encryptText("dummy"));
+            assertEquals(1, log.warnings().size(), log.warnings().toString());
         }
     }
 
@@ -107,7 +120,7 @@ class KeyModeWarningMatrixTest {
         // 외부 Properties에 적은 내장 키를 info·doctor가 "JAR 내장"으로 잘못 안내하지 않아야 한다(키 값은 표시하지 않음).
         String randomKey = new String(java.nio.file.Files.readAllBytes(TestSupport.writeRandomKeyFile(dir, "o.key")),
                 java.nio.charset.StandardCharsets.US_ASCII).trim();
-        Path config = TestSupport.writeConfig(dir, "embedded-origin.properties",
+        Path config = TestSupport.writeConfig(dir, "embedded-origin.properties", "crypto.key.type=key",
                 "crypto.key.source=embedded", "crypto.key.embedded=" + randomKey);
         String external = io.javacryptokit.core.CryptoService.of(CryptoSettings.load(config.toString(), name -> null, name -> null))
                 .describeKeyLocation();
@@ -170,7 +183,7 @@ class KeyModeWarningMatrixTest {
     @Test
     void disabledWarningsStillFailClosedWhenFileKeyIsMissing() throws Exception {
         Path missingKey = dir.resolve("missing.key");
-        Path config = TestSupport.writeConfig(dir, "missing-file.properties", "crypto.key.source=file",
+        Path config = TestSupport.writeConfig(dir, "missing-file.properties", "crypto.key.type=key", "crypto.key.source=file",
                 "crypto.key.file=" + TestSupport.propertiesPath(missingKey), "crypto.warning.enabled=false");
         try (TestSupport.LogCapture log = new TestSupport.LogCapture()) {
             CredentialCrypto crypto = CredentialCrypto.fromConfigFile(config);
@@ -182,7 +195,7 @@ class KeyModeWarningMatrixTest {
 
     @Test
     void disabledWarningsStillFailClosedWhenEnvKeyIsMissing() throws Exception {
-        Path config = TestSupport.writeConfig(dir, "missing-env.properties", "crypto.key.source=env",
+        Path config = TestSupport.writeConfig(dir, "missing-env.properties", "crypto.key.type=key", "crypto.key.source=env",
                 "crypto.key.env=JAVA_CRYPTO_KIT_UNSET_" + Long.toHexString(System.nanoTime() & 0xffffffffL),
                 "crypto.warning.enabled=false");
         CredentialCrypto crypto = CredentialCrypto.fromConfigFile(config);
@@ -228,11 +241,11 @@ class KeyModeWarningMatrixTest {
         String[] jvm;
         if ("file".equals(source)) {
             Path key = TestSupport.writeKeyFile(dir, "jvm-public.key", TestSupport.publicKeyBase64());
-            jvm = new String[]{"crypto.key.source=file", "crypto.key.file=" + TestSupport.propertiesPath(key),
+            jvm = new String[]{"crypto.key.type=key", "crypto.key.source=file", "crypto.key.file=" + TestSupport.propertiesPath(key),
                     "crypto.warning.enabled=" + warningEnabled};
         } else {
             assumeTrue(System.getenv(TestSupport.ENV_PUBLIC_KEY) != null, "Gradle test 태스크의 테스트용 환경변수가 필요하다");
-            jvm = new String[]{"crypto.key.source=env", "crypto.key.env=" + TestSupport.ENV_PUBLIC_KEY,
+            jvm = new String[]{"crypto.key.type=key", "crypto.key.source=env", "crypto.key.env=" + TestSupport.ENV_PUBLIC_KEY,
                     "crypto.warning.enabled=" + warningEnabled};
         }
         try (AutoCloseable paths = isolateConfigPaths();
@@ -244,7 +257,7 @@ class KeyModeWarningMatrixTest {
             List<String> warnings = log.warnings();
             if (warningEnabled) {
                 assertEquals(1, warnings.size(), warnings.toString());
-                assertTrue(warnings.get(0).contains("키 공급 방식: " + source));
+                assertTrue(warnings.get(0).contains("공개 기본 키 사용 중"), warnings.get(0));
                 assertFalse(warnings.get(0).contains(TestSupport.publicKeyBase64()), "키 값이 로그에 나오면 안 된다");
             } else {
                 assertTrue(warnings.isEmpty(), "false이면 우회 안내문도 남기지 않는다: " + warnings);
@@ -266,7 +279,8 @@ class KeyModeWarningMatrixTest {
                     () -> crypto.decryptText(tampered));
             assertEquals(CredentialCryptoException.Reason.INTEGRITY, integrity.getReason());
             assertFalse(crypto.verify(tampered));
-            try (AutoCloseable fileKey = TestSupport.jvmSettings("crypto.warning.enabled=false", "crypto.key.source=file",
+            try (AutoCloseable fileKey = TestSupport.jvmSettings("crypto.warning.enabled=false", "crypto.key.type=key",
+                    "crypto.key.source=file",
                     "crypto.key.file=" + TestSupport.propertiesPath(dir.resolve("none.key")))) {
                 CredentialCryptoException keyError = assertThrows(CredentialCryptoException.class,
                         () -> CredentialCrypto.fromDefaultConfiguration().encryptText("dummy"));
@@ -325,24 +339,27 @@ class KeyModeWarningMatrixTest {
         };
     }
 
-    /** 키 공급 방식별 외부 설정 파일을 만든다(공개 키 사용 여부 선택). */
+    /**
+     * 키 공급 방식별 외부 설정 파일을 만든다(공개 키 사용 여부 선택). 이 행렬은 crypto.key.* AES 키의 공급 방식을 검증하므로
+     * 유형 미지정 기본(pass) 대신 key를 기본 유형으로 지정한다(pass 유형 행렬은 KeyringTest).
+     */
     private Path configFor(String source, boolean warningEnabled, boolean usePublicKey) throws Exception {
         switch (source) {
             case "embedded":
-                return TestSupport.writeConfig(dir, "embedded-" + warningEnabled + ".properties",
+                return TestSupport.writeConfig(dir, "embedded-" + warningEnabled + ".properties", "crypto.key.type=key",
                         "crypto.key.source=embedded", "crypto.warning.enabled=" + warningEnabled);
             case "file":
                 Path key = usePublicKey
                         ? TestSupport.writeKeyFile(dir, "public-" + warningEnabled + ".key", TestSupport.publicKeyBase64())
                         : TestSupport.writeRandomKeyFile(dir, "random-" + warningEnabled + ".key");
                 return TestSupport.writeConfig(dir, "file-" + warningEnabled + "-" + usePublicKey + ".properties",
-                        "crypto.key.source=file", "crypto.key.id=file01",
+                        "crypto.key.type=key", "crypto.key.source=file", "crypto.key.id=file01",
                         "crypto.key.file=" + TestSupport.propertiesPath(key), "crypto.warning.enabled=" + warningEnabled);
             default:
                 String envName = usePublicKey ? TestSupport.ENV_PUBLIC_KEY : TestSupport.ENV_TEST_KEY;
                 assumeTrue(System.getenv(envName) != null, "Gradle test 태스크가 넣는 테스트용 환경변수가 필요하다");
                 return TestSupport.writeConfig(dir, "env-" + warningEnabled + "-" + usePublicKey + ".properties",
-                        "crypto.key.source=env", "crypto.key.id=env01",
+                        "crypto.key.type=key", "crypto.key.source=env", "crypto.key.id=env01",
                         "crypto.key.env=" + envName, "crypto.warning.enabled=" + warningEnabled);
         }
     }

@@ -1,48 +1,27 @@
-encrypt - encrypt a DB password, user name or other value
+encrypt - encrypt a value (DB password, user name, ...)
 
 Usage
-  java [-D...] -jar {jar} encrypt [--config <file>] [--lang en|ko]
+  java [-D...] -jar {jar} encrypt
+       [--type pass|key] [--key-id <ID>] [--config <file>] [--lang en|ko]
 
 Options
-  --config <file>   External Properties file (optional). Without it: -Dcrypto.config.file, then the environment
-                    variable CRYPTO_CONFIG_FILE, then only the JAR built-in settings - the same rules as Tomcat.
-  --lang en|ko      Message language for this run only (optional).
+  --type pass|key   Key type (optional). Default: crypto.key.type (pass)
+  --key-id <ID>     A registered key ID (optional, type found from the key).
+                    With --type, the type is checked. Without either: the
+                    default key of the type (see config show)
+  --config <file>   External Properties file (optional). Without it:
+                    -Dcrypto.config.file, then the environment variable
+                    CRYPTO_CONFIG_FILE, then the JAR settings (as in Tomcat).
+  --lang en|ko      Message language for this run (optional)
 
-What it does
-  Reads the value from the terminal without showing it, encrypts it with AES-256-GCM (new random IV every time)
-  and prints only the ciphertext on standard output: ENC[v1:<key ID>:<IV>:<ciphertext>]
-  (B64[...] when crypto.output.encoding=base64). The same value gives a different ciphertext every time.
+Result
+  Value to encrypt (hidden):
+  ENC[v1:pass-default:...]
+  The whole line is the ciphertext (different every time). It holds the key
+  ID, so decryption needs no type. With the base64 setting it is B64[...].
+  Put it as is into password="..." of the Tomcat Resource (help tomcat).
 
 Examples
-  Windows PowerShell
-    java -jar .\{jar} encrypt
-    java -jar .\{jar} encrypt --config C:/secure/java-crypto-kit.properties
-  Linux
-    java -jar ./{jar} encrypt
-    java -Dcrypto.key.source=file -Dcrypto.key.file=/etc/java-crypto-kit/app.key -jar ./{jar} encrypt
-
-Expected result
-  Value to encrypt (DB password or user name, not shown):
-  ENC[v1:default:Qm9...:k3J...]
-  Put the whole line (including ENC[ and ]) into password="..." of the Tomcat Resource.
-
-Minimal Tomcat Resource (context.xml or server.xml)
-  <Resource name="jdbc/appDS" auth="Container" type="javax.sql.DataSource"
-            factory="io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory"
-            driverClassName="org.mariadb.jdbc.Driver" url="jdbc:mariadb://db.example.internal:3306/app"
-            username="app" password="ENC[v1:default:...]" maxTotal="20"/>
-  The Tomcat JDBC Pool is chosen with crypto.pool.factory (see config help).
-
-Errors and fixes
-  [reason: USAGE] An interactive terminal is required   -> run it directly in Windows PowerShell or Command Prompt, or a
-                                                          Linux terminal (ssh); not in an IDE console, pipe, redirect or
-                                                          script (there is no option to pass the value as an argument).
-  [reason: KEY_SOURCE] ...                              -> the key file or variable cannot be read; run doctor.
-  [reason: CONFIGURATION] ...                           -> fix the setting named in the message; see config help.
-
-Security
-  - The value is never taken as an argument (it would remain in shell history and process lists).
-  - With the public default key anyone can decrypt the result. Embed your own key first (config embed-key).
-  - Encrypt with the same settings (key and key ID) that the WAS uses.
-
-Related: verify, decrypt, info, doctor, config embed-key
+  java -jar {jar} encrypt
+  java -jar {jar} encrypt --type key
+  java -jar {jar} encrypt --key-id app-pass

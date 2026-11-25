@@ -1,0 +1,52 @@
+config key add - add a key to the key list (creates a new JAR)
+
+Usage
+  java -jar {jar} config key add --key-id <ID>
+       --operator <ID> [--type pass|key]
+       [--generate [--export <file>] | --from-file <file>
+       | --from-jar <jar>] [--source <source> --location <place>] [--active]
+       [--reason <text>] [--jar <jar>] [--out <jar> | --replace] [--yes]
+       [--admin-pass-file <file>] [--lang en|ko]
+
+Material (one; without it a pass key asks for the passphrase twice, hidden)
+  --generate          Create it (pass: 32-character passphrase, key: 32 bytes).
+                      Interactive: the value is shown once after success;
+                      non-interactive runs need --export.
+  --export <file>     Save the generated value once to this file (never
+                      overwritten, POSIX 600). key: one keygen key-file line.
+                      pass: restore backup (key ID, KDF, iterations, salt,
+                      fingerprint, passphrase)
+  --from-file <file>  key: keygen key file. pass: that restore backup (same
+                      key) or a one-line passphrase file (new salt, new key)
+  --from-jar <jar>    Copy the definition of the same key ID from that JAR (no
+                      JAR holds a passphrase). Not with --source or --location
+Supply (where the key is read at run time)
+  --source <source>   embedded (default), file, env, vault, aws-kms
+  --location <place>  file: file path, env: environment variable, vault:
+                      path[#field], aws-kms: data key file (created when the
+                      material is given). External sources are read once now
+                      to pin the key fingerprint (a changed value then fails;
+                      to change it, add a new key ID).
+Other
+  --key-id <ID>       New key ID (required, 1-64 letters, digits, _ or -). An
+                      ID in the history may only be reused for the same key.
+  --type pass|key     Type (optional, default pass)
+  --active            Make the new key the default key of its type
+  --operator <ID>     Operator ID for the history (required)
+  --reason <text>     Reason for the history (required). Asked in an
+                      interactive terminal; otherwise an error before input.
+  --jar <jar>         JAR to change (optional, default: the running JAR)
+  --out <jar>         Result JAR (optional, default <name>-configured.jar)
+  --replace           Replace the original (backup first)
+  --yes               Skip the CHANGE confirmation (not the reason)
+  --admin-pass-file <file>
+                      Admin password file (non-interactive, mode 600)
+                      Without it the admin password is asked (hidden)
+  --lang en|ko        Message language for this run (optional)
+
+Interactive generation shows the value once after success. Keep a copy.
+  A passphrase restore backup from --export includes its original salt and KDF.
+
+Examples
+  java -jar {jar} config key add --key-id p2 --operator ops
+  (restore, --type key, --source env, ...: docs/user-guide.md 2.18, 5.6)

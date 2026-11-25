@@ -62,8 +62,10 @@ class TokenCodecTest {
 
     @Test
     void defaultOutputIsUnchangedEncFormat() throws Exception {
-        String token = jarDefaults.encryptText("dummy");
-        assertTrue(token.startsWith("ENC[v1:default:"), "기본 출력은 기존 ENC 형식 그대로여야 한다");
+        // 유형 미지정 기본은 pass(pass-default), key 유형은 기존 공개 AES 키(default). 두 유형 모두 같은 ENC v1 형식이다.
+        assertTrue(jarDefaults.encryptText("dummy").startsWith("ENC[v1:pass-default:"), "기본 출력은 기존 ENC 형식 그대로여야 한다");
+        assertTrue(jarDefaults.encryptText("dummy", io.javacryptokit.KeyType.KEY).startsWith("ENC[v1:default:"),
+                "key 유형도 같은 ENC 형식");
     }
 
     @Test
@@ -72,7 +74,7 @@ class TokenCodecTest {
         CredentialCrypto b64 = CredentialCrypto.fromConfigFile(config);
         String token = b64.encryptText("dummy-포장");
         assertTrue(token.startsWith("B64[") && token.endsWith("]"));
-        assertTrue(TokenCodec.toEnvelope(token).startsWith("ENC[v1:default:"), "포장 안은 항상 v1 봉투");
+        assertTrue(TokenCodec.toEnvelope(token).startsWith("ENC[v1:pass-default:"), "포장 안은 항상 v1 봉투");
         // 출력 형식 설정과 관계없이 두 형식을 모두 읽는다.
         assertEquals("dummy-포장", jarDefaults.decryptText(token));
         assertEquals(V1_PLAIN, b64.decryptText(V1_VECTOR));

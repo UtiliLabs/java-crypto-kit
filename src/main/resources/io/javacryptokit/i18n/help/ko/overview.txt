@@ -1,60 +1,45 @@
-java-crypto-kit CLI {version} - WAS JDBC Pool 접속정보 암호화와 일반 Java용 AES-256-GCM 암복호화
+java-crypto-kit CLI {version} - Java·Tomcat용 AES-256-GCM 암복호화
 
-사용 형식
-  java [-D<설정>=<값> ...] -jar {jar} <명령> [옵션] [--lang en|ko]
+사용법: java [-D...] -jar {jar} <명령> [옵션]
 
-  -D 옵션은 java와 -jar 사이에 둡니다(명령 옵션이 아니라 JVM 속성).
-  PowerShell에서는 따옴표로 감쌉니다. 예: java "-Dcrypto.lang=en" -jar .\{jar} info
-  설정 우선순위: JVM -D > 외부 Properties > JAR 내장 값
-    외부 Properties: --config <파일>, 또는 -Dcrypto.config.file=<파일>, 또는 환경변수 CRYPTO_CONFIG_FILE
-  메시지 언어: crypto.lang(기본 ko). --lang en|ko는 이번 실행에만 적용됩니다.
-    JAR에 영구 저장: java -jar {jar} config set crypto.lang=en --operator <ID>
+관리자(CLI를 처음 쓸 때 1회 설정)
+  admin setup              관리자 비밀번호 최초 설정(새 JAR)
+  admin password change    관리자 비밀번호 변경(새 JAR)
+문자열
+  encrypt                  문자열 암호화
+  decrypt *                문자열 복호화
+  verify                   암호문 검증(평문 미출력)
+파일
+  file encrypt             파일 암호화
+  file decrypt *           파일 복호화
+키
+  keygen *                 AES 키 파일 생성
+  fingerprint              키 지문 확인
+  rekey *                  다른 키로 재암호화
+  kms datakey *            AWS KMS 데이터 키 파일 생성
+설정·진단
+  config show *            JAR 내부 설정·키 목록
+  config history *         설정 변경 이력
+  config set *             JAR 설정 변경(새 JAR)
+  config embed-key *       AES 키를 JAR에 내장(새 JAR)
+  config key add *         키 추가(새 JAR)
+  config key use *         기본 키 변경(새 JAR)
+  config key remove *      키 제거(새 JAR)
+  config key show *        키 관리정보·원문 확인(--show, --export)
+  info                     실제 적용 설정
+  doctor                   설정·기능 점검
 
-처음 해 보기(공개 JAR의 내장 예제 키로 바로 실행)
-  java -jar {jar} encrypt   # 평문을 화면에 보이지 않게 입력 -> ENC 암호문 출력
-  java -jar {jar} decrypt   # SHOW 확인 -> 암호문 입력 -> 평문 출력
-  java -jar {jar} verify    # 암호문 입력 -> 성공 여부만 출력(평문 미출력)
-  내장 예제 키는 누구나 아는 공개 키입니다. 실제 비밀번호·비밀값에는 쓰지 마세요.
-
-운영 전 준비(필수): 공개 예제 키 대신 사용자 지정 키를 씁니다
-  java -jar {jar} keygen --out example.key   # 새 키가 필요할 때만(이미 키 파일이 있으면 생략)
-  java -jar {jar} config embed-key --from-file example.key --key-id key01 --operator example-admin
-  그다음 새로 만들어진 JAR로 encrypt를 실행하고, 그 JAR를 Tomcat에 배포합니다(help tomcat).
-  example.key는 새로 만들 키 파일 이름이지 키 값이 아닙니다. 키 파일은 Git 밖의 보호된 곳에 백업합니다.
-  외부 키(file/env/vault/aws-kms)를 쓰거나 이미 사용자 지정 키가 든 JAR가 있으면 이 단계는 필요 없습니다(config help).
-
-명령 목록
-  값(DB 비밀번호, 사용자명, 토큰)
-    encrypt            터미널에서 입력한 값을 암호화(ENC[v1:...] 출력)
-    verify             암호문을 복호화할 수 있는지 확인(평문은 출력하지 않음)
-    decrypt            경고 후 SHOW 확인을 받아 평문 표시(대화형 터미널 전용)
-  키 관리
-    keygen             새 AES-256 난수 키 파일 생성(새 키가 필요할 때만)
-    fingerprint        키 원문 없이 키 일치 여부를 비교하는 키 지문 표시
-    rekey              기존 암호문을 이전 키에서 새 키로 재암호화
-    kms datakey        AWS KMS로 보호한 데이터 키 파일 생성(선택 설치 AWS SDK 묶음 필요)
-  JAR 내장 설정(소스 수정·재빌드·외부 Properties 불필요)
-    config help        전체 설정: 기본값, 허용값, 설정 위치, 예제
-    config show        JAR 안의 현재 값과 최종 변경 요약
-    config history     최초 변경부터 전체 변경 이력(시각, 수정자, 설정, 이전 -> 변경 값)
-    config set         내장 설정을 바꾼 새 JAR 생성(또는 백업 후 --replace)
-    config embed-key   사용자 지정 AES-256 키와 새 키ID 내장
-  점검
-    info               실제 적용 설정과 각 값의 출처
-    doctor             WAS 기동 전 설정·키·암복호화 진단(PASS/WARN/FAIL)
-  파일(CSV, JSON, PDF, 이미지 등 내용 형식 무관)
-    file encrypt       파일 암호화(JCKF v1, 스트리밍, 원본 보존)
-    file decrypt       파일 복호화(전체 인증이 끝난 뒤에만 결과 파일 생성)
-
-주제별 안내
-  help tomcat        Tomcat JNDI DataSource: JAR 배치, DBCP2 / Tomcat JDBC Pool Resource 예제, 오류 해결
-  help vault         HashiCorp Vault KV v2 키 공급
-  help aws-kms       AWS KMS Envelope Encryption과 선택 설치 AWS SDK 묶음
-
-명령별 상세 도움말
-  java -jar {jar} <명령> --help        예: config set --help, file encrypt --help, rekey --help
-
-종료 코드 0 = 성공, 1 = 실패. 오류는 표준 오류에 한 줄로 출력됩니다.
-  [java-crypto-kit] [사유: 코드] 원인 조치: 확인할 내용
-  코드는 언어와 관계없이 같습니다(CONFIGURATION, KEY_SOURCE, INVALID_INPUT, INVALID_TOKEN, KEY_ID_MISMATCH,
-  INTEGRITY, CRYPTO_PROVIDER, USAGE, IO_ERROR).
+* 실행할 때마다 관리자 비밀번호 확인(비대화형: --admin-pass-file <파일>).
+  Java API·Tomcat 자동 복호화에는 관리자 비밀번호가 필요 없습니다.
+키 유형: pass(Passphrase, 기본), key(AES 키). 암호화는 --type·--key-id로
+고르고, 복호화는 암호문의 키 ID로 키를 자동 선택합니다.
+상세: help <명령>   (예: help config set, decrypt --help)
+설정: help config    키 목록: help config key
+연동: help tomcat / help vault / help aws-kms
+모든 명령: --lang en|ko(이번 실행 언어), --help(명령 도움말)
+외부 설정 파일: --config <파일>, -Dcrypto.config.file, CRYPTO_CONFIG_FILE
+-D<설정>=<값>은 java와 -jar 사이에 둡니다. 예:
+  java -Dcrypto.lang=en -jar {jar} info
+종료 코드 0 성공, 1 실패. 오류는 표준 오류에 한 줄로 나옵니다:
+  [java-crypto-kit] [사유: 코드] 원인 조치: ...
+문서: docs/user-guide.md (GitHub 저장소, 명령어집: 부록 A)

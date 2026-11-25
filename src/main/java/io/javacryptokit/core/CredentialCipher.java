@@ -7,13 +7,9 @@ import java.nio.CharBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
-import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Base64;
 import javax.crypto.AEADBadTagException;
-import javax.crypto.Cipher;
-import javax.crypto.spec.GCMParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
 
 /**
  * <b>내부 구현 클래스(공개 API 아님)</b>: 문자열 토큰({@code ENC[v1:...]})용 v1 암호 엔진이다. 공개 API·CLI·Tomcat 어댑터가
@@ -27,7 +23,7 @@ import javax.crypto.spec.SecretKeySpec;
  * <ul>
  *   <li>알고리즘: AES-256-GCM({@code AES/GCM/NoPadding}). 암호문이 한 비트라도 바뀌면 복호화 자체가 실패한다(AEAD).</li>
  *   <li>키: 정확히 32바이트(256비트).</li>
- *   <li>IV(nonce): 암호화할 때마다 {@link SecureRandom}으로 새로 만드는 12바이트 난수. 같은 키로 같은 IV를 재사용하면 GCM의
+ *   <li>IV(nonce): 암호화할 때마다 보안 난수로 새로 만드는 12바이트 값({@link Gcm#newIv()}). 같은 키로 같은 IV를 재사용하면 GCM의
  *       기밀성과 무결성이 모두 무너지므로 고정값·카운터를 쓰지 않는다. 그래서 같은 값도 매번 다른 암호문이 된다.</li>
  *   <li>인증 태그: 128비트(16바이트). JCE는 태그를 암호문 뒤에 붙여 한 배열로 돌려준다.</li>
  *   <li>AAD(추가 인증 데이터): {@code "v1:" + 키ID}. 봉투에 평문으로 적히는 버전·키ID를 태그 계산에 포함해, 키ID만 바꿔치기한
@@ -40,19 +36,13 @@ import javax.crypto.spec.SecretKeySpec;
  * <p><b>Fail Closed</b>: 형식 오류, 키ID 불일치, 길이 오류, 인증 태그 실패는 모두 {@link CredentialCryptoException}으로 끝나며
  * 평문을 일부라도 반환하지 않는다. 예외 메시지에는 입력값·키·평문을 넣지 않는다.</p>
  *
- * <p><b>스레드 안전성</b>: 공유 상태는 스레드 안전한 {@link SecureRandom} 하나뿐이고 {@link Cipher}는 호출마다 새로 만든다.</p>
+ * <p><b>스레드 안전성</b>: 상태가 없다. AES-GCM 처리·IV 생성은 공용 엔진 {@link Gcm}이 호출마다 새 {@code Cipher}로 한다.</p>
  */
 public final class CredentialCipher {
     /** 봉투 시작 표식. */
     private static final String PREFIX = TokenCodec.ENC_PREFIX;
     /** 현재 지원하는 유일한 봉투 버전. AAD에도 들어가므로 버전 바꿔치기도 태그 검증에서 걸린다. */
     private static final String VERSION = "v1";
-    /** GCM 권장 IV 길이 12바이트(96비트). */
-    static final int IV_LENGTH = 12;
-    /** GCM 인증 태그 길이 128비트. 짧은 태그는 위조 성공 확률을 높이므로 최대 길이로 고정한다. */
-    static final int TAG_BITS = 128;
-    /** IV 생성용 보안 난수 생성기. 운영체제 엔트로피로 시드되며 스레드 안전하므로 하나를 공유한다. */
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     /** 정적 메서드만 제공하는 유틸리티 클래스이므로 인스턴스 생성을 막는다. */
     private CredentialCipher() { }
@@ -96,16 +86,11 @@ public final class CredentialCipher {
      */
     private static String seal(byte[] plain, String keyId, byte[] key) throws CredentialCryptoException {
         // [IV 생성] 호출마다 새 난수 IV. 같은 키·IV 조합을 재사용하지 않는 것이 GCM 안전성의 핵심이다.
-        byte[] iv = new byte[IV_LENGTH];
-        RANDOM.nextBytes(iv);
+        byte[] iv = Gcm.newIv();
         byte[] encrypted;
         try {
-            // Cipher는 스레드 안전하지 않고, 같은 객체를 같은 키·IV로 다시 초기화하는 실수를 막기 위해 매번 새로 만든다.
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(TAG_BITS, iv));
-            // [AAD] 봉투에 평문으로 남는 "v1:키ID"를 태그 계산에 포함한다.
-            cipher.updateAAD(aad(keyId));
-            encrypted = cipher.doFinal(plain);
+            // [AAD] 봉투에 평문으로 남는 "v1:키ID"를 태그 계산에 포함한다(AES-GCM 처리는 공용 엔진 Gcm).
+            encrypted = Gcm.seal(key, iv, aad(keyId), plain, 0, plain.length);
         } catch (GeneralSecurityException e) {
             // 예: 오래된 Java 8의 AES-256 정책 제한(InvalidKeyException). 원인 종류만 남긴다.
             throw new CredentialCryptoException(CredentialCryptoException.Reason.CRYPTO_PROVIDER, null, e);
@@ -128,14 +113,14 @@ public final class CredentialCipher {
      */
     public static void checkEnvelope(String envelope, String keyId) throws CredentialCryptoException {
         String[] pieces = parse(envelope);
-        // [키ID 확인] 설정과 다른 키ID의 암호문은 다른 키로 만든 것이므로 시도하지 않고 거부한다.
-        // 이 버전은 다중 키(Keyring)를 지원하지 않으므로 하나의 설정은 하나의 키ID만 복호화할 수 있다.
+        // [키ID 확인] 넘겨받은 키의 키ID와 다른 암호문은 다른 키로 만든 것이므로 시도하지 않고 거부한다.
+        // CryptoService는 Keyring에서 암호문의 키ID로 키를 고른 뒤 호출하므로, 등록되지 않은 키ID는 그 전에 거부된다.
         if (!keyId.equals(pieces[1])) {
             throw new CredentialCryptoException(CredentialCryptoException.Reason.KEY_ID_MISMATCH);
         }
         byte[] iv = decode(pieces[2]);
         byte[] encrypted = decode(pieces[3]);
-        if (iv.length != IV_LENGTH || encrypted.length < TAG_BITS / 8) {
+        if (iv.length != Gcm.IV_BYTES || encrypted.length < Gcm.TAG_BYTES) {
             throw new CredentialCryptoException(CredentialCryptoException.Reason.INVALID_TOKEN, Messages.get("cipher.err.length"));
         }
     }
@@ -166,12 +151,8 @@ public final class CredentialCipher {
         byte[] iv = decode(pieces[2]);
         byte[] encrypted = decode(pieces[3]);
         try {
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(TAG_BITS, iv));
-            // 암호화 때와 같은 AAD여야 태그가 맞는다.
-            cipher.updateAAD(aad(pieces[1]));
-            // [인증 태그 검증] 전체를 doFinal 한 번으로 처리하므로 태그 검증에 성공해야만 평문이 반환된다.
-            return cipher.doFinal(encrypted);
+            // 암호화 때와 같은 AAD여야 태그가 맞는다. 태그 검증에 성공해야만 평문이 반환된다.
+            return Gcm.open(key, iv, aad(pieces[1]), encrypted, 0, encrypted.length);
         } catch (AEADBadTagException e) {
             // 다른 키로 만든 암호문이거나 IV·암호문·태그·키ID가 변조·손상된 경우다.
             throw new CredentialCryptoException(CredentialCryptoException.Reason.INTEGRITY);

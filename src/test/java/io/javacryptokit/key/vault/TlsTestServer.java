@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsServer;
+import io.javacryptokit.TestKeytool;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -11,12 +12,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.security.KeyStore;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 
@@ -62,35 +58,16 @@ final class TlsTestServer implements AutoCloseable {
         server.stop(0);
     }
 
-    /** keytool로 자체 서명 인증서를 만든다. */
+    /** keytool로 자체 서명 인증서를 만든다(실행은 공용 {@link TestKeytool}). */
     static Certificate generate(Path dir, String name, String commonName, String san) throws Exception {
         Path keystore = dir.resolve(name + ".p12");
         Path pem = dir.resolve(name + ".pem");
-        String keytool = Paths.get(System.getProperty("java.home"), "bin",
-                System.getProperty("os.name").toLowerCase().contains("win") ? "keytool.exe" : "keytool").toString();
-        run(keytool, "-genkeypair", "-alias", name, "-keyalg", "RSA", "-keysize", "2048", "-validity", "3",
+        TestKeytool.run(dir, "-genkeypair", "-alias", name, "-keyalg", "RSA", "-keysize", "2048", "-validity", "3",
                 "-dname", "CN=" + commonName, "-ext", "SAN=" + san, "-keystore", keystore.toString(), "-storetype", "PKCS12",
                 "-storepass", PASSWORD, "-keypass", PASSWORD, "-noprompt");
-        run(keytool, "-exportcert", "-rfc", "-alias", name, "-keystore", keystore.toString(), "-storetype", "PKCS12",
+        TestKeytool.run(dir, "-exportcert", "-rfc", "-alias", name, "-keystore", keystore.toString(), "-storetype", "PKCS12",
                 "-storepass", PASSWORD, "-file", pem.toString());
         return new Certificate(keystore, pem);
-    }
-
-    private static void run(String... command) throws Exception {
-        List<String> args = new ArrayList<>(Arrays.asList(command));
-        Process process = new ProcessBuilder(args).redirectErrorStream(true).start();
-        byte[] output = readAll(process.getInputStream());
-        if (!process.waitFor(60, TimeUnit.SECONDS) || process.exitValue() != 0) {
-            throw new IllegalStateException("keytool failed: " + new String(output, StandardCharsets.UTF_8));
-        }
-    }
-
-    private static byte[] readAll(InputStream in) throws IOException {
-        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-        byte[] buffer = new byte[4096];
-        int read;
-        while ((read = in.read(buffer)) != -1) out.write(buffer, 0, read);
-        return out.toByteArray();
     }
 
     /** 응답을 보낸다. */

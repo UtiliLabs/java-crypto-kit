@@ -1,0 +1,38 @@
+config key show - key management info; show or export the value (admin)
+
+Usage
+  java -jar {jar} config key show --key-id <ID>
+       [--show] [--export <file>] [--jar <jar>]
+       [--admin-pass-file <file>] [--lang en|ko]
+
+Options
+  --key-id <ID>     Key ID to look up (required)
+  --show            Show the value on screen (interactive only). It appears
+                    only after the warning when SHOW is typed exactly; any
+                    other answer cancels.
+  --export <file>   Export the value to a new file (never overwritten, POSIX
+                    600). key: one keygen line, pass: restore backup format
+  --jar <jar>       JAR to read (optional, default: the running JAR)
+  --admin-pass-file <file>
+                    Admin password file (non-interactive, mode 600)
+                    Without it the admin password is asked (hidden)
+  --lang en|ko      Message language for this run (optional)
+  After the admin password check it shows key ID, type, source, status, the
+  full fingerprint (64) and for pass keys KDF, rounds, salt and salt hash.
+  The value is handled only with --show or --export. A pass value exists
+  only when a file, env or vault source keeps the passphrase; embedded and
+  aws-kms pass keys keep only the PBKDF2-derived key, which cannot be turned
+  back into the passphrase (restore from the backup made at generation).
+  No JAR is changed, so nothing is added to the history.
+
+Result (part)
+  Key ID      : k1
+  Type        : key
+  Source      : embedded
+  Fingerprint : 3f9a...(64)
+  Secret      : embedded AES key (--show on screen, --export to a file)
+
+Examples
+  java -jar {jar} config key show --key-id k1
+  java -jar {jar} config key show --key-id k1 --show
+  Export: add --export <file> to the command above (e.g. --export k1.key)

@@ -1,35 +1,37 @@
-config show - JAR 파일 안에 저장된 현재 설정과 최종 변경 요약
+config show - JAR 파일 안의 설정과 키 목록(관리자 인증, 외부 설정·-D 미반영)
 
-사용 형식
-  java -jar {jar} config show [--jar <jar>] [--lang en|ko]
+사용법
+  java -jar {jar} config show [--jar <jar>]
+       [--admin-pass-file <파일>] [--lang en|ko]
 
 옵션
-  --jar <jar>    조회할 JAR(선택). 기본값: 실행 중인 JAR.
-  --lang en|ko   이번 실행의 메시지 언어(선택).
+  --jar <jar>    조회할 JAR(선택, 기본: 실행 중인 JAR)
+  --admin-pass-file <파일>
+                 관리자 비밀번호 파일(비대화형 인증, 한 줄, 권한 600)
+                 없으면 관리자 비밀번호를 숨김 입력으로 묻습니다
+  --lang en|ko   이번 실행의 메시지 언어(선택)
+  다른 JAR(--jar)을 보면 그 JAR의 관리자 비밀번호도 확인합니다.
 
-동작
-  JAR 파일만 읽습니다: 파일 순서대로 모든 내장 값, 요약(키 공급 방식, 키ID, 키 상태와 지문, 언어, 경고, JVM Override,
-  알고리즘, 출력 형식, Pool), 최초 빌드 일시, 최종 수정 일시, 수정자, 총 변경 횟수, 마지막 변경 항목.
-  외부 Properties·JVM -D·환경변수는 읽지 않으므로 그것들이 잘못되어도 동작합니다. 내장 키 값은 표시하지 않습니다.
-  최초 변경부터 전체 내역은 config history, 실행 시 적용값은 info로 확인합니다.
+결과(일부)
+  JAR 파일  : java-crypto-kit-{version}-configured.jar (버전 {version})
+  상태      : 변경 2회 - 마지막 2026-11-22T05:30:12Z, 수정자 ops
+  관리자    : 비밀번호 설정됨(민감 명령은 관리자 인증 필요)
+  기본 유형 : pass
+  기본 키   : pass=pass-default, key=key01
+  키 목록   :
+    key01: key, embedded, 사용자 지정, crypto.key.*
+      키 지문: ab12cd34...(64자 전체)
+    pass-default: pass, embedded, 공개 기본 키
+      키 지문: 3dca588c...(64자 전체)
+      KDF: pbkdf2-sha256, 600,000회
+      Salt: ...(Base64)   Salt SHA-256: ...(64자)
+  설정 지문 : sha256:...      (설정 파일 내용의 식별값, 키 지문 아님)
+  crypto.key.id = key01       (이어서 전체 내장 값, 키 값은 (비공개))
+  외부 키는 등록된 지문을 표시합니다. 원문을 확인하려면 대화형 콘솔에서
+  config key show --key-id <ID> --show 명령을 사용하세요.
+  실제로 쓰는 키는 info·fingerprint. 이력이 손상됐으면 종료 코드 1.
 
 예제
-  Windows PowerShell
-    java -jar .\{jar} config show
-    java -jar .\{jar} config show --jar .\java-crypto-kit-{version}-configured.jar
-  Linux
-    java -jar ./{jar} config show --jar /opt/tomcat/lib/{jar}
-
-예상 결과(일부)
-  최초 빌드 일시: 2026-11-21T01:02:03Z (UTC, Manifest Build-Time)
-  내부 설정 상태: 변경됨(config set / embed-key로 수정된 JAR)
-  최종 수정 일시: 2026-11-21T05:30:12Z (UTC)
-  마지막 수정자: 123456 (기록용 ID, 본인 인증 아님)
-  총 변경 횟수: 2
-  crypto.key.embedded = <보안상 비공개> (설정됨 - 교체된 키 ..., 키 지문 5b1c...)
-
-대표 오류와 해결
-  내부 설정 상태: 이력 검증 실패 -> 종료 코드 1. config history로 확인하고 신뢰할 수 있는 JAR를 쓰세요.
-  [사유: USAGE] java-crypto-kit JAR가 아닙니다 -> --jar를 확인하세요.
-
-관련 명령: config history, config set, config embed-key, info
+  java -jar {jar} config show
+  java -jar {jar} config show --jar new.jar
+상세 안내는 docs/user-guide.md 2.10절을 참고하세요.

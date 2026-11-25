@@ -9,6 +9,7 @@
     CATALINA_BASE/conf/context.xml은 모든 웹앱의 기본 Context라 앱마다 Pool이 따로 생기므로 주의한다.
   - 값은 모두 예시다. url·username·password를 실제 값으로 바꾼다.
     password에는 Tomcat에 배포할 키 내장 JAR로 encrypt한 결과(ENC[...] 전체)를 넣는다.
+    pass·key 어느 유형의 암호문이든 되며 Factory가 암호문의 키 ID로 키를 고른다(유형 속성은 없다).
 
   [Pool 선택]
   - 신규·일반 DB 연결은 DBCP2(이 예제). 이미 Tomcat JDBC Pool을 쓰거나 jdbcInterceptors 같은
@@ -33,7 +34,7 @@
 
   [배포·참조]
   - 키 내장 JAR와 JDBC 드라이버 JAR를 CATALINA_BASE/lib에 둔다(DBCP2의 tomcat-dbcp.jar는 Tomcat에 포함).
-  - 속성별 상세: docs/user-guide.md 3장(Tomcat JNDI 연동)·4장(Connection Pool 설정)
+  - 속성별 상세: docs/guide/tomcat-jdbc.md (Resource 설정, Pool별 속성, JNDI 조회와 SQL 확인)
   - Tomcat 공식 문서: https://tomcat.apache.org/tomcat-11.0-doc/jndi-resources-howto.html
   ======================================================================= -->
 <Context>

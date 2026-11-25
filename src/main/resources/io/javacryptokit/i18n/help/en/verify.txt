@@ -1,35 +1,21 @@
-verify - check that a ciphertext can be decrypted with the current key (plaintext is never printed)
+verify - check that a ciphertext decrypts with a registered key (no plaintext)
 
 Usage
-  java [-D...] -jar {jar} verify [--config <file>] [--value <ciphertext>] [--lang en|ko]
+  java [-D...] -jar {jar} verify
+       [--config <file>] [--value <ciphertext>] [--lang en|ko]
 
 Options
-  --config <file>        External Properties file (optional, same rules as encrypt).
-  --value <ciphertext>   Ciphertext to check (optional). Without it the ciphertext is read from the terminal without
-                         being shown. Use --value for unattended deployment checks; it remains in the shell history.
-  --lang en|ko           Message language for this run only (optional).
+  --config <file>        External Properties file (optional, same as encrypt)
+  --value <ciphertext>   Ciphertext to check (optional, else hidden input).
+                         For automation; it stays in the shell history.
+  --lang en|ko           Message language for this run (optional)
+  The key is found by the key ID in the ciphertext.
 
-What it does
-  Decrypts the ENC[...] or B64[...] value with the current key and key ID, checks the GCM authentication tag and
-  throws the result away immediately. Exit code 0 means the WAS can decrypt it with the same settings.
+Result
+  OK
+  On failure: exit code 1 with a reason
+  (KEY_ID_MISMATCH: key ID not registered, INTEGRITY: other key or damaged).
 
 Examples
-  Windows PowerShell
-    java -jar .\{jar} verify
-    java -jar .\{jar} verify --value "ENC[v1:prod01:...]"
-  Linux
-    java -jar ./{jar} verify --config /etc/java-crypto-kit/app.properties
-    java -jar ./{jar} verify --value 'ENC[v1:prod01:...]' && echo OK
-
-Expected result
-  Verified: it can be decrypted with the current key. (plaintext not shown)
-
-Errors and fixes
-  [reason: KEY_ID_MISMATCH] -> the ciphertext was made with another key ID; check crypto.key.id with info.
-  [reason: INTEGRITY]       -> different key or damaged ciphertext; compare keys with fingerprint.
-  [reason: INVALID_TOKEN]   -> not the whole line (ENC[ ... ]); copy it again without spaces.
-
-Security
-  verify never shows plaintext. To see plaintext use decrypt (interactive, with confirmation).
-
-Related: encrypt, decrypt, fingerprint, rekey, doctor
+  java -jar {jar} verify
+  java -jar {jar} verify --value 'ENC[v1:key01:...]'

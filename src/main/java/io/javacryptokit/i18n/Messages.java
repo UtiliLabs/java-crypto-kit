@@ -234,7 +234,23 @@ public final class Messages {
      * @return 오류 한 줄
      */
     public static String error(String code, String message) {
-        return TAG + " " + get("format.reason", code) + " " + message;
+        return TAG + " " + get("format.reason", code) + " " + singleLine(message);
+    }
+
+    /** 표시용 한 줄 문자열. 경로 계산·파일 쓰기·비밀값 입력에 사용하지 않는다. */
+    public static String singleLine(String text) {
+        StringBuilder result = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (Character.isISOControl(c) || c == 0x2028 || c == 0x2029
+                    || c == 0x061C || c == 0x200E || c == 0x200F || (c >= 0x202A && c <= 0x202E)
+                    || (c >= 0x2066 && c <= 0x2069)) {
+                result.append(String.format(java.util.Locale.ROOT, "\\u%04X", (int) c));
+            } else {
+                result.append(c);
+            }
+        }
+        return result.toString();
     }
 
     /**
@@ -289,7 +305,8 @@ public final class Messages {
                     if (number.matches("[0-9]{1,2}")) {
                         int index = Integer.parseInt(number);
                         if (index < args.length) {
-                            out.append(args[index]);
+                            Object value = args[index];
+                            out.append(value instanceof java.nio.file.Path ? singleLine(value.toString()) : value);
                             i = close + 1;
                             continue;
                         }

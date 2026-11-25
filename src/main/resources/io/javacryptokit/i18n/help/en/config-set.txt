@@ -1,63 +1,35 @@
-config set - permanently change JAR built-in settings (no source change, no Gradle rebuild, no external Properties)
+config set - change the JAR built-in settings (default: create a new JAR)
 
 Usage
-  java -jar {jar} config set <name>=<value> [<name>=<value> ...] --operator <ID>
-                  [--reason <text>] [--jar <jar>] [--out <jar> | --replace] [--yes] [--lang en|ko]
+  java -jar {jar} config set <setting>=<value> [...]
+       --operator <ID> [--reason <text>] [--jar <jar>]
+       [--out <jar> | --replace] [--yes]
+       [--admin-pass-file <file>] [--lang en|ko]
 
 Options
-  <name>=<value>     Setting to change (one or more). Names, defaults and allowed values: config help.
-                     crypto.key.embedded cannot be set here (use config embed-key with a key file).
-  --operator <ID>    Operator ID recorded in the history (required). Letters, digits, . _ @ -, 1-64 characters.
-                     It is a record, not authentication (no admin password; control access with file permissions).
-  --reason <text>    Reason recorded in the history (optional, one line, up to 200 characters).
-  --jar <jar>        JAR to change (optional). Default: the running JAR.
-  --out <jar>        Result JAR (optional). Default next to the source JAR: <name>-configured.jar, and for a JAR
-                     that was already changed the next number (x-configured.jar -> x-configured-2.jar -> -3 ...).
-                     An existing file is never overwritten: the command stops and suggests a free --out name.
-  --replace          Replace the source JAR instead (backup <name>.bak-<UTC time> first, atomic move).
-                     Not allowed for the running JAR; cannot be combined with --out.
-  --yes              Skip the CHANGE confirmation of key-related settings (for unattended automation).
-  --lang en|ko       Message language for this run only (optional).
+  <setting>=<value>   Settings to change (one or more; names: config help).
+                      crypto.key.embedded is not allowed (config embed-key).
+                      Of a key list entry only location items (file, ...).
+  --operator <ID>     Operator ID for the history (required, a record only)
+  --reason <text>     Reason for the history (one line, max 200). Required for
+                      key-related settings (asked interactively), else optional
+  --jar <jar>         JAR to change (optional, default: the running JAR)
+  --out <jar>         Result JAR (optional, default <name>-configured.jar, then
+                      -configured-2.jar). Existing files are never overwritten.
+  --replace           Replace the original instead (backup <name>.bak-<UTC>,
+                      atomic move). Not together with --out.
+  --yes               Skip the CHANGE confirmation for key-related settings
+                      (other settings ask nothing)
+  --admin-pass-file <file>
+                      Admin password file (non-interactive, mode 600)
+                      Without it the admin password is asked (hidden)
+  --lang en|ko        Message language for this run (optional)
 
-What it does
-  Changes only the given lines of the built-in settings (comments kept), re-validates the whole combination with the
-  same rules as at run time, appends one entry to the change history (time, operator, setting, before -> after),
-  writes a temporary JAR, re-reads and verifies it (ZIP/CRC, manifest, Main-Class, entries, settings, history) and
-  only then moves it into place. On any failure the original JAR and its history stay unchanged. Signed JARs and
-  JARs with a damaged history are refused. Changes of key-related settings (key source, key ID, Vault/KMS key
-  location) show their impact on existing ciphertext and need CHANGE typed in the terminal or --yes.
+Result
+  Created JAR : /opt/app/java-crypto-kit-{version}-configured.jar
+  Changes     : crypto.lang (ko -> en)
+                (one line per setting when there are several)
 
 Examples
-  Windows PowerShell
-    java -jar .\{jar} config set crypto.lang=en --operator example-admin
-    java -jar .\{jar} config set crypto.warning.enabled=false crypto.output.encoding=base64 --operator example-admin --reason "configuration update"
-    java -jar .\tools\{jar} config set crypto.lang=ko --jar C:/tomcat/lib/{jar} --replace --operator example-admin
-  Linux
-    java -jar ./{jar} config set crypto.key.source=file crypto.key.file=/etc/java-crypto-kit/app.key --operator example-admin --yes
-    java -jar ./{jar} config set crypto.key.source=vault crypto.vault.url=https://vault.example.internal:8200 crypto.vault.path=java-crypto-kit/prod crypto.vault.ver=3 --operator example-admin --yes
-    java -jar ./{jar} config set crypto.jvm.override.enabled=false --out ./dist/{jar} --operator example-admin
-
-Expected result
-  [DONE] A new JAR with changed internal settings was created (the original was not changed).
-    Original JAR (unchanged): /opt/app/{jar}
-    Result JAR (changed)    : /opt/app/java-crypto-kit-{version}-configured.jar
-    Changed: crypto.lang (ko -> en)
-    History: change #1, 2026-11-21T05:30:12Z (UTC), operator example-admin
-  With --replace the target and the backup file are printed with restore commands (mv / Move-Item).
-  Check: config show, config history. The settings apply when the WAS restarts with the new JAR.
-
-Errors and fixes
-  [reason: CONFIGURATION] Unsupported setting '...'. Did you mean '...'? -> check the name with config help.
-  [reason: CONFIGURATION] The JAR settings would be invalid after the change -> fix the value; nothing was changed.
-  [reason: USAGE] No operator ID                       -> add --operator <ID>.
-  [reason: USAGE] Nothing to change                    -> the value is already set (nothing recorded).
-  [reason: USAGE] The result JAR already exists        -> use another --out or move the file.
-  [reason: USAGE] The JAR that is running this command is not replaced -> run a copy of the JAR with --jar ... --replace.
-  [reason: IO_ERROR] in use or not writable            -> stop Tomcat and check permissions, or create a new JAR.
-  [reason: INTEGRITY] history damaged                  -> start again from the official JAR.
-
-Security
-  The JAR can hold your user-provided key: restrict who can read and change it. -D and external Properties still have a
-  higher priority at run time (info shows the origin). Settings are read when the WAS starts: restart after deploying.
-
-Related: config help, config show, config history, config embed-key, info
+  java -jar {jar} config set crypto.lang=en --operator ops
+  (--replace, key file and pool examples: docs/user-guide.md 2.12)

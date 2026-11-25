@@ -1,46 +1,44 @@
-kms datakey - crypto.key.source=aws-kms용 AWS KMS 보호 데이터 키 파일 생성
+kms datakey - aws-kms 키 공급원용 데이터 키 파일 생성(AWS SDK 선택 묶음 필요)
 
-사용 형식(선택 설치 AWS SDK 묶음이 클래스패스에 필요, help aws-kms 참고)
-  Windows: java -cp "{jar};aws-kms-lib/*" io.javacryptokit.cli.CryptoCli kms datakey --out <파일> [--from-file <키 파일>] [--config <파일>]
-  Linux  : java -cp "{jar}:aws-kms-lib/*" io.javacryptokit.cli.CryptoCli kms datakey --out <파일> [--from-file <키 파일>] [--config <파일>]
+사용법(java -jar 대신 -cp로 SDK 묶음을 함께 지정)
+  java -cp <클래스패스> io.javacryptokit.cli.CryptoCli kms datakey
+       --out <파일> [--from-file <키 파일>] [--config <파일>]
+       [--reason <사유>] [--operator <ID>]
+       [--admin-pass-file <파일>] [--lang en|ko]
+
+클래스패스 CP(JAR와 aws-kms-lib 폴더가 현재 폴더에 있을 때)
+  PowerShell: $CP = "{jar};aws-kms-lib/*"
+  Linux     : CP="{jar}:aws-kms-lib/*"
+  설정 방법·--from-file 예제: docs/user-guide.md 2.17절
 
 옵션
-  --out <파일>             만들 데이터 키 파일(필수). 덮어쓰지 않으며 POSIX 권한 600.
-  --from-file <키 파일>    선택. 새로 만들지 않고 기존 키(keygen 형식)를 KMS Encrypt로 감쌉니다. 키·키ID가 그대로라
-                           기존 암호문을 계속 쓸 수 있습니다.
-  --config <파일>          crypto.key.source=aws-kms, crypto.aws.kms.key.id, crypto.aws.region(또는 AWS_REGION),
-                           crypto.key.id가 있는 외부 Properties(JAR·-D에 있으면 선택). 이 파일에
-                           crypto.aws.kms.data-key.file을 더하면 그대로 실행 설정이 됩니다.
-  --lang en|ko             이번 실행의 메시지 언어(선택).
+  --out <파일>            만들 데이터 키 파일(필수, 덮어쓰지 않음, POSIX 600)
+  --from-file <키 파일>   기존 키(keygen 형식)를 KMS로 감쌉니다.
+                          키·키 ID가 그대로라 기존 암호문을 계속 씁니다.
+                          없으면 KMS GenerateDataKey로 새 데이터 키를 만듭니다.
+  --config <파일>         외부 Properties(아래 설정, JAR·-D에 있으면 선택):
+                          crypto.key.source=aws-kms, crypto.aws.kms.key.id,
+                          crypto.aws.region, crypto.key.id
+  --reason <사유>         생성 사유(필수). 없으면 대화형 터미널에서 묻고,
+                          비대화형이면 KMS를 부르기 전에 오류로 멈춥니다.
+  --operator <ID>         작업자 ID(선택, 결과에만 표시)
+  --admin-pass-file <파일>
+                          관리자 비밀번호 파일(비대화형 인증, 한 줄, 권한 600)
+                          없으면 관리자 비밀번호를 숨김 입력으로 묻습니다
+  --lang en|ko            이번 실행의 메시지 언어(선택)
+  crypto.key.* AES 키용입니다. pass 키·추가 키는 config key add
+  --source aws-kms로 만듭니다(help config key add). 데이터 키 원문은
+  보여 주지 않습니다(KMS로 보호한 파일만 남음). JAR를 바꾸지 않으므로
+  사유·작업자를 어떤 이력에도 저장하지 않습니다.
 
-동작
-  --from-file이 없으면 KMS GenerateDataKey(AES_256)로 새 데이터 키를 만들고, 있으면 KMS Encrypt로 그 키를 감쌉니다.
-  두 경우 모두 KMS Decrypt로 복원해 확인한 뒤 암호화된 데이터 키(CiphertextBlob, Base64)만 파일에 씁니다. 평문 데이터
-  키는 출력·저장하지 않습니다. Encryption Context java-crypto-kit:key-id=<crypto.key.id>로 데이터 키를 키ID에 묶습니다.
-  한 번 만들어 보관합니다. WAS가 시작할 때마다 이 파일에서 같은 데이터 키를 복원합니다.
-
-필요한 IAM 권한
-  crypto.aws.kms.key.id의 키에 kms:GenerateDataKey(새 키) 또는 kms:Encrypt(--from-file), 그리고 kms:Decrypt.
-  실행 중인 WAS에는 kms:Decrypt만 필요합니다.
+결과
+  파일      : /etc/java-crypto-kit/prod.datakey
+  방식      : 새 데이터 키(KMS GenerateDataKey)
+  키 ID     : key01
+  키 지문   : 9d2e...(64자)
+  사유      : 운영 데이터 키 준비
+  이력      : 저장 안 함(JAR를 바꾸지 않는 명령이라 config history에 없음)
+  이 경로를 crypto.aws.kms.data-key.file에 지정합니다(help aws-kms).
 
 예제
-  Windows PowerShell
-    $env:AWS_REGION = "ap-northeast-2"
-    java -cp "{jar};aws-kms-lib/*" io.javacryptokit.cli.CryptoCli kms datakey --out C:/secure/prod.datakey --config C:/secure/kms.properties
-  Linux
-    java -cp "{jar}:aws-kms-lib/*" io.javacryptokit.cli.CryptoCli kms datakey --out /etc/java-crypto-kit/prod.datakey --config /etc/java-crypto-kit/kms.properties
-    java -cp "{jar}:aws-kms-lib/*" io.javacryptokit.cli.CryptoCli kms datakey --from-file /secure/example.key --out /etc/java-crypto-kit/prod.datakey
-
-예상 결과
-  암호화된 데이터 키 파일을 만들었습니다: prod.datakey
-  데이터 키 지문: 9d2e... (평문 데이터 키는 출력·저장하지 않음)
-  [PASS] KMS Decrypt로 복원 확인
-  다음: config set crypto.key.source=aws-kms crypto.aws.kms.data-key.file=... crypto.aws.kms.key.id=... --operator <ID>
-
-대표 오류와 해결
-  [사유: KEY_SOURCE] aws-kms에 필요한 AWS SDK ... 설치되어 있지 않습니다 -> aws-kms-lib와 java -cp를 쓰세요(help aws-kms).
-  [사유: KEY_SOURCE] AWS KMS가 접근을 거부했습니다(AccessDeniedException) -> 위 IAM·키 정책 권한을 추가하세요.
-  [사유: KEY_SOURCE] AWS 자격증명을 찾지 못했습니다                       -> IAM 역할·프로필·환경변수를 쓰세요.
-  [사유: KEY_SOURCE] AWS 리전을 찾지 못했습니다                           -> crypto.aws.region 또는 AWS_REGION을 지정하세요.
-
-관련 명령: help aws-kms, rekey, fingerprint, doctor
+  java -cp "$CP" io.javacryptokit.cli.CryptoCli kms datakey --out prod.datakey

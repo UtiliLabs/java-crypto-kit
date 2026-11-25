@@ -5,16 +5,13 @@ import io.javacryptokit.i18n.Messages;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
 
 /**
  * <b>내부 구현 클래스(공개 API 아님)</b>: 키 파일·Vault 토큰 파일·KMS 데이터 키 파일처럼 "작은 비밀 텍스트 파일"을 안전하게
@@ -38,7 +35,7 @@ public final class SecretFiles {
      * @param path        파일 경로
      * @param limit       허용 최대 바이트 수
      * @param settingName 오류 메시지에 쓸 설정 이름(경로 대신)
-     * @return 파일 내용(앞뒤 공백 제거)
+     * @return 파일 내용(앞의 UTF-8 BOM 하나와 앞뒤 공백 제거)
      * @throws IOException              파일이 없거나(NoSuchFileException) 읽을 권한이 없는 경우
      * @throws IllegalArgumentException 일반 파일이 아니거나 상한을 넘는 경우({@link SafeMessageException})
      */
@@ -51,10 +48,37 @@ public final class SecretFiles {
             if (content.length > limit) {
                 throw new SafeMessageException(Messages.get("key.err.tooLarge", settingName, limit));
             }
-            return new String(content, StandardCharsets.US_ASCII).trim();
+            // 앞의 UTF-8 BOM 하나는 뗀다(Windows PowerShell 5.1 Set-Content -Encoding UTF8 등). BOM은 Base64·토큰의 일부가 될 수
+            // 없으므로 떼어도 다른 값이 되지 않는다. 그 밖의 ASCII가 아닌 바이트는 그대로 두어 형식 오류로 거부된다.
+            int start = content.length >= 3 && (content[0] & 0xff) == 0xEF && (content[1] & 0xff) == 0xBB
+                    && (content[2] & 0xff) == 0xBF ? 3 : 0;
+            return new String(content, start, content.length - start, StandardCharsets.US_ASCII).trim();
         } finally {
             Arrays.fill(content, (byte) 0);
         }
+    }
+
+    /**
+     * 작은 비밀 파일을 원본 바이트 그대로 읽는다(Passphrase처럼 공백·문자 인코딩을 호출자가 해석해야 할 때). 규칙은
+     * {@link #readText}와 같다(일반 파일만, 상한 + 1바이트까지만 읽기).
+     *
+     * @param path        파일 경로
+     * @param limit       허용 최대 바이트 수
+     * @param settingName 오류 메시지에 쓸 설정 이름(경로 대신)
+     * @return 파일 내용(호출자가 사용 후 지운다)
+     * @throws IOException              파일이 없거나(NoSuchFileException) 읽을 권한이 없는 경우
+     * @throws IllegalArgumentException 일반 파일이 아니거나 상한을 넘는 경우({@link SafeMessageException})
+     */
+    public static byte[] readBytes(Path path, int limit, String settingName) throws IOException {
+        if (Files.exists(path) && !Files.isRegularFile(path)) {
+            throw new SafeMessageException(Messages.get("key.err.notRegular", settingName));
+        }
+        byte[] content = readAtMost(path, limit + 1);
+        if (content.length > limit) {
+            Arrays.fill(content, (byte) 0);
+            throw new SafeMessageException(Messages.get("key.err.tooLarge", settingName, limit));
+        }
+        return content;
     }
 
     /**
@@ -80,14 +104,15 @@ public final class SecretFiles {
     }
 
     /**
-     * 파일을 읽지 않고 준비 상태만 점검한다({@code doctor}). 내용은 열지 않는다.
+     * 파일을 읽지 않고 준비 상태만 점검한다({@code doctor}). 내용은 열지 않는다. 실제로 쓸 수 없는 상태(경로 없음·형식 오류·
+     * 파일 없음·일반 파일 아님·읽기 권한 없음)만 FAIL로 알린다. 파일 권한을 얼마나 좁힐지는 운영 환경의 판단이라 점검하지 않는다
+     * (권장 권한은 사용자 가이드의 운영·보안 참고).
      *
      * @param settingName 설정 이름(메시지용)
      * @param pathValue   설정값(경로)
-     * @param secret      비밀 파일이면 true(POSIX에서 그룹·기타 사용자가 읽을 수 있으면 WARN)
      * @return 점검 결과
      */
-    public static List<Diagnostic> check(String settingName, String pathValue, boolean secret) {
+    public static List<Diagnostic> check(String settingName, String pathValue) {
         List<Diagnostic> results = new ArrayList<>();
         if (pathValue == null || pathValue.isEmpty()) {
             results.add(Diagnostic.fail(Messages.get("key.check.pathEmpty", settingName),
@@ -114,17 +139,6 @@ public final class SecretFiles {
                     Messages.get("key.action.fileAccess")));
         } else {
             results.add(Diagnostic.pass(Messages.get("key.check.fileOk", settingName, name)));
-            if (secret && FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
-                try {
-                    Set<PosixFilePermission> mode = Files.getPosixFilePermissions(path);
-                    if (mode.contains(PosixFilePermission.GROUP_READ) || mode.contains(PosixFilePermission.OTHERS_READ)) {
-                        results.add(Diagnostic.warn(Messages.get("key.check.filePermissive", settingName, name),
-                                Messages.get("key.action.chmod")));
-                    }
-                } catch (IOException | UnsupportedOperationException | SecurityException ignored) {
-                    // 권한을 조회할 수 없으면 권한 경고만 생략한다(읽기 가능 여부는 위에서 확인함).
-                }
-            }
         }
         return results;
     }
@@ -135,7 +149,7 @@ public final class SecretFiles {
      */
     public static String fileName(Path path) {
         Path name = path.getFileName();
-        return name == null ? "-" : name.toString();
+        return name == null ? "-" : Messages.singleLine(name.toString());
     }
 
     /**

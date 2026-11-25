@@ -1,38 +1,25 @@
-decrypt - 암호문의 평문 표시(대화형 터미널 전용, 확인 절차 필수)
+decrypt - 암호문 복호화(평문 표시, 대화형 터미널 전용)
 
-사용 형식
-  java [-D...] -jar {jar} decrypt [--config <파일>] [--lang en|ko]
+사용법
+  java [-D...] -jar {jar} decrypt
+       [--config <파일>] [--admin-pass-file <파일>] [--lang en|ko]
 
 옵션
-  --config <파일>   외부 Properties 파일(선택, encrypt와 같은 규칙).
-  --lang en|ko      이번 실행의 메시지 언어(선택).
-  암호문을 인자로 받는 옵션은 없습니다(스크립트로 평문을 대량 추출하지 못하게 함).
+  --config <파일>   외부 Properties 파일(선택, encrypt와 같은 규칙)
+  --admin-pass-file <파일>
+                    관리자 비밀번호 파일(비대화형 인증, 한 줄, 권한 600)
+                    없으면 관리자 비밀번호를 숨김 입력으로 묻습니다
+  --lang en|ko      이번 실행의 메시지 언어(선택)
+  암호문은 인자로 받지 않고, 화면에 표시하지 않는 입력으로 받습니다.
+  키는 암호문의 키 ID로 자동 선택합니다(pass·key 모두, 유형 지정 없음).
 
-동작
-  1) 경고를 표시합니다. 2) SHOW를 입력해야 진행합니다(그 외 입력은 취소). 3) 암호문을 붙여 넣습니다(표시되지 않음).
-  4) 암호문의 무결성 검증(AES-GCM 인증 태그)에 성공한 경우에만 평문을 출력합니다.
-  SHOW는 평문을 화면에 표시할지 확인하는 절차이며 본인 인증이 아닙니다(터미널 접근 통제는 운영 환경에서 합니다).
+결과
+  관리자 비밀번호(입력 숨김):   (먼저 관리자 인증, 그다음 암호문 입력)
+  암호문(입력 숨김):
+  복호화 결과: <평문>
+  키 ID·인증 태그 검증에 실패하면 평문 없이 오류로 끝납니다
+  (KEY_ID_MISMATCH: 등록되지 않은 키 ID, INTEGRITY 등).
 
 예제
-  Windows PowerShell
-    java -jar .\{jar} decrypt
-  Linux
-    java -jar ./{jar} decrypt --config /etc/java-crypto-kit/app.properties
-
-예상 결과
-  [주의] decrypt는 복호화한 평문을 화면에 표시합니다. ...
-  평문을 표시하려면 SHOW 를 입력하세요 (그 외 입력은 취소): SHOW
-  복호화할 전체 암호문 ENC[...] 또는 B64[...]:
-  복호화 결과 (평문): ...
-
-대표 오류와 해결
-  [사유: USAGE] 대화형 터미널이 필요합니다          -> Windows PowerShell·명령 프롬프트나 Linux 터미널(ssh)에서 직접
-                                                    실행하세요(IDE 콘솔·파이프·리다이렉트·스크립트 불가).
-  [사유: INTEGRITY] / [사유: KEY_ID_MISMATCH]       -> 키·키ID가 다릅니다. info와 fingerprint로 확인하세요.
-
-보안 주의
-  - 평문이 화면 공유·녹화·터미널 기록에 남을 수 있습니다. 확인 후 화면을 정리하세요.
-  - crypto.warning.enabled=false여도 이 경고와 확인 절차는 생략되지 않습니다.
-  - 복호화 가능 여부만 확인하려면 verify를 쓰세요.
-
-관련 명령: verify, encrypt, info
+  java -jar {jar} decrypt
+  java -jar {jar} decrypt --config app.properties

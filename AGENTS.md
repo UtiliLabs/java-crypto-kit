@@ -1,121 +1,474 @@
-# AGENTS.md — java-crypto-kit 개발·보안 변경 통제
+# AGENTS.md — java-crypto-kit 개발·QA 불변 규칙
 
-> 적용 범위: 저장소 전체. Codex/Claude/기타 자동화 도구와 기여자는 작업 전에 반드시 읽는다.
-> 이 문서는 코드 리뷰와 자동 검사(테스트·CI)에서 지켜야 할 요구사항이다. 문서 자체가 보안을 보증하거나 실행을 차단하는 기술적 장치는 아니다.
-> 사용 방법은 `README.md`(한국어 소개·첫 사용), `docs/user-guide.md`(한국어 정식 상세 사용자 매뉴얼), CLI Help(한국어·영어, 실행 중 참고)가 맡고, 이 문서는 바꾸면 안 되는 규칙과 변경 절차만 다룬다(사용자 매뉴얼이 아니다).
+> 적용: 저장소 전체 / 개발·QA 에이전트 및 기여자 공통. 개발 기준이며 검증 완료 증명이 아니다.
+> 역할: 변경 금지 원칙, 호환성·보안 경계, 작업·검증 게이트. **사용 절차·전체 옵션·복사 예제는 `docs/user-guide.md`에서 연결되는 업무별 가이드**, 제품 소개는 `README.md`, 사용 예제는 기능별 가이드, 간단 명령 설명은 CLI Help에서 관리한다.
+> 규칙이 현행 코드와 다르면 임의로 옛 규칙에 맞추지 말고 차이를 보고·수정한다. 승인된 추가 요건과 충돌하면 **최신 사용자 확정 요구**를 우선하되, 보안·호환성 위험은 보고한다.
 
-## 빠른 안내(기여자)
 
-| 하려는 일 | 명령·위치 |
+**규칙 탐색:** [제품 범위](#1-제품-범위와-작업-원칙) · [암호화 형식](#2-암호화-형식키-유형-절대-호환) · [범용 API](#8-범용-보안-java-api-범위-동결) · [검증](#9-문서ux검증-게이트) · [변경 통제](#10-변경-통제완료-보고)
+
+## 작업 전 확인
+
+| 판단 항목 | 적용 원칙 |
 |---|---|
-| 전체 빌드(JUnit·selfTest·JAR·KMS ZIP) | Windows `gradlew.bat clean build`, Linux/macOS `./gradlew clean build` |
-| 테스트 하나만 실행 | `gradlew.bat test --tests io.javacryptokit.cli.DocsConsistencyTest`(Linux는 `./gradlew`) |
-| 실서버 통합 시험(Docker) | `bash src/test/integration/run-tomcat-integration.sh`(`--help`에 시험 구성·결과 읽는 법·실패 조사 순서) |
-| 결과물 | `build/libs/java-crypto-kit-<버전>.jar`, `build/distributions/java-crypto-kit-aws-kms-lib-<버전>.zip`, 통합 시험 로그 `build/qa-integration/<UTC 시각>/` |
-| 사용자 문서 | `README.md`(첫 사용), `docs/user-guide.md`(상세 매뉴얼), `src/main/resources/io/javacryptokit/i18n/help/<en\|ko>/`(CLI Help), 예제 `docs/config/`·`docs/tomcat/` |
-| 변경별로 고칠 곳과 필수 시험 | §5 유지보수 가이드 표. 보안·호환 규칙은 §2, 테스트·문서 게이트는 §3 |
+| 변경 범위 | 승인된 제품 기능·보안 결함·문서 정합성만 수정 |
+| 검증 | 기존 통합 증거 재사용, 변경 영향 범위만 표적 실행 |
+| 문서 역할 | README = 첫 사용·기능 안내, User Guide = 업무별 목차, guide = 사용 절차, reference = 옵션·기술 사전, AGENTS = 개발 규칙 |
+| Git·배포 | 사용자 승인 전 변경 작업을 원격에 반영하지 않음 |
 
-## 0. 프로젝트 정체성과 구조
 
-- `java-crypto-kit` = **WAS JDBC Connection Pool 접속정보 암호화(최우선) + 일반 Java용 범용 암복호화 API·CLI**. 공식 저장소: https://github.com/freeangelsun/java-crypto-kit
-- 최우선 기능은 Tomcat JNDI DataSource 연동이다. 범용 기능(파일 암호화·Vault·KMS·JAR 내부 설정 등) 때문에 JAR 설치 → 암호문 생성 → `factory`·`password` 지정 → 기동·DB 확인이라는 기본 흐름이 복잡해지거나 깨지면 안 된다. WAS 애플리케이션 Java 코드 수정을 요구하지 않는다.
-- WAS가 제공하는 Connection Pool만 사용하며 자체 Pool을 구현하지 않는다. 산출물은 실행 가능한 일반 JAR 1개다(fat JAR·WAR·모듈별 다중 JAR 금지, Tomcat Pool·JDBC 드라이버·AWS SDK 포함 금지). 예외로 AWS KMS 사용자만 추가 설치하는 서드파티 묶음 ZIP(`java-crypto-kit-aws-kms-lib-<버전>.zip`, AWS SDK JAR만 포함, 이 라이브러리 코드 없음)을 함께 만든다.
-- 이름 원칙: 프로젝트·JAR·로그 태그는 `java-crypto-kit`, Java 패키지·Gradle group은 `io.javacryptokit`. JDBC·Tomcat 전용 기능에만 JDBC 이름을 쓴다. Java 패키지·Gradle group에는 GitHub 계정명을 넣지 않는다.
+---
 
-| 패키지 | 클래스 | 역할 | 공개 여부 |
-|---|---|---|---|
-| `io.javacryptokit` | `CredentialCrypto`, `CredentialCryptoException` | 일반 Java용 공개 API(값·`byte[]`·파일 암복호화) | **공개 API** |
-| `io.javacryptokit.core` | `CredentialCipher`, `TokenCodec`, `CryptoService` | AES-256-GCM v1 엔진(유일), ENC/B64 Codec, 공통 서비스(키 캐시·진단) | 내부 |
-| `io.javacryptokit.file` | `FileCipher` | 파일 암호화 JCKF v1(스트리밍) | 내부 |
-| `io.javacryptokit.key` | `KeyProvider`, `KeyResolver`, `LocalKeyProviders`, `Diagnostic`, `SecretFiles`, `DefaultKeyWarning` | 키 공급 계약·고정 등록부, embedded/file/env, 비밀 파일 읽기, 키·설정 위험 안내 | 내부 |
-| `io.javacryptokit.key.vault` | `VaultKeyProvider`, `MiniJson` | HashiCorp Vault KV v2(JDK HTTPS) | 내부 |
-| `io.javacryptokit.key.aws` | `AwsKmsKeyProvider`, `AwsKmsSupport` | AWS KMS Envelope Encryption(SDK 타입은 `AwsKmsSupport`에만) | 내부 |
-| `io.javacryptokit.config` | `CryptoSettings`, `SettingCatalog`, `SafeMessageException` | 설정 정의(단일 원본)·로딩·우선순위·검증 | 내부 |
-| `io.javacryptokit.i18n` | `Messages` | 한국어·영어 메시지 번들, 언어 결정 | 내부 |
-| `io.javacryptokit.cli` | `CryptoCli`, `CliCommands`, `CliHelp`, `ConfigCommand`, `ConfigHistory`, `JarConfigEditor`, `KeyCommands`, `DoctorCommand`, `FileCommand` | `java -jar` 명령(Manifest Main-Class), 도움말, JAR 내부 설정·이력 | 진입점 |
-| `io.javacryptokit.jdbc.tomcat` | `EncryptedDataSourceFactory` | Tomcat JNDI ObjectFactory(핵심 어댑터) | 진입점 |
+## 1. 제품 범위와 작업 원칙
 
-- 내부 패키지 클래스가 `public`인 것은 Java 8에서 패키지 사이 호출을 하기 위해서다. 공개 API로 문서화하지 않는다.
-- 엔진·키 로딩·설정 해석은 한 곳에만 둔다. CLI·Tomcat 어댑터·공개 API는 모두 `core.CryptoService`를 거치고, 설정 원본(내장·외부 Properties, JVM 속성, 환경변수의 설정 경로)은 `config.CryptoSettings`만 읽는다. 다른 클래스가 `System.getProperty`·파일로 설정을 따로 읽어 결과가 달라지게 하지 않는다.
-- 설정 항목의 이름·그룹·형식·허용값·`-D` 허용 여부·비밀 여부는 `config.SettingCatalog` 한 곳에서 정의한다. 검증·`config help`·`config show`·`info`·`doctor`가 모두 이 정의를 쓴다. 설명 문구는 `i18n/settings(_ko).properties`의 `setting.<이름>.*`에 둔다.
-- Tomcat factory는 `io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory` 하나다. 다른 패키지에 같은 역할의 별칭 Factory 클래스를 추가하지 않는다.
-- `core`·`key`·`config`·`file`·`i18n`은 `javax.naming`·Tomcat 클래스에 의존하지 않는다. `crypto.pool.factory`는 Tomcat 어댑터 전용 설정이며 `config`에서는 문자열 허용 목록만 검사한다. AWS SDK 클래스는 `key.aws.AwsKmsSupport`에서만 참조한다(기본 JAR만 있는 환경에서 다른 기능이 SDK 없이 동작해야 함).
+**제품**
 
-## 1. 프로젝트 원칙
+`java-crypto-kit` / Java 패키지·Gradle group `io.javacryptokit`. 최우선 용도는 **Tomcat JNDI JDBC Connection Pool 비밀번호 복호화**이고, 같은 엔진을 일반 Java API·CLI·파일 기능에서도 쓴다.
 
-1. **이름**: 프로젝트·Gradle `rootProject.name`·JAR는 `java-crypto-kit`(`java-crypto-kit-<버전>.jar`), Gradle group과 기본 패키지는 `io.javacryptokit`.
-2. **설정 이름 표준(별칭 없음)**: 모든 설정은 소문자 `crypto.<영역>.<항목>` 형식이다. 파일 경로는 `.file`, 환경변수 이름은 `.env`, 시간은 `.ms`로 끝나고 여러 단어는 `-`로 잇는다(예: `crypto.key.file`, `crypto.key.env`, `crypto.vault.timeout.ms`, `crypto.aws.kms.data-key.file`). 외부 설정 경로는 `--config`(CLI) · `-Dcrypto.config.file` · 환경변수 `CRYPTO_CONFIG_FILE` 각각 이름 하나뿐이다. 키 환경변수 기본 이름 `CRYPTO_KEY`, Vault 토큰 환경변수 기본 이름 `VAULT_TOKEN`, 기본 키ID `default`, 로그·오류 태그 `[java-crypto-kit]`. 최초 공개 전에 이름을 표준화했으므로 이전 이름의 별칭·호환 코드는 두지 않는다. 공개 후 이름을 바꾸려면 별칭·마이그레이션 계획·사용자 승인이 필요하다.
-3. **최소 Java**: 실행·빌드 하한은 **JDK/JRE 8**(클래스 파일 major 52). JDK 10 이상은 `--release 8`, JDK 8은 source/target 8. Gradle Wrapper 8.14.3 공식 빌드 JDK는 8~24이며, JDK 25에서 빌드가 된다는 사실과 공식 지원을 혼동하지 않는다. Java 7 지원, Java/Gradle 최소 버전 상향은 사전 승인 없이 하지 않는다.
-4. **OS**: Windows에서 개발·빌드하고 Linux WAS에서 같은 JAR·같은 설정 방식으로 운영할 수 있어야 한다. Windows 전용 API·명령·경로에 의존하지 않는다. `gradlew`·`*.sh`는 LF, `gradlew.bat`은 CRLF(`.gitattributes`)이고 `gradlew`는 git에 실행 권한(100755)으로 기록한다. Properties의 Windows 경로는 `/` 사용을 안내한다.
-5. **인코딩·주석**: Java/XML/Gradle/Properties/Markdown·도움말 텍스트는 UTF-8. Java 클래스·메서드·복잡한 분기·보안 판단에는 알아보기 쉬운 한글 주석을 유지한다.
-6. **빌드**: 표준 Gradle Wrapper 하나로 빌드한다(Windows `gradlew.bat clean build`, Linux/macOS `./gradlew clean build`). 두 OS가 같은 `build.gradle`을 쓰며 OS별 대체 빌드 스크립트(`*.ps1`·`*.sh` 래퍼 등)를 추가하지 않는다. 예외는 빌드 래퍼가 아닌 Docker 실서버 통합 시험 도구 `src/test/integration/run-tomcat-integration.sh` 하나다(빌드된 JAR를 시험만 하며 Gradle `test`에서 자동 실행하지 않는다. 다른 시험 스크립트를 따로 늘리지 않는다). `build`에는 `test`(JUnit 5)·`selfTest`·`jar`·KMS 선택 묶음 ZIP이 모두 포함되어야 한다.
-7. **문서**: `README.md`는 **한국어 하나만** 둔다(영어 README 없음). 역할은 다음과 같이 나누고 서로 모순되지 않게 한다. README는 범용 사용자의 첫 사용(기본 `encrypt` → `decrypt` → `verify`), Java API·Tomcat·사용자 지정 키의 짧은 소개, 기능 지도, 필수 보안 경고, 지원·검증 범위를 간결하게 담고 세부는 사용자 가이드의 해당 절로 연결한다. `docs/user-guide.md`(한국어)는 **정식 상세 사용자 매뉴얼**로 모든 명령·옵션·허용값·기본값·선택 기준·Windows/Linux 예제·결과·오류 조치, 설정 25개, Java API, Tomcat/Pool, 키 공급·교체·복구, Vault/KMS를 기능별 목차·절로 설명한다. CLI Help(한국어·영어)는 실행 중 참고용으로 같은 명령·옵션을 담는다. 같은 설명을 여러 문서에 길게 복제하지 않고, 가이드의 옵션·허용값·기본값·예제는 삭제하지 않는다(중복만 통합, 기능 자체를 없앤 경우만 제외). `keygen`은 필수 단계가 아니며 내장 예제 키 체험과 운영용 사용자 지정 키를 구분해 안내한다. 직무별 업무 분장이나 특정 조직의 정책을 사용 절차로 강요하지 않는다. CHANGELOG·요구사항(Steering)·추가 매뉴얼 문서는 저장소에 쌓지 않는다. `docs/`에는 사용자 가이드, 예제 설정(`docs/config/java-crypto-kit.example.properties`), Tomcat 예제(`docs/tomcat/dbcp2-context.xml`·`jdbc-pool-context.xml`)만 두며, 예제 파일 이름과 Tomcat이 읽는 실제 파일(`conf/context.xml`·`META-INF/context.xml`)을 README·가이드·Help·예제 주석에서 구분해 안내한다. 명령·옵션·설정·문서 제목을 바꾸면 README·가이드·두 언어 Help·예제 주석·`DocsConsistencyTest`를 함께 고친다.
-8. **범용 제품**: 코드·로그·문서·예제에 특정 조직의 업무 분장·내부 배포 절차를 필수 사용 절차처럼 넣지 않는다. 예시 값은 `example.key`·`key01`·`example-admin`처럼 범용 식별자를 쓰고 실제 비밀값은 쓰지 않는다.
+WAS 업무 Java 소스 수정이나 별도 자체 Connection Pool은 요구하지 않는다.
 
-## 2. 암호화·키 관리 불변 요구사항
+CLI는 관리자 비밀번호로 사용을 통제한다(§7.1, CLI 전용). 같은 JAR에 외부 라이브러리 없는 **범용 보안 Java API**(`io.javacryptokit.security`·`jwt`·`oauth`, §8)를 함께 제공한다.
 
-1. **암호화**: AES-256-GCM, 키 32바이트, IV 12바이트를 매 암호화마다 `SecureRandom`으로 생성, 인증 태그 128비트. 같은 평문도 다른 암호문. ECB/CBC 무인증 방식, DES/RC4, MD5/SHA-1 기반 키 유도, 임의 transformation·Provider 로딩으로의 회귀 금지. `crypto.algorithm`은 `AES/GCM/NoPadding`만 허용한다. 비밀번호·Salt로 키를 만드는 PBE(PBKDF2 등)는 지원하지 않으며, 추가하려면 새 키 처리 방식으로 사전 승인을 받는다.
-2. **암호문 포맷**: `ENC[v1:<keyId>:<ivBase64Url>:<cipherBase64Url>]` 고정(AAD `v1:<keyId>`). 기존 v1 암호문은 계속 복호화되어야 한다(고정 회귀 벡터 테스트 유지). 포맷·AAD·키ID 규칙을 바꾸려면 새 버전(`ENC[v2:...]`)·마이그레이션 안내·테스트를 함께 만든다. `B64[...]`(`crypto.output.encoding=base64`)는 ENC 문자열의 추가 외부 포장일 뿐 새 포맷·암호화가 아니며, 기본 출력은 항상 ENC다. 임의 포맷·일반 Base64·평문을 암호문으로 추측해 복호화하지 않는다.
-3. **파일 포맷(JCKF v1)**: 헤더 `"JCKF" | 버전 0x01 | 청크 크기 65536 | 키ID 길이 | 키ID`, 청크마다 `표시(중간 0x00/마지막 0x01) | IV 12바이트(SecureRandom) | 암호문+태그`, AAD = 헤더 전체 + 청크 번호(8바이트) + 표시. 청크 수는 2^32 미만. 복호화 결과는 모든 청크 인증이 끝난 뒤에만 최종 파일로 옮기고(접근 제한 임시 파일 → move), 실패하면 임시 파일을 지운다. 원본은 바꾸지 않고 출력 파일이 있으면 덮어쓰지 않는다. 형식을 바꾸려면 새 버전과 회귀 테스트를 만든다.
-4. **설정 제한**: `crypto.require.encrypted.password`는 `true`, `crypto.warning.enabled`·`crypto.jvm.override.enabled`는 소문자 `true|false`, `crypto.output.encoding`은 `enc|base64`, `crypto.lang`은 `ko|en|auto`(기본 `ko`)만 허용하고 다른 값·빈 값은 안전하게 실패한다. 각 항목의 형식(키ID·URL·경로·숫자 범위 등)은 `SettingCatalog`·`CryptoSettings`에서 검사한다. 최종값 우선순위는 **CLI 1회 옵션(`--lang`) > JVM 개별 속성(`-D`, 허용된 이름만) > 외부 Properties > JAR 내부 값**이다. 외부 설정 경로는 직접 지정 → JVM 속성 → 환경변수 순서로 고른다. 경로를 지정했지만 비어 있으면(빈 `-D`·`--config`·환경변수, 빈 `Path`) 미지정으로 보지 않고 오류로 중단한다. 외부 Properties에 지원하지 않는 항목 이름(오타)이나 `crypto.config.file`이 있으면 오류로 중단한다(이름은 안전한 형식일 때만, 값은 출력 금지, 비슷한 정식 이름은 확신할 때만 안내). `-Dcrypto.*` 중 이 라이브러리 설정 영역(지원 항목에서 나온 `crypto.key.*`·`crypto.vault.*`·`crypto.aws.*`·`crypto.config.*`·`crypto.lang` 등)의 모르는 이름이나 정식 이름과 편집 거리 2 이하인 이름은 오타로 보고 오류로 중단한다(예: `crypto.key.soruce`를 무시하면 공개 내장 키로 동작). 이 검사는 경고 정책·JVM 덮어쓰기 정책과 무관하게 항상 동작한다. 그 밖의 `crypto.*`(예: `crypto.policy`)와 무관한 JVM 속성에는 영향을 주지 않는다. 설정은 객체 생성 시 한 번 읽으므로(Hot Reload 없음) 실행 중인 WAS 반영에는 재기동이 필요하다고 문서화한다.
-5. **키 공급**: `embedded`·`file`·`env`·`vault`·`aws-kms`를 같은 JAR에서 선택 지원한다(내장 키 제거·외부 키 강제 금지). 공급원은 `key.KeyProvider` 계약을 구현하고 `KeyResolver`의 **고정 등록부**에만 추가한다. 설정값으로 임의 클래스를 이름으로 로딩하지 않는다. 외부 Properties 사용은 외부 키 강제가 아니며 `embedded` 명시도 허용한다. 지정한 외부 설정·외부 키·원격 키가 없거나 잘못되면 **Fail Closed**, 내장 키로 자동 전환하지 않는다. 키 파일·키 환경변수·Vault·AWS KMS 설정이 있는데 `crypto.key.source`가 없으면 오류로 중단한다. 원시 키·비밀번호·Vault 토큰을 CLI 인자나 `-D`로 받지 않는다. 원격 키는 `CryptoService` 인스턴스마다 한 번 읽어 캐시한다.
-6. **공개 기본 키**: 내장 기본 키는 누구나 추출할 수 있는 공개 값이다. 실제 값은 바꾸지 않는다(기존 암호문 호환). 공급 방식과 관계없이 공개 키를 쓰면 탐지하고, 교체한 내장 키도 추출 위험을 안내한다. 이 안내 WARNING은 `crypto.warning.enabled` 기본값 `true`에서 출력하고 `false`이면 출력하지 않는다(Properties와 `-Dcrypto.warning.enabled` 양쪽에서 지정 가능, 종류별 JVM당 1회, 출력 전에 최종값 확정). `false`는 **비차단 안내 로그만** 끄며(우회 안내문도 남기지 않음) 키·암호문·설정 오류, `decrypt` 확인 절차, CLI `info`·`doctor`처럼 사용자가 직접 요청한 진단, WAS·JDK·다른 라이브러리 로그에는 영향을 주지 않는다. 전역 로깅 설정을 바꾸지 않는다. 경고를 꺼도 위험이 사라지지 않는다는 사실을 README에서 삭제하지 않는다. 공개 배포 JAR(GitHub Release)에는 공개 예제 키만 들어 있어야 하며 사용자 지정 키가 든 JAR를 만들거나 게시하지 않는다.
-7. **비밀정보 보호**: 평문·실제 키·Vault 토큰·기밀 파일 내용은 로그, 예외(메시지·cause·suppressed), 테스트 리포트, 커밋, ZIP, Issues/PR에 넣지 않는다. 하위 라이브러리 예외(하위 Pool Factory의 `Error` 포함, JVM 장애 `VirtualMachineError`·`ThreadDeath`만 그대로 전달)는 원인·suppressed를 붙이지 않고 원인 유형(클래스 이름·표준 5자리 SQLState)만 남겨 정제한다. 이 정제는 Factory가 DataSource를 만드는 동안의 실패에만 적용되며, 이후 `getConnection()`에서 Pool·드라이버가 내는 예외·로그는 범위 밖이라고 문서화한다(포괄적으로 과장하지 않는다). 오류 메시지는 `[java-crypto-kit] [사유: <코드>] <원인> 조치: <확인할 설정>`(영어 `[reason: <코드>] ... Action: ...`) 한 형식으로 쓴다. 코드는 공개 API `Reason` 이름(`CONFIGURATION`·`KEY_SOURCE`·`INVALID_INPUT`·`INVALID_TOKEN`·`KEY_ID_MISMATCH`·`INTEGRITY`·`CRYPTO_PROVIDER`)을 그대로 쓰고, 그 분류에 없는 경우만 Factory 전용(`PLAINTEXT_PASSWORD`·`MISSING_PASSWORD`·`POOL_FAILURE`·`UNSUPPORTED_RESOURCE`)과 CLI 전용(`USAGE`·`IO_ERROR`)을 쓴다(별도 오류 체계를 만들지 않음, 코드는 번역하지 않음). 원인·조치 문구는 `CredentialCryptoException`과 메시지 번들에서 만들어 CLI·Java API·JNDI가 같은 의미를 갖게 한다. 경로 전체·입력값·설정값·키·암호문은 넣지 않는다(파일 이름·설정 이름은 허용). `decrypt` CLI만 사용자가 대화형 터미널에서 경고 후 `SHOW`를 입력했을 때 평문을 표시한다. `verify`·`rekey`는 평문 미출력, `encrypt`·`decrypt`에는 평문을 명령행으로 받는 옵션 금지.
-8. **키 생성·읽기·지문**: `keygen`은 보안 난수 키를 만들고 기존 파일을 덮어쓰지 않으며 POSIX에서는 600으로 만든다. 키 파일·토큰 파일은 일반 파일만 허용(폴더·장치·FIFO 거부, 심볼릭 링크는 대상이 일반 파일이면 허용)하고 크기를 미리 조회하지 않은 채 상한+1까지만 읽는다(키 파일 512바이트). 키 지문은 `SHA-256("java-crypto-kit/key-fingerprint/v1" || 0x00 || 키)` 64자 16진수이며 키 비교용일 뿐 인증·소유 증명이 아니다. 파일/환경변수 키 주입을 유지하되 비밀관리시스템과 직접 연동된 것처럼 과장하지 않는다.
-9. **JNDI Factory**: 비밀번호가 암호문이 아니면 거부, 위조·손상·키ID 불일치·키 오류 시 실패(평문 fallback 금지), 원본 Reference 불변, `username`은 선택 암호화. Tomcat 공식 Pool(DBCP2 기본, Tomcat JDBC Pool 선택) 외 임의 Factory를 로딩하지 않는다. 공식 Pool Factory는 이름만 믿지 않고 **이 라이브러리를 로딩한 클래스로더에서만** 찾으며, 정의한 로더가 그 로더 또는 부모 체인인지 확인한다(스레드 컨텍스트·웹앱 클래스로더 사용 금지: 같은 이름의 가짜 Factory가 평문 비밀번호를 받을 수 있음). Pool 생성 실패 메시지에는 실제로 쓴 Pool 이름(DBCP2·Tomcat JDBC Pool)을 쓴다. WAS 운영자에게 Java 코드 작성이나 JAR 재빌드를 요구하지 않는다. Pool 종류는 JVM 전역 설정 `crypto.pool.factory` 하나로 정한다(한 Tomcat JVM의 모든 Resource 공통). Resource별 Pool 선택 속성처럼 Factory 전용 JNDI 속성을 추가하는 것은 사전 승인 대상이다.
-10. **JVM 개별 속성(`-D`)**: `SettingCatalog`에서 `-D` 허용으로 정한 항목(`CryptoSettings.JVM_OVERRIDABLE_KEYS`: `crypto.key.embedded`·`crypto.jvm.override.enabled`를 뺀 모든 설정)만 같은 이름의 `-D`로 덮어쓴다. 덮어쓰기 허용 정책 `crypto.jvm.override.enabled`(기본 `true`)는 JAR 내부 값·외부 Properties에서만 정하고 `-D` 값은 읽지 않는다(정책 우회 금지). 키 원문 `crypto.key.embedded`의 `-D` 지정은 정책과 무관하게 오류로 중단한다(프로세스 목록·Tomcat 기동 로그 노출 방지). 설정 파일 경로 `-Dcrypto.config.file`은 정책과 무관하게 동작한다. `-D` 값에도 같은 허용값 검증·모호성 검사·Fail Closed를 적용한다. CLI `info`는 값의 출처(JAR·외부 파일·JVM)와 적용·무시한 `-D` 이름만 보여 주고 키·비밀값은 출력하지 않는다.
-11. **메시지 언어**: 모든 라이브러리 메시지(CLI·도움말·Java API 예외·Tomcat Factory·Vault/KMS 오류·경고)는 `i18n` 번들(`core`·`cli`·`settings`와 `_ko`, 도움말 `help/<en|ko>/<주제>.txt`)에서 가져온다. 언어는 `crypto.lang`(JAR 내부 값·외부 Properties·`-D`)으로 정하고 기본은 `ko`, `auto`는 JVM Locale(한국어가 아니면 영어), 지원하지 않는 언어는 영어다. CLI `--lang en|ko`는 그 실행에만 적용한다. WAS 안에서는 스레드 범위로만 언어를 바꾸고 JVM 기본 Locale·전역 설정을 바꾸지 않는다. 사유 코드·PASS/WARN/FAIL·명령·옵션·설정 이름은 번역하지 않는다. Tomcat·JDBC 드라이버·AWS SDK 등 외부 제품 메시지는 번역하지 않는다. 메시지를 추가하면 두 언어 번들에 같은 키로 넣는다(`I18nTest`).
-12. **Vault KV v2**: HTTPS만 허용하고 TLS 인증서·호스트 이름 검증을 끌 수 없다(사설 CA는 `crypto.vault.ca.file`). 리다이렉트를 따르지 않는다. 토큰은 토큰 파일(`crypto.vault.token.file`) 또는 환경변수(`crypto.vault.token.env`)로만 받으며 JAR 내부 Properties·외부 Properties·`-D`에 토큰 값을 쓰는 기능을 만들지 않는다. 제한 시간·재시도(연결 실패·시간 초과·429/5xx만)를 두고 인증 실패·권한 부족·Secret 없음·TLS 오류를 구분해 알린다(정책 밖 경로는 Vault가 권한 부족으로 답한다는 점도 안내). 실패 시 다른 키로 대체하지 않는다. Vault Transit은 지원하지 않는다.
-13. **AWS KMS**: AWS 공식 SDK for Java 2.x만 쓴다(SigV4·자격증명 체계를 직접 구현하지 않음). SDK는 `compileOnly`이며 기본 JAR에 넣지 않고 선택 묶음 ZIP으로만 제공한다(`kms`·`url-connection-client`·`sts`와 그 의존성, apache-client·apache5-client·netty 제외 - HTTP 클라이언트 구현은 url-connection-client 하나만 둔다). 자격증명은 SDK 기본 자격증명 체계(IAM 역할 등)만 쓰고 Access Key·Secret Key를 하드코딩하거나 설정 항목으로 받지 않는다. 암호화 컨텍스트 `java-crypto-kit:key-id=<crypto.key.id>`를 고정한다. 모의 KMS 테스트와 실제 AWS 검증을 구분하며, 실제 AWS KMS를 호출하지 않았으면 KMS 연동 PASS로 보고하지 않는다. SDK 버전 갱신은 `build.gradle`의 `awsSdkVersion` 한 곳에서 하고 KMS 테스트를 다시 실행한다.
-14. **JAR 내부 설정·변경 이력**: `config set`·`config embed-key`는 소스 수정·재빌드·외부 Properties 없이 JAR 내부 설정을 바꾼다. 기본은 원본을 두고 `<이름>-configured.jar`를 새로 만들고, 이미 바꾼 JAR(`-configured`, `-configured-<N>`)는 접미사를 겹치지 않고 `-configured-<N+1>.jar`로 만든다(기본 이름의 파일이 있으면 덮어쓰지 않고 확인 질문 전에 멈추며 `--out` 이름을 안내). `--out`은 지정한 이름, `--replace`는 `<이름>.bak-<UTC>` 백업 후 원자적으로 교체한다(실행 중인 JAR·서명된 JAR·이력이 손상된 JAR는 수정하지 않음). 바꾼 뒤 전체 설정을 실행 시와 같은 규칙으로 다시 검증하고, 결과 JAR를 다시 읽어 확인한 뒤에만 자리에 둔다. 내장 키는 `config embed-key`(키 파일)로만 바꾸며 공개 키·현재와 같은 키·**현재 키ID와 이력에서 쓰인 키ID의 재사용**은 거부하고 `rekey` 재암호화를 안내한다. 변경 이력(`config history`)에는 성공한 변경만 순번·UTC 시각·수정자·명령·사유·설정별 이전 값→변경 값으로 남기고, 비밀 항목은 `(비공개) -> (교체됨)`만 남긴다(키ID 변경은 표시). 새 JAR·`--replace` 후에도 이력을 모두 옮긴다. 해시 체인·Manifest 설정 지문으로 손상·이력 없는 수정을 탐지해 오류로 알리되, **위변조 방지 감사 로그가 아니라고** 문서화한다. 수정자 ID는 기록용이며 인증이 아니다.
+**산출물**
 
-## 3. 테스트·문서 변경 게이트
+Java 8 호환 실행형 일반 JAR **1개**(fat JAR, WAR, 자체 Pool, JDBC 드라이버, AWS SDK 내장 금지). AWS KMS 사용자를 위한 기존 선택형 AWS SDK 의존성 ZIP은 유지한다.
 
-- [ ] `gradlew clean build`가 JDK 8과 17/21에서 성공(표준 `test`=JUnit 5, `selfTest`=독립 자체 검증, `jar`, KMS 묶음 ZIP 모두 실행). 실제로 돌리지 않은 JDK·OS는 미검증으로 표시
-- [ ] Java 8 클래스 파일 major 52, JAR에 테스트·모의 클래스·외부 라이브러리(AWS SDK 포함) 없음
-- [ ] AES-GCM 암복호화, 한글 UTF-8, 같은 평문 다른 암호문, IV·태그·키ID(AAD) 변조 실패, v1 고정 회귀 벡터, B64 왕복·손상 거부
-- [ ] JCKF 파일 왕복(청크 경계 크기), 같은 파일도 매번 다른 결과, 헤더·청크 변조·순서 바꾸기·잘라내기·덧붙이기 거부, 공개 API의 원본 보존·덮어쓰기 거부·임시 파일 정리, 키 읽기 전 키ID 확인(`FileCipherTest`)
-- [ ] embedded/file/env × `crypto.warning.enabled` true/false, 공개 키의 file/env 공급 탐지, 외부 설정·키 누락 Fail Closed, 설정 경로 우선순위·빈 경로 거부(`KeyModeWarningMatrixTest`·`ConfigResolutionTest`)
-- [ ] JVM `-D` 단독·외부 Properties 단독·혼합 우선순위, `crypto.jvm.override.enabled` true/false, `-D`로 정책 우회 불가, 키 원문 `-D` 거부, `-D` 잘못된 값·오타 거부, 무관한 `crypto.policy` 무영향, 모든 설정의 `-D` 분류(`JvmOverrideTest`·`SettingCatalogTest`)
-- [ ] Tomcat factory를 클래스 이름으로 로딩·DBCP2/Tomcat JDBC Pool 위임, 하위 Pool 예외(Error 포함) 평문 비노출(`PoolFailureSanitizationTest`), 컨텍스트 클래스로더의 같은 이름 가짜 Pool Factory가 평문을 받지 못함(`PoolFactoryTrustBoundaryTest`), 시나리오(`DataSourceFactoryScenarioTest`·`FactoryEntryPointTest`)
-- [ ] Vault 모의 TLS 서버(인증 실패·권한 부족·Secret 없음 구분, TLS 검증·리다이렉트 거부, 재시도·시간 초과, 토큰 공급 방식, 내장 키 fallback 없음, `VaultKeyProviderTest`), KMS 모의 클라이언트(`AwsKmsKeyProviderTest`·`KmsDataKeyCliTest`), AWS SDK 없는 기본 JAR 동작(`ConfigJarTest`)
-- [ ] CLI `encrypt`·`verify`·`decrypt`(SHOW)·`file encrypt/decrypt`·`keygen`·`fingerprint`·`rekey`·`info`·`doctor`·`config show/history/set/embed-key`·`kms datakey`·`help`의 출력·종료 코드·평문 비노출(`CryptoCliTest`·`KeyCommandsTest`·`DoctorAndHelpTest`·`ConfigJarTest`)
-- [ ] 메시지 두 언어 키 일치·기본 `ko`·`--lang` 1회 적용·Locale fallback(`I18nTest`)
-- [ ] 도움말 두 언어의 옵션·설정 이름 일치, 도움말 예제 명령·옵션이 실제 정의와 일치(`DoctorAndHelpTest`). README 예제 명령·옵션·설정 이름·명령 목록, 사용자 가이드의 명령별 절·명령별 옵션·설정 25개·공개 Java API·예제 명령 유효성, 예제 Properties(주석 예제 포함)·예제 XML 2종, 웹 페이지(JSP·WAR) 부재, LICENSE 원문 해시(`DocsConsistencyTest`)
-- [ ] 기본 Properties의 모든 항목에 기본값·허용값·의미·제약·변경 영향 주석 유지
-- [ ] 제품 JAR·`docs/`·`src/main`에 웹 페이지(JSP·WAR·`WEB-INF`)를 두지 않는다(`DocsConsistencyTest`·CI JAR 검사). 실서버 시험용 웹앱은 `src/test/integration/run-tomcat-integration.sh`가 실행 중에만 만들어 컨테이너 안에 복사하고, 포트를 공개하지 않으며 시험 후 지운다
-- [ ] 키 내장 JAR·키·토큰·백업이 저장소에 들어가지 않게 한다: `.gitignore`(`*.jar`, Gradle Wrapper JAR만 예외, `*.key`·`*.token`·`*.datakey`·`*.jar.bak-*`)와 CI의 `git ls-files` 검사. `--out`으로 정한 임의 이름도 같은 주의를 README에 둔다 `.gitignore`는 만능 보호가 아니므로 추적 파일과 새 미추적 파일을 함께 점검한다.
-- [ ] README·AGENTS·사용자 가이드의 상대 링크와 제목 링크(다른 문서의 제목 포함)가 실제 파일·제목으로 이어지고, 옮기기 전 경로가 문서·도움말·CI·하니스에 남지 않는다(`DocsConsistencyTest`)
-- [ ] Tomcat Factory·키 공급·Pool·설정 해석 코드를 바꿨거나 Release 전이면 `bash src/test/integration/run-tomcat-integration.sh`가 종료 코드 0(RESULT: PASS)이어야 한다(시험 FAIL은 1, 실행 환경 문제는 2)(Vault 코드를 바꿨으면 `--with-vault` 추가). 일반 변경마다 필수는 아니다
-- [ ] Tomcat 8.5/9.0/10.1/11.0 × DBCP2·Tomcat JDBC Pool은 실제로 실행한 환경과 결과가 있을 때만 검증으로 표기한다(JNDI 조회 → `getConnection()` → 실제 DB SQL 실행). Tomcat 8.5는 Apache 지원이 끝난 레거시 계열로 구분해 표기한다. 모의 테스트·컨테이너 시험·실운영 서버를 구분해 적는다
-- [ ] DB는 실제 연동을 검증한 MariaDB만 검증으로 적는다. 다른 DB(Oracle·PostgreSQL 등)는 일반 JDBC 드라이버로 설정할 수 있다는 설명만 하고 검증 완료·공식 지원으로 표시하지 않는다. README에는 DB별 상세 호환성 표를 만들지 않으며, 세부 시험 환경·PASS/FAIL 매트릭스는 QA 보고에만 둔다
-- [ ] JEUS·WebLogic·WebSphere/Liberty·JBoss/WildFly 등은 구현과 실서버 검증 전에는 지원 완료로 표기하지 않음
-- [ ] Docker 통합 시험은 시험 전용 이름·라벨로만 자원을 만들고, 끝나면(실패·중단 포함) 그 컨테이너·네트워크·볼륨·새로 받은 이미지·임시 파일만 지운다. 기존 자원과 다른 프로젝트 자원은 건드리지 않으며 `docker system prune`·`docker volume prune` 같은 일괄 삭제를 쓰지 않는다. 시험 전후 자원 목록을 비교해 잔여 자원이 없음을 확인하고, 결과 로그에는 비밀번호·키·토큰을 남기지 않는다
+Java 7 지원, 별도 서버·신규 모듈·새 암호 라이브러리는 승인 없이 추가하지 않는다.
 
-## 4. 변경 승인 및 공개 규칙
+**단일 구현**
 
-- **현재 구현에 포함된 승인 기능(유지 대상)**: §0·§1의 이름·패키지 구조, 공개 API `CredentialCrypto`(`encryptFile`·`decryptFile` 포함), 설정 이름 표준, JVM 개별 속성 덮어쓰기와 `crypto.jvm.override.enabled`, `crypto.warning.enabled`, `crypto.output.encoding`(B64 추가 포장), `crypto.lang`(한국어 기본·영어), JAR 내부 설정(`config set`·`config embed-key`)과 변경 이력, `keygen`·`fingerprint`·`rekey`·`doctor`, 파일 암호화(JCKF v1), Vault KV v2·AWS KMS 키 공급(AWS SDK 2.x 선택 의존성), `KeyProvider` 확장 구조, JUnit 5(테스트 전용)·GitHub Actions CI/CD. 이 기능을 없애거나 의미를 바꾸는 변경은 아래 사전 승인 항목과 같이 다룬다.
-- 확정된 규칙은 이 문서에, 사용 방법은 README(요약)·사용자 가이드(상세)·CLI Help(실행 중 참고)에 반영한다. 요구사항 문서를 저장소에 따로 쌓지 않는다.
-- **사전 승인 필요**: 암호화 알고리즘·키 길이·암호문/파일 포맷·키 처리 방식·로그 정보 범위·지원 Java 최소 버전·Gradle 메이저 버전 변경, WAS별 연동 어댑터 추가, JNDI Resource 전용 속성 추가·Pool 선택 방식 변경, 모듈(JAR) 분리, 공개 API 확장, 새 외부 의존성·네트워크 호출·텔레메트리(도입 전에 용도와 위험 설명), 새 키 공급원(다른 KMS·HSM 등).
-- **Git·배포**: Git commit/push, 태그 생성, GitHub Release 게시, 저장소 이름·로컬 프로젝트 폴더 이름 변경은 사용자 승인 없이 하지 않는다. CI/CD는 외부 Action을 커밋 SHA로 고정하고 기본 권한을 읽기 전용으로 둔다. main push 성공 시 개발용 Pre-release `dev-<커밋>`, `v*` 태그는 Gradle 버전과 같을 때만 정식 Release(JAR·KMS 묶음·SHA256SUMS)를 게시하며 기존 Release를 덮어쓰지 않는다. Pull Request에서는 게시하지 않는다.
-- 테스트 통과를 이유로 실제 WAS 운영 호환을 단정하지 않는다.
-- 결함을 발견하면 원인·재현·최소 수정·영향·관련 회귀 결과를 함께 보고하고, 실행하지 않은 검증을 PASS로 적지 않는다. 다른 도구가 만든 변경도 이 문서 기준으로 검토하고, 승인 없이 들어간 기능은 사용자에게 보고해 결정을 받는다.
-- 공개 저장소에는 실제 키·비밀번호·토큰·사용자 지정 키 내장 JAR·사내 URL·고유 업무 경로를 넣지 않는다. 내장 예제 키는 비밀이 아님을 명시한다.
-- 라이선스는 Apache License 2.0이다. `LICENSE`는 apache.org 원문을 그대로 두고(내용 수정 금지, `DocsConsistencyTest`가 해시 확인), 저작권자 표기·NOTICE 추가는 소유권자가 정한다. 선택 설치 KMS 묶음의 서드파티 라이선스는 각 JAR의 고지를 따른다.
+- AES-GCM 처리(IV·태그·보안 난수)는 `core.Gcm`, Passphrase 정규화·PBKDF2 계산은 `core.Kdf`, JSON 해석·작성은 `json.StrictJson`이 관리형 키·직접 키·범용 API·Vault·JWT·OAuth 공통 기준이다(별도 GCM·KDF·JSON 구현 금지). 관리형 키 선택은 `core.CryptoService`, 설정 해석은 `config.CryptoSettings`, 설정 항목의 정의와 유효성은 `config.SettingCatalog`, 메시지는 `i18n`을 단일 기준으로 유지한다.
+- CLI·Java API·Tomcat 어댑터에 키 처리·설정 우선순위 로직을 중복 구현하지 않는다.
+- CLI 명령의 관리자 비밀번호 정책은 `cli.CliCommands` 명령 정의의 `Access`(OPEN·SETUP·ADMIN)가 정본이고, 인증은 `CryptoCli`가 명령 본 처리 전에 한 곳에서 한다(명령별 인증 호출·별도 명령 목록을 두지 않음). JAR 상태·무결성 판단은 `cli.AdminPassword.statusOf` 하나로 한다.
+- 키 공급원은 `KeyProvider`와 `KeyResolver`의 고정 등록부만 사용하고, 설정값으로 임의 클래스를 로딩하지 않는다.
 
-## 5. 유지보수 가이드(변경 위치와 회귀 테스트)
+**공개 호환성**
 
-| 하려는 일 | 바꾸는 곳 | 꼭 추가·실행할 테스트 |
-|---|---|---|
-| 새 암호화 방식(예: v2) | `core.CredentialCipher`(새 버전 분기), `core.TokenCodec`, 도움말 | v1 고정 벡터 계속 PASS, v2 왕복·변조·버전 혼동 거부 (사전 승인 필요) |
-| 파일 포맷 변경 | `file.FileCipher`(새 버전 번호, v1 읽기 유지) | v1 파일 계속 복호화, 새 버전 왕복·변조 거부 (사전 승인 필요) |
-| 새 키 공급원 | `key.KeyProvider` 구현, `key.KeyResolver` 고정 등록부, `SettingCatalog`(허용값·설정), 기본 Properties·도움말 | Fail Closed(내장 키 fallback 없음), `doctor`·`--offline` 진단, 정제된 오류, 모의 서버 테스트 (사전 승인 필요) |
-| 새 설정 옵션 | `config.SettingCatalog`(형식·허용값·`-D` 허용 여부 - 비밀값·정책 항목은 제외), `config.CryptoSettings`(검증), `i18n/settings(_ko).properties`, 기본·예제 Properties(`[JVM -D]` 주석), CLI `info`·도움말, 사용자 가이드 10장, 필요 시 README | 기본값·외부 우선·`-D` 우선·잘못된 값 거부, `JvmOverrideTest.everyJarPropertyIsClassifiedForJvmOverride`, `SettingCatalogTest`, `DoctorAndHelpTest` |
-| 메시지·도움말 수정 | `i18n/*.properties`(두 언어 같은 키), `i18n/help/<en|ko>/`, 사용자 가이드의 해당 절 | `I18nTest`, `DoctorAndHelpTest`, `DocsConsistencyTest` |
-| 사용자 가이드 수정 | `docs/user-guide.md`(목차·절 번호·제목 링크), README·Help·예제 주석의 참조 | `DocsConsistencyTest`(링크·제목·명령별 옵션·설정 25개·예제 명령) |
-| CLI 명령 변경 | `cli.CliCommands`(명령·옵션 정의), 해당 명령 클래스, 두 언어 도움말, 사용자 가이드 2장, README 기능 표 | `CryptoCliTest`·`DoctorAndHelpTest`의 출력·종료 코드·평문 비노출, 도움말 예제 검사 |
-| JAR 내부 설정·이력 변경 | `cli.JarConfigEditor`, `cli.ConfigHistory`, `cli.ConfigCommand` | `ConfigJarTest`(새 JAR·연속 변경 결과 이름·충돌·`--out`·`--replace`·백업·잠금·서명 JAR·이력 유지·변조 탐지·키ID 재사용 거부) |
-| 실서버 통합 시험 변경 | `src/test/integration/run-tomcat-integration.sh`(시험 전용, 저장소에 웹앱 파일을 두지 않음) | 8개 조합 RESULT: PASS, 실패 시 종료 코드 1과 실패 항목, 환경 오류 2, Docker 정리 확인 |
-| 문서·예제 파일 위치 변경 | 파일 이동 + `DocsConsistencyTest`의 경로 상수, README·AGENTS 링크, CI | `DocsConsistencyTest`(링크·옛 경로 0건·`docs/`는 가이드·예제만) |
-| 새 WAS 어댑터 | 새 패키지 `io.javacryptokit.jdbc.<was>`에서 `core.CryptoService`만 사용(엔진 복사 금지) | 모의 위임·예외 정제·원본 불변, 실서버 검증 결과 별도 표기 (사전 승인 필요) |
-| 설정 이름 변경(공개 후) | 기존 이름은 유지하고 새 이름을 별칭으로 추가, 마이그레이션 안내 | `ConfigResolutionTest`, `FactoryEntryPointTest` (사용자 승인 필요) |
+기존 `io.javacryptokit.CredentialCrypto` API, `CredentialCryptoException.Reason`, Tomcat `io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory` 이름과 JNDI 설정, CLI 명령·옵션, 설정명, 기존 암호문·파일을 임의로 제거·변경하지 않는다.
+
+신규 API 확장은 승인된 `KeyType`·`KeyInfo`·Key ID 선택, 직접 키(`fromRawKey`·`fromPassphrase`)와 §8 범용 보안 API 범위에서만 한다(범위 동결, 그 밖의 신규 기능·API는 사전 승인).
+
+**최소 변경**
+
+기능과 테스트를 지우거나 이름을 바꾸어 PASS를 만드는 행위 금지. 신규 기능 제안 **OPT-01~OPT-07은 개발 범위에서 제외**한다. 운영 파일 백업·재처리 시스템, 별도 `inspect`·`dry-run`·감사 서버, 전체 코드 난독화도 만들지 않는다.
+
+**빌드**
+
+Gradle Wrapper(Windows `gradlew.bat clean build`, Linux `./gradlew clean build`), 최소 JDK 8 / 클래스 major 52, Windows·Linux 동일 소스. 암호 로직에 신규 외부 라이브러리를 추가하지 않는다.
+
+기존 AWS KMS 선택 SDK는 예외다.
+
+
+## 2. 암호화 형식·키 유형 (절대 호환)
+
+**관리형·직접 키 암호문(ENC v1·JCKF v1) 엔진**
+
+`AES/GCM/NoPadding`, AES 키 32바이트(256비트), 매 암호화 `SecureRandom` IV 12바이트, 인증 태그 128비트. 변조·키 불일치 시 평문 반환·출력 금지. ECB/CBC 무인증 등 대체 알고리즘 사용 금지.
+
+**토큰 형식**
+
+`ENC[v1:<keyId>:<ivBase64Url>:<cipherBase64Url>]`, AAD=`v1:<keyId>`. B64 출력은 기존 ENC의 외부 포장일 뿐 새 암호화 형식이 아니다. 기존 `ENC v1` 고정 암호문은 그대로 복호화한다.
+
+**파일 형식**
+
+기존 `JCKF v1` 헤더·청크·AAD와 스트리밍 처리 유지. 실패·무결성 오류 시 불완전한 최종 평문 파일을 남기지 않으며 기존 원본·대상 파일을 임의 덮어쓰지 않는다. 별도 업무 백업·복구 기능은 추가하지 않는다.
+
+**키 유형**
+
+`pass` = Passphrase를 KDF로 변환한 AES 키, `key` = 32바이트 원시 AES 키. CLI는 `--type pass|key`, Java API Enum은 `KeyType.PASS|KEY`. **신규 JAR에서 Type 생략 시 실제 신규 암호화 기본값은 `pass`**(생성뿐 아니라 `encrypt`, `file encrypt`, API 등). 기존 AES 전용 `keygen`·`kms datakey` 명령의 원래 용도는 유지한다.
+
+**Passphrase 파생(관리형 `pass` 키)**
+
+Java 8 표준 `PBKDF2WithHmacSHA256`, NFC 정규화·UTF-8 입력, Salt 16바이트(사용자 키마다 보안 난수), 반복 기본 600,000회(허용 범위 100,000~5,000,000), 결과 32바이트. 과거 키 재현에는 **원문 + 원래 Key ID + Salt + KDF 알고리즘·반복 횟수 + 정규화 규칙**이 필요하다.
+
+KDF·Salt를 변경하면 별도 키로 취급한다.
+
+Argon2·scrypt·외부 Provider 추가 금지. 직접 키 `fromPassphrase`와 범용 API는 PBKDF2-HMAC-SHA256/SHA512를 `Pbkdf2Algorithm`으로 고르며 같은 정규화·`core.Kdf`를 쓴다.
+
+**공개 예제 키**
+
+기존 AES `default`와 신규 Passphrase `pass-default`를 **동일한 신규 공식 JAR에서 함께 제공**한다. 기존 `default` 실제 AES 키 및 회귀 벡터는 변경하지 않는다. 두 키는 공개값이며 운영 비밀키가 아니다.
+
+새 Passphrase 공개 기본값의 원문·Salt·KDF는 기존 승인 설계의 고정 상수로 유지한다.
+
+**복호화**
+
+Type을 요구하지 않고 ENC/JCKF의 **Key ID로 해당 키 하나만 선택**한다. 다른 키를 순차 시험하거나 실패 시 공개 키로 fallback 금지. 원래 Key ID가 등록되지 않으면 `KEY_ID_MISMATCH`, 인증 실패는 `INTEGRITY` 등 기존 Reason 사용.
+
+
+## 3. Keyring·공급원·설정 호환
+
+**한 JAR에서 둘 다**
+
+기본 `pass`·기본 `key`와 추가 사용자 키를 동시에 등록·사용할 수 있어야 한다. 한 유형의 키 추가·변경·삭제가 다른 유형의 키·이력·기존 암호문을 변경하거나 삭제해서는 안 된다.
+
+**선택 규칙**
+
+① Type·ID 미지정 → 설정상 기본 Type(신규 JAR 기본 `pass`)의 활성 키. ② Type만 지정 → 해당 유형의 활성 키. ③ **Key ID만 지정 → ID로 유형 자동 인식**. ④ Type+ID 지정 → 유형 일치 검증. 키 추가 시 기본 키 자동 전환 금지(`--active` 또는 `config key use` 명시). 목록의 첫 키를 암묵적 기본으로 선택하지 않는다.
+
+**기존 AES 호환**
+
+기존 `crypto.key.*`는 기존 AES 슬롯·기존 설정 의미를 유지한다. 이전 형식 JAR/외부 Properties의 AES 암호문·사용자 키를 계속 사용할 수 있어야 한다.
+
+레거시 형식에서 새 Type 항목이 없다고 사용자 지정 AES를 공개 `default`로 대체하면 안 된다. 새 JAR에서는 두 기본 키를 제공한다.
+
+`config embed-key`는 AES만 변경하고 다른 pass/key 프로필을 보존한다(구형 JAR 편집은 기존 형식 호환).
+
+**Key ID**
+
+전체 Keyring에서 고유해야 한다. 공개 기본 ID `default`, `pass-default`는 예약. 다른 키로 ID를 재사용하는 것은 거부한다.
+
+**정확히 같은 기존 키를 복원**하는 경우에만 전체 키 지문·유형·필요한 KDF 메타데이터가 일치함을 검증하고 같은 ID 복원 허용. ID가 다르면 기존 토큰 자동 복호화가 불가능하다는 점을 명확히 안내한다.
+
+재사용 판단 기준은 **그 JAR의 키 목록과 변경 이력**이다(이력의 마지막 키 기록과 유형·64자 전체 지문, pass는 KDF·반복 횟수·Salt 지문까지 비교). 이력이 없는 새 JAR에는 비교할 기록이 없으므로 같은 키인지는 지문·실제 복호화로 확인하도록 안내한다.
+
+**설정 구조**
+
+기존 `crypto.key.*`와 추가 `crypto.keys.<id>.<항목>`을 공존시킨다. 설정 계층 간 키 목록은 합집합이며 외부 설정 추가를 이유로 기존 프로필을 소거하지 않는다.
+
+바깥 계층은 허용된 위치 항목만 덮어쓸 수 있고 `type`·KDF·Salt·내장 키·고정 지문 등 키 정체성을 몰래 바꿀 수 없다.
+
+**설정 전체 목록·값 형식·`-D` 가능 여부는 `SettingCatalog`가 정본**이며 이 파일에 설정 개수를 하드코딩하지 않는다.
+
+**설정 우선순위**
+
+CLI 1회 옵션 > 허용된 JVM `-D` > 외부 Properties > JAR 내부. 외부 설정 경로 직접 지정 > JVM 속성 > 환경변수. 지정된 빈 경로·오타·무효값은 조용히 무시하지 않고 오류. `crypto.jvm.override.enabled` 정책을 `-D`로 우회할 수 없고 비밀 원문 `-D` 공급을 허용하지 않는다.
+
+기존 `-D` 지원과 외부 설정 동작을 보존한다.
+
+**공급원**
+
+`embedded`, `file`, `env`, HashiCorp Vault KV v2, AWS KMS. 둘 다 동일한 Keyring 관리 대상이다.
+
+외부 비밀 공급 실패·지문 불일치·TLS/권한 오류 시 **Fail Closed**; 공개/내장 키로 자동 대체 금지. 신규 프로필의 외부 공급원은 등록 시 정한 전체 지문을 고정하고 변경 시 새 Key ID로 회전한다.
+
+원격 조회·KDF 결과 캐시는 키 프로필·JVM/ClassLoader 격리를 깨지 않게 관리한다.
+
+**Vault**
+
+HTTPS 인증서·호스트 이름 검증 유지, 토큰은 파일·환경변수로만 주입, 리다이렉트·무단 TLS 우회 금지. KV v2의 오류·재시도·타임아웃 처리와 기존 설정 유지. Vault Transit을 임의 추가하지 않는다.
+
+**KMS**
+
+AWS SDK for Java 2.x 선택 설치 구조, 기본 자격증명 체계, 기존 암호화 컨텍스트 `java-crypto-kit:key-id=<키 ID>`와 데이터 키 파일 형식 보존. `pass`는 **파생 AES 키를 기존 KMS 방식으로 보호**한다.
+
+KMS 마스터키 원문 표시·내보내기 기능 추가 금지.
+
+**공개 기본 키 경고**
+
+- 실제 암복호화에 공개 예제 키가 사용되면 공급원과 관계없이 `[WARN] 공개 기본 키 사용 중 (별도 키 설정 권장)` 성격의 안내를 **JVM당 최대 1회**(경고 설정이 켜진 경우)만 출력한다.
+- `info`·`doctor`·`fingerprint`·`config show`·`config key show`·Java `keys()` 등 명시적 조회는 자동 경고 없이 상태만 표시. 자동 경고를 다른 이름의 안내로 우회하지 않는다.
+- 일반 `fingerprint`와 관리자 인증 뒤의 `config show`·`config history`·`config key show`는 전체 64자리(관리정보 마스킹 없음), 인증 없이 쓰는 `info`·`doctor`와 변경 결과 화면은 단축 지문을 사용한다.
+
+
+## 4. 생성값 표시·보관·재등록·복구
+
+**자동 생성 원문 표시**
+
+- `pass`·`key`의 모든 자동 생성 경로(`config key add --generate`, 기존 `keygen` 포함)에서 **대화형 콘솔에 별도 `--show` 없이 성공 직후 원문 전체를 딱 한 번 표시**한다.
+- `pass`는 실제 Passphrase 문자열, `key`는 32바이트 AES 키의 **표준 Base64 한 줄**(`keygen`·AES 키 파일과 동일). 지문·마스킹·JAR 난독화값을 생성 원문으로 대신 보여주지 않는다.
+- 복사할 원문 한 줄에 라벨·공백·중간 줄바꿈을 섞지 않는다.
+- `config key add --source aws-kms --generate`(key)도 이 규칙대로 KMS가 만든 데이터 키 원문을 표시한다.
+- 기존 AES 전용 `kms datakey`는 이전 형식 계약대로 KMS가 보호하는 데이터 키 파일만 만들고 데이터 키 원문을 표시하지 않는다(복구는 같은 데이터 키 파일과 KMS 키·권한).
+
+**표시 안내**
+
+Key ID(등록된 경우), 유형, 형식, 원문 전체와 함께 “생성값을 별도 보관하세요. 일반 조회·History에서는 원문 재확인이 불가능합니다.” 수준으로 짧게 안내한다. 직접 입력한 Passphrase를 다시 에코하지 않는다.
+
+공개 기본 키의 원문도 일반 조회에서 표시하지 않는다. 등록된 키 원문의 재확인은 §7.1의 `config key show`(관리자 인증 + `SHOW`)로만 한다.
+
+**대화형/자동화 구분**
+
+비밀 원문을 일반 stdout/stderr·로그·CI 결과에 자동 노출하지 않는다. 비대화형에서 보관할 수단 없이 자동 생성하면 **생성·KMS 호출·JAR 변경 전에 실패**한다.
+
+`--export`는 지원하고, 대화형 화면 표시와 파일 저장 동시 사용 가능. 파일은 기존 경로를 덮어쓰지 않고 권한을 제한한다.
+
+**key 재등록**
+
+화면에 보이는 표준 Base64 전체 = `keygen`/`--export`의 AES 키 파일 한 줄이어야 한다. 복사한 값을 UTF-8 한 줄 파일로 보관해 `--from-file`로 재등록할 수 있어야 한다.
+
+기존 Key ID·실제 키가 같으면 기존 ENC/JCKF 암호문도 복호화됨을 **전체 64자리 지문 및 실제 복호화**로 확인한다.
+
+지문 계산식 `SHA-256("java-crypto-kit/key-fingerprint/v1" || 0x00 || 32바이트 키)`와 기존 단축 표시(앞 12자+뒤 8자)는 변경하지 않는다. 지문이나 KMS 암호화 데이터키 파일을 원시 AES 키 파일로 혼동하지 않는다.
+
+**pass 재등록**
+
+화면에 보인 문자열은 새 키 생성에 재사용 가능하지만 **같은 문자열만으로 과거 암호문 복구는 보장되지 않는다**. 원본 JAR이 있으면 `--from-jar`로 Key ID·파생 키·KDF 메타데이터를 이관한다.
+
+원본 JAR이 없어도 복구할 수 있도록 `--export` 백업에 **Passphrase 원문 + Key ID + 원 Salt + KDF·반복 횟수 + 지문**을 보존하고, `--from-file`이 복원 형식을 식별·검증해 과거 암호문을 복호화할 수 있어야 한다.
+
+기존 Passphrase 원문 한 줄 파일도 새 Salt로 신규 등록하는 용도로 계속 지원한다.
+
+**입력 형식**
+
+UTF-8 검증, 기존 파일 크기 상한(key 파일 512바이트, pass 파일 1KiB), 기존 키 파일의 표준 Base64 계약 유지. Windows PowerShell 5.1의 BOM이 복사·재등록을 막지 않도록 **파일 맨 앞 BOM 하나**를 허용하되, 잘못된 실제 키 재료를 추측·자동 수정하거나 원문을 조용히 바꾸면 안 된다(key 파일에 라벨·지문 등이 섞이면 형식 오류로 거부. pass 한 줄 파일은 모든 글자를 Passphrase로 읽으므로 섞인 글자를 탐지할 수 없어 문서로 안내). pass 복원 백업은 머리줄 `# java-crypto-kit pass-key-backup v1`, 항목(key-id·kdf·kdf.iterations·salt·fingerprint·passphrase) 각 1회, Passphrase 1KiB + 메타데이터 512바이트 이내이며, 등록 시 다시 파생한 키의 지문이 백업 지문과 같아야 한다. pass 정규화와 저장 형식·신뢰할 수 없는 백업 데이터 검증은 일관되게 구현한다.
+
+**비밀 보관 범위**
+
+JAR에 Passphrase **원문**을 넣지 않는다(파생 AES 키만 내장 가능, 원문 표시를 위해 가역 저장하지 않음). 일반 조회·History·로그에는 원문이 없어야 한다.
+
+`--export` 복구 파일은 실제 비밀자료이므로 접근 권한·백업·이관 방법을 User Guide에서 상세히 안내한다. 원본 JAR을 가진 사람이 파생 키를 추출할 수 있다는 사실을 숨기거나 '절대 복구 불가능'으로 표현하지 않는다.
+
+
+## 5. 변경 사유·확인·History
+
+**사유 필수**
+
+독립 생성 `keygen`, `kms datakey`부터 `config key add|use|remove`, `config embed-key`, 키·활성 키에 영향을 주는 `config set`까지 **모든 생성·등록·변경·교체·기본 키 전환·삭제에 `--reason` 필수**(한 줄 1~200자, 비밀값 금지). 대화형에서 빠졌다면 입력 없이 끝나는 검사(옵션·Key ID·경로) 뒤, 재료 입력·생성·KMS 호출·JAR 변경 전에 사유 질문; 비대화형 누락은 실행·외부 호출 전에 오류. 공백 사유 거부. `--yes`는 사유 의무를 면제하지 않는다.
+
+조회·일반 암복호화 등 비변경 작업에는 요구하지 않는다.
+
+**CHANGE 확인**
+
+**실제 키 또는 활성 키/유형 선택이 바뀌면 새 JAR 생성·`--replace` 모두** 변경 전후, 기존 암호문 복호화 영향, 사유를 짧게 표시하고 `CHANGE` 입력을 받는다.
+
+기존 `--yes` 자동 승인 방식 유지. 이전 키가 남아 있으면 과거 암호문도 계속 복호화할 수 있으며, 제거하면 그 JAR에서는 불가능할 수 있음을 정확히 설명한다. 신규 키 등록·프로필 삭제도 비밀값 변경과 별개로 `CHANGE` 확인 대상이다.
+
+키와 무관한 설정 변경에는 확인 절차를 강요하지 않는다.
+
+**원자적 보존**
+
+확인 전 취소·오류·파일 충돌 시 대상/원본 JAR·기존 키·History를 변경하지 않는다.
+
+기존 `--out`·`--replace`·서명/잠금 JAR 거부·백업 및 검증 후 원자적 교체 계약 유지. `config embed-key`는 다른 키 프로필을 자동 삭제하지 않는다.
+
+POSIX에서 CLI가 새로 만드는 결과 JAR·`--replace` 백업은 소유자만(600, 관리자 검증값·사용자 키 포함), `--replace`로 바꾼 운영 JAR는 원래 권한을 유지한다(Windows는 폴더 ACL 상속, 배포 권한은 문서로 안내).
+
+**History 기본 조회**
+
+`config history` = `pass` 이력, `config history --type pass` = pass, `--type key` = key, `--all` = **해당 JAR에 저장된 두 유형, 일반 설정, 관리자 비밀번호 기록(`[관리자]`) 전체 이력**. 관리자 기록을 pass·key로 분류하지 않는다.
+
+조회 자체에 관리자 인증이 필요하다(§7.1). `--all`+`--type` 동시 지정 거부. 이전 형식 기존 AES 기록을 pass로 오분류하거나 불명 항목을 버리지 않는다. 필터링 전에 **전체 해시 체인 무결성을 검증**하고 기존 순번 유지.
+
+**History 내용**
+
+- 작업 UTC 시각·작업자·명령/작업 유형·타입·Key ID·공급원·변경 전후 ID·전체 지문·기본 키 전후·사유·비밀 아닌 KDF 정보(KDF·반복 횟수·Salt·Salt SHA-256). 관리자 인증 뒤 **마스킹 없이** 표시하되 기록에 없는 값(이전 형식의 Salt 줄 등)은 지어내지 않고 `(기록 없음)`으로 구분한다.
+- 삭제된 키의 메타 이력도 유지하고, **원문 Passphrase·AES 키·Vault 토큰·관리자 비밀번호·인증 검증값·비밀 백업 내용은 절대 기록하지 않으며** 기존 이력에 비밀값을 소급 추가하지 않는다(키 기록에는 같은 키 복원 확인용 64자 전체 지문·KDF·반복 횟수·Salt의 SHA-256을 남긴다). 외부에서 실제로 발생했는지 관측하지 못한 Vault/KMS 회전을 이력에 남겼다고 주장 금지.
+
+**독립 생성 이력의 경계**
+
+`keygen`·`kms datakey`처럼 JAR이 갱신되지 않는 독립 생성은 사유를 필수 입력받지만, **JAR History에 자동 저장되지 않는다**. 별도 감사 파일/서버는 사용자 승인 없이 만들지 않는다.
+
+생성 화면·User Guide에서 '사유 입력됨'과 '영구 감사 기록됨'을 혼동하지 않는다.
+
+**이력 무결성**
+
+기존 해시 체인·Manifest/설정 지문·구형 이력 읽기·재편집·이관 동작 보존. 자체 수정 탐지 기능을 외부 공격자로부터의 완전한 위변조 방지 감사 시스템으로 과장하지 않는다.
+
+
+## 6. JAR 데이터 경량 난독화 (보안 기능으로 과장 금지)
+
+**목적·범위**
+
+JAR을 `unzip`/압축 해제해 자원 파일을 열었을 때 **내장 키 값과 변경 이력 본문이 일반 텍스트로 즉시 읽히지 않게** 한다.
+
+`*.embedded` 키 자료(공개 키 포함 가능)와 JAR 내부 `META-INF/java-crypto-kit/config-history.properties` 본문만 대상으로 한다.
+
+Java 소스/클래스 전체 난독화, 안티디버깅, 임의 새 암호 알고리즘, 외부 복원 암호·별도 제품은 도입하지 않는다.
+
+**구현·호환**
+
+- Java 8 표준 기능의 경량 **버전 식별 가능한 가역 난독화**로 저장하되, 복원 로직이 같은 JAR에 있으므로 **기밀성·접근통제·키 추출 방지 수단은 아니다**. 구형 평문 자원 JAR과 신형 난독화 JAR 모두 읽고, 편집 후에는 필요한 엔트리를 난독화 저장. 단, obf1을 읽지 못하는 이전 버전 JAR(코드에 `config.LightObfuscation` 없음)를 새 CLI로 편집할 때는 그 JAR가 계속 동작하도록 기존 형식(표준 Base64 내장 키·평문 이력)으로 쓴다.
+- 채택 형식은 `obf1:` + Base64url(패딩 없음)이며, 본문은 [원래 바이트의 SHA-256 앞 4바이트 확인값 + 원래 바이트]를 SHA-256 기반 고정 키 스트림과 XOR한 값이다(이력 파일은 `obf1:` 한 줄). 모르는 버전(`obf<n>:`)·확인값 불일치·형식 오류는 Fail Closed. 기존 실제 키 바이트·Key ID·지문·ENC v1·JCKF v1·이력 해시 체인(복원한 본문으로 계산)은 바뀌지 않는다.
+
+**조회와 회귀**
+
+`config history`, `info`, `doctor`, `fingerprint`, Java API 및 Tomcat은 기존처럼 정상 동작. `unzip -p`/`strings`로 사용자 내장 키 및 고유 History 사유가 그대로 노출되지 않는지 확인. `obf1` 등 실제 채택한 난독화 포맷 표식·버전·체크값의 처리 규칙을 문서·테스트에 일치시킨다.
+
+원본 구형/신형 JAR 수정·재수정과 구형 History 검증을 통과해야 한다. 가벼운 처리의 성능 영향은 필요한 범위에서 실측 보고한다.
+
+
+## 7. Tomcat·예외·운영 경계
+
+**Tomcat**
+
+기존 JNDI `EncryptedDataSourceFactory` 하나로 공식 DBCP2·Tomcat JDBC Pool을 위임한다. `pass`·`key` 암호문 모두 Key ID로 복호화하며 업무 코드 변경 없이 JNDI 접속이 가능해야 한다.
+
+비암호문 비밀번호, 인증 실패, 키 공급 실패에서 평문 fallback 금지. Reference 원본 불변, 하위 Factory 오류의 비밀값·원인 객체 노출 방지. 신뢰할 수 있는 Tomcat Pool Factory만 라이브러리를 로딩한 ClassLoader/부모 체인에서 확인(임의 웹앱 가짜 클래스 로딩 금지).
+
+**이중 JAR 실연동**
+
+동일 Tomcat `lib`에 인프라 전용 JAR A, 웹앱 `WEB-INF/lib`에 다른 키의 JAR B. **각각 `pass`와 `key` 모두 사용**. 전역/Context Resource Factory의 실제 클래스 로딩 위치, 개발자 Java API와 파일, 각 키/지문·설정 격리, 공통 `-D`·환경변수 간섭(재현, 그리고 JAR별 `crypto.jvm.override.enabled=false`로 `-D`를 피하는 방법), 실제 DB 연결·SQL, 교차 복호화 차단을 실행해 확인한다.
+
+Tomcat 클래스 로딩의 예상 결과를 실행 증거 없이 PASS로 단정 금지. 실패해도 패키지 리로케이션·별도 제품 분리는 임의 진행하지 않는다.
+
+**예외·출력**
+
+- 기존 `CredentialCryptoException.Reason`과 CLI/Factory 오류 코드 체계를 유지하고 원인·조치를 한 번만 짧게 알린다(CLI 전용 코드 `ADMIN_SETUP`·`ADMIN_AUTH`·`ADMIN_PASSWORD` 추가, 공개 `Reason`은 그대로). 비밀값·암호문·환경변수 원문·경로 전체·내부 cause/suppressed로 새지 않게 한다.
+- 실제 오류를 숨기지 않는다.
+- `decrypt`만 성공 시 평문 출력(관리자 인증 뒤), `verify`·`rekey`는 평문 미출력. **키 원문 표시 예외는 둘뿐**: §4의 자동 생성 직후 대화형 콘솔 표시, §7.1의 `config key show --show`(관리자 인증 + 노출 경고 + `SHOW` 정확히 입력, 대화형 콘솔에만)·`--export`(새 파일).
+
+
+### 7.1 CLI 관리자 비밀번호 (CLI 사용 통제, 보안 기능으로 과장 금지)
+
+**최초 설정 게이트**
+
+배포·빌드 JAR은 미설정 상태다.
+
+미설정 JAR은 `admin setup`과 설정 안내 도움말 외 어떤 CLI 명령도 실행하지 않는다(대화형이면 작업자 ID → 새 비밀번호 2회로 바로 설정해 `<이름>-configured.jar`를 만들고 요청 명령은 실행하지 않음, 비대화형이면 변경 없이 `ADMIN_SETUP`). 공통 기본 비밀번호는 두지 않는다.
+
+설정은 늘 새 JAR이며 실행 중인 JAR·원본은 바꾸지 않는다.
+
+**적용 범위**
+
+**CLI 전용.** Java API(`CredentialCrypto`)·Tomcat `EncryptedDataSourceFactory`는 관리자 검증값을 읽지 않고 미설정·손상과 무관하게 이전과 똑같이 동작한다(서버 기동 중 입력 금지). 관리자 비밀번호는 데이터 키와 별개이며, 바꿔도 키·Key ID·Salt·KDF·암호문·이력이 바뀌지 않고 키를 바꿔도 관리자 비밀번호는 이어진다.
+
+**인증 대상**
+
+- 실행할 때마다 확인 — `decrypt`, `file decrypt`, `rekey`, `keygen`, `kms datakey`, `config show`, `config history`(모든 형태), `config set`, `config embed-key`, `config key add|use|remove|show`, `admin password change`(현재 비밀번호). 묻지 않음(설정만 필요) — `encrypt`, `file encrypt`, `verify`, `fingerprint`, `info`, `doctor`, 도움말. 순서는 사전 검사(인자 형식·옵션 조합·결과 경로·대화형 여부만, 대상 JAR의 키·설정·이력과 키 파일·암호문은 읽지 않음) → 관리자 인증(본 처리 전 한 곳) → 대상 JAR 기준 판단(키 등록 여부·Key ID 충돌 등) → 사유 → 재료·생성·KMS → `CHANGE` → 쓰기이며 인증 실패 시 부작용 0건(인증 전 응답으로 키 등록 여부를 알 수 없음). `--yes`는 관리자 인증·사유를 대신하지 않는다.
+- CLI는 민감 명령이 인증 없이 성공하면 실패로 끝낸다(방어적 단언, 누락 방지).
+
+**다른 JAR**
+
+바꾸거나 조회하는 `--jar`, 키를 꺼내 쓰는 `--from-jar` JAR이 관리자 비밀번호를 쓰면 그 JAR의 비밀번호로 따로 확인한다(실행 중인 JAR 인증으로 대체 금지, 같은 비밀번호면 한 번만). 미설정 JAR은 대상 거부. `rekey --to-jar`(암호화만, 변경 없음)는 묻지 않되 손상된 JAR는 쓰지 않는다.
+
+관리자 기능이 없는 이전 형식 JAR은 실행 중인 JAR 인증으로 편집하고 그 JAR에 관리자 정보를 쓰지 않는다(소급 적용을 주장하지 않음).
+
+**비밀번호 규칙**
+
+10~128자, 인쇄 가능한 ASCII만, 영문자(A–Z·a–z)·숫자(0–9)·ASCII 특수문자(32개) 각 1자 이상(대소문자 각각은 요구하지 않음, 공백·비ASCII·제어문자 불가). 최초 설정·변경·비밀번호 파일에 같게 적용하고 위반 항목을 구체적으로 알린다.
+
+최초 설정·변경은 새 비밀번호 2회 일치 확인, 변경은 현재 비밀번호 확인 뒤 현재와 같은 새 비밀번호 거부.
+
+**저장**
+
+- JAR 전용 항목 `META-INF/java-crypto-kit/admin.properties`(설정 아님 → `-D`·외부 Properties로 변경 불가)에 PBKDF2WithHmacSHA256(목적 표지 + 16바이트 보안 난수 Salt, 600,000회, 32바이트) 결과만 둔다.
+- 원문·가역·`obf1` 표현으로 비밀번호를 저장하지 않고, 입력은 늘 다시 파생해 일정 시간 비교한다(저장값을 비밀번호로 써도 통과 금지). 다음은 손상으로 CLI Fail Closed(`INTEGRITY`, 실행 중인 JAR·`--jar`·`--from-jar`·`--to-jar` 공통, 관리정보·원문·내보내기·새 JAR 생성 없음): 검증값 형식 손상·모르는 버전·반복 횟수 범위 밖, 검증값은 있는데 이력 없음(이력 삭제)·이력의 관리자 기록이 최초 설정 1건 + 그 뒤 변경이 아님, 이력에 설정 기록이 있는데 항목 없음(삭제 의심), 모든 JAR의 이력 손상(해시 체인·형식·설정 지문). 이력 해시 체인은 키 없는 SHA-256이므로 이 탐지를 위변조 방지 감사로 과장하지 않는다(HMAC·서명·외부 감사 서버는 범위 밖). 관리자 비밀번호·검증값·인증용 Salt는 어떤 조회·이력·로그·오류에도 내보내지 않는다.
+
+**입력**
+
+대화형은 화면 비표시 입력(한 실행 3번, 영구 잠금·계정 잠금 아님). 비대화형은 `--admin-pass-file <파일>`(UTF-8 한 줄, 1KiB, BOM 하나·끝 줄바꿈 하나 허용) 하나로 최초 설정과 민감 명령 인증을 하며 파일 내용을 검증값과 실제로 대조한다.
+
+명령행 인자·환경변수·`-D` 공급 금지, 인증 생략 경로 금지. POSIX에서는 other 읽기·쓰기 권한이 있는 비밀번호 파일을 내용을 읽기 전에 거부한다(600·400, 통제된 그룹 640·440 허용, 심볼릭 링크는 최종 대상 권한). Windows는 검사하지 않고 폴더 ACL로 보호하도록 문서화한다.
+
+`admin password change`는 대화형 전용.
+
+**원문 조회(`config key show`)**
+
+관리정보는 인증 뒤 마스킹 없이 표시. 원문은 명시 요청만: `--show`는 대화형 전용으로 노출 경고 뒤 `SHOW`를 정확히 입력해야 콘솔에만 표시, `--export`는 새 파일(덮어쓰기 금지, 600)에 key는 keygen 한 줄·pass는 복원 백업. pass 원문은 공급원(file·env·vault)에 실제로 보관된 경우에만 다루고, 파생 키만 있는 pass(embedded·aws-kms)는 원문 복원 불가로 안내한다(파생 키에서 복원한다고 안내 금지). 조회는 JAR를 바꾸지 않아 이력에 남지 않는다.
+
+**분실·이전 JAR**
+
+원문 조회·인증 없는 초기화 기능은 만들지 않는다. 비밀번호 변경 뒤에도 이전 JAR은 이전 비밀번호로 열리며 자동 폐기되지 않는다는 점, JAR 복사 시 검증값도 복사된다는 점, 분실 시 키 백업으로 새 JAR에 재등록하는 절차를 User Guide에 정확히 둔다.
+
+**한계 표현**
+
+CLI 인증은 JAR 소지자의 키 추출, 검증값 교체, 같은 JVM 코드의 Java API 호출을 막지 못한다. 이를 키 추출 방지·접근 통제·감사 시스템으로 과장하지 않는다.
+
+
+## 8. 범용 보안 Java API (범위 동결)
+
+**범위**
+
+`security`(`AesGcm`·`Hmac`·`RequestAuth`·`SecureRandoms`·`Digests`·`Passwords`·`Hkdf`·`Pbkdf2`·`Encoding`·`Bytes`·`Signatures`·`PemKeys`·`Certificates`·`Hotp`·`Totp`·`RsaOaep`·`HybridEncryption`·`KeyStoreReader`), `jwt`(`Jwt`·`JwtKey`·`JwtVerifier`·`Jwks`), `oauth`(`AccessTokenVerifier`·`AccessTokens`·`TokenIntrospector`·`ClientCredentials`)와 그 결과·열거형·예외 클래스. 범위는 동결이며 신규 기능·API·런타임 의존성은 사전 승인 없이 추가하지 않는다(Java 8 표준 기능만). 기술적으로 구현할 수 있다는 이유만으로 추가하지 않고, 실제 활용성·기능 완결성·외부 구현 부담·비용을 먼저 판단한다.
+
+**독립성**
+
+JAR 내장 키·Keyring·설정·`-D`·History·CLI 관리자 비밀번호를 읽거나 바꾸지 않고 History·관리자 인증·`--reason`·`CHANGE`와 연결하지 않는다. 키·정책은 호출자가 주며 넘긴 배열은 바꾸지 않는다.
+
+**상태를 저장하지 않는다**(사용 기록·카운터·폐기 목록·순번·토큰 캐시·자동 재시도·스케줄러는 애플리케이션 몫). 만든 객체는 불변·스레드 안전.
+
+**취소 범위**
+
+영속 시퀀스 기반 ID·범위 할당·공급, Prefix별/일별/월별/연도별 순번 관리, Nonce·OTP 재사용 상태 관리, HOTP 영속 카운터, JWT 폐기 상태 및 결정적 IV용 영속 카운터는 개발하지 않는다. 기존 독립 난수 생성과 외부 연계는 유지한다.
+
+취소 기능의 소스·테스트·현행 문서·배포 산출물 잔재를 제거하되 역사적 증거와 정상 공통 기능은 보존한다.
+
+**알고리즘**
+
+열거형 허용 목록(`AesKeySize`·`Pbkdf2Algorithm`·`HmacAlgorithm`·`DigestAlgorithm`·`SignatureAlgorithm`·`RsaOaepAlgorithm`·`OtpAlgorithm`·`KeyStoreType`·`JwtAlgorithm`)만, 임의 알고리즘 문자열 금지. MD5·SHA-1 해시/서명·DES·ECB·무인증 CBC·RSA PKCS#1 v1.5 암호화·OAEP SHA-1·JWT `none` 금지(SHA-1은 HOTP/TOTP 표준 연동만). 최소 강도: HMAC 새 키 32바이트(기존 외부 비밀 연동 `ofExternalKey`만 예외), RSA 2048비트, EC P-256, JWT HS256 비밀 32바이트, PBKDF2 반복 100,000~5,000,000.
+
+**형식(호환 고정)**
+
+`AesGcm` = `IV(12)‖암호문‖태그(16)`(헤더·Key ID 없음, ENC·JCKF와 별개, AES-128/256). `RsaOaep` = OAEP SHA-256 또는 SHA-512 + 같은 해시의 MGF1, 빈 label. `HybridEncryption` = JCKH v1 `"JCKH"|ver 1|suite 1|N(2바이트 big-endian, 256~1024)|RSA-OAEP-SHA256으로 보호한 메시지별 32바이트 DEK|IV(12)|AES-256-GCM 암호문‖태그`, GCM AAD = 헤더 전체 ‖ uint32(업무 AAD 길이) ‖ 업무 AAD, 평문 64MiB·업무 AAD 64KiB 상한, JWE 아님. `Passwords` = `$pbkdf2-sha256$v=1$i=<반복>$<Salt>$<해시>`(SHA512도 같은 형식). `RequestAuth` 서명 원본 = `"JCK-REQ-AUTH-v1\n"` + 시각 + `"\n"` + Nonce + `"\n"` + 요청 바이트(재전송 방지 없음).
+
+**실패 처리**
+
+복호화 실패는 원인 구분 없이 `INTEGRITY`(키·AAD·변조·DEK 복원 실패가 같은 경로), 형식 오류 `INVALID_TOKEN`, 입력 오류 `IllegalArgumentException`이며 공개 `Reason` 목록은 그대로다.
+
+실패 시 부분 평문·클레임을 돌려주지 않는다. MAC·서명 불일치는 `false`. 오류 문구는 한국어 고정(`core` 번들의 KO·EN 키·자리표시자 동일 유지)이고 키·평문·토큰·비밀번호·경로를 넣지 않는다.
+
+**JWT·OAuth**
+
+- 서명 검증 뒤에만 Payload 해석, kid·알고리즘으로 키 하나 선택(순차 시험 금지), `exp` 필수·허용 오차 기본 0초(최대 300초)·미래 `iat` 거부 기본값을 약화하지 않는다.
+- `jku`·`x5u`·`jwk`·`x5c`로 키를 가져오지 않고 JWKS는 호출자가 준 문자열만 쓴다(네트워크·캐시 없음). Access Token은 토큰 종류 조건 없이 대상 일치만으로 통과시키지 않는다(ID Token 오인 방지). OAuth 호출은 `https`만, 리다이렉트 미추종, JDK 호스트명 검증 유지(끄는 기능 금지), 연결·읽기 시간·응답 크기 상한, 고정 길이 스트리밍(JVM 전역 `Authenticator`로 자격 증명이 새지 않게), 토큰·비밀을 URL·로그에 넣지 않는다.
+
+**키 저장소**
+
+`KeyStoreReader`는 읽기 전용(생성·수정·변환 금지), 지정 형식과 파일 앞 표식 확인, 저장소 비밀번호 null 거부, 보호 알고리즘을 약하게 바꾸지 않는다.
+
+**시험·문서**
+
+표준 벡터(RFC·NIST)·독립 구현 교차 확인·변조·경계, 독립 JVM 여러 개의 발급·검증·복호화(`ha.MultiJvmTest`). 예제 `example.SecurityApiExample`·`TokenApiExample`은 컴파일·실행 시험하고 가이드 예제 블록과 글자 그대로 같아야 하며, 공개 타입과 오버로드는 `docs/reference/java-api-reference.md`, 업무별 사용법은 `docs/guide/`에 수록하고 `docs/reference/api-selection.md`에서 해당 절을 연결한다(`DocsConsistencyTest`). Keycloak 실연동은 OAuth 연동의 직접 영향이 있을 때 필요한 범위만 실행하고, 실행하지 않은 인증 서버(Entra ID 등)를 PASS로 보고하지 않는다.
+
+
+## 9. 문서·UX·검증 게이트
+
+**README**
+
+한국어 제품 소개·업무별 기능·다운로드 안내·지원 환경·문서 탐색을 유지한다. 분량 자체를 제한하지 않는다.
+
+첫 실행 예제는 `docs/guide/cli.md`, `docs/guide/java-encryption.md`, `docs/guide/tomcat-jdbc.md`에서 제공한다. CLI는 관리자 비밀번호 설정부터 시작하며, 기본 `pass`, 명시 `key`, 자동 복호화와 Java API·Tomcat 사용법을 포함한다. 공개 Release 버전과 문서의 소스 버전이 다르면 그 사실을 밝힌다.
+
+상세 사용법과 실행 예제는 가이드에 둔다. README에서 해당 가이드의 실제 절로 직접 연결한다.
+
+**User Guide**
+
+`docs/user-guide.md`는 목차와 탐색 진입점이다. 상세 내용은 `docs/guide/`에 업무 영역별 완결형 가이드로 구성한다. 관련 기능을 같은 문서에 배치하고, 해당 업무의 CLI·Java API 예제와 옵션을 함께 제공한다. CLI 전용 명령과 Java API 전용 기능을 구분한다. 공통 설정·API 규칙은 `docs/reference/`에 둔다. CLI Help에서 인용하는 장·절 번호와 기존 링크 앵커를 보존한다. 공개 오버로드·Builder·결과 객체는 참조 문서에서 인수·기본값·결과를 확인할 수 있어야 하며, 업무 가이드에는 선택 기준과 성공 판정이 있는 예제를 둔다. README와 가이드 목차는 실제 상세 문서에 직접 연결한다. 설명과 명령어집을 중복하지 않는다.
+
+`pass`/`key` 생성·원문 보관·Base64 파일·Passphrase 복원 백업·Salt/KDF 재현·`--from-file`/`--from-jar`·지문 비교·기존 암호문 복구, `--reason`/`CHANGE`, History 타입별 조회, 난독화 한계, 외부 공급원·Tomcat 배포, CLI 관리자 비밀번호(최초 설정·변경·인증 대상·비대화형·분실·한계)와 `config key show`를 자세히 설명. PowerShell과 bash 한 줄 복사 명령, 입력 프롬프트, 기대 결과·오류 해결을 포함한다.
+
+**CLI Help/i18n**
+
+한국어·영어 모두 같은 명령·옵션·메시지, 출력은 간결하고 가독성 있게(가능하면 80열 이내, 불가피한 복사용 명령만 좁은 예외). 상세 배경 설명을 Help에 복제하지 않는다.
+
+CLI에는 Key ID·유형·생성값 전체(생성 시 한정)·변경 사유·기존 암호문 영향이 **정렬되고 직관적으로** 보이게 한다.
+
+**설정 예제·테스트**
+
+기본·예제 Properties, Tomcat DBCP2/JDBC Pool XML, `AGENTS.md`, `DocsConsistencyTest`, JUnit·CI·Docker 하니스와 실제 명령을 동기화. 정적 숫자(설정 개수 등)와 현행과 다른 “PBE 미지원/단일 키/새 JAR 확인 불필요/생성값 출력 금지” 같은 문구를 두지 않는다.
+
+**실제 구현·실행 여부와 문서 주장을 일치**시킨다.
+
+**테스트 분담**
+
+- JUnit에서 AES/Pass KDF 벡터·키 선택·Key ID 충돌·오류·복원·History·변조·i18n·문서 정합성, 관리자 비밀번호(규칙 경계 9/10/128/129자·조합, 최초 설정·변경·실패·취소, 명령별 인증과 부작용 0건, 다른 JAR 인증, 손상 Fail Closed, Java API 무관, SHOW·내보내기·재등록 복구) 등 상세 검증. 기존 CLI 시험은 인증 호출을 기록하는 시험 창구로 명령별 동작과 인증 호출 여부를 함께 확인한다(제품 코드에 인증 생략 구현 금지). 명령 정책(OPEN 목록)과 민감 명령 전체의 인증 실패·부작용 0건 범위는 명령 정의와 대조해 새 명령이 빠지면 실패하게 한다.
+- 관리자 상태·이력 손상(삭제·빈 파일·잘림·해시 변조·관리자 기록 규칙·설정 지문)과 인증 전 Key ID 응답 일관성은 `AdminIntegrityTest`, POSIX 권한 시험은 Linux에서 실행한다.
+- 실제 이전 버전 바이너리 호환은 `RealLegacyJarTest`(환경변수 `JCK_LEGACY_JAR`에 실제 이전 형식 JAR 경로, 없으면 건너뜀 — JAR는 저장소에 두지 않음)로 확인한다.
+- Docker 하니스는 실제 Tomcat+MariaDB, 두 Pool, 단일 JAR 두 방식 및 이중 JAR을 중심으로 실행(단위 검증을 불필요하게 반복하지 않음). 기존 원격 CI 정책은 유지한다.
+- 문서만 바뀐 변경은 문서 정합성 시험만 도는 경량 작업을 쓴다. 문서 분리 시 DocsConsistencyTest의 검색 범위·링크 검증을 실제 구조에 맞게 갱신하되, 기존 검증 의미와 코드 예제 검증을 유지한다.
+- 기존 전체 통합검증 이후 보완 변경에는 **영향 기반 표적 검증**만 수행한다. 문서 변경은 해당 문서 정합성 검증만 실행하고, 이미 검증한 API·Docker·CLI 명령어집을 다시 실행하지 않는다.
+- 먼저 변경 클래스와 직접 영향을 받는 기존 시험을 선택하고, 필요한 컴파일 및 최종 JAR 스모크를 수행한다.
+- 무관한 전체 JUnit 매트릭스·CLI 명령어집·교차 구현·Docker 통합시험의 반복 실행은 금지한다.
+- Tomcat·공통 암호 엔진·키 포맷 등의 변경으로 실제 영향이 확인되는 경우에만 해당 조합의 검증을 추가한다.
+- 전체 릴리스 검증이 필요한 변경은 근거와 범위를 보고하고 사용자 결정에 따른다.
+- Vault/KMS 모의시험과 실제 외부 시스템 호출은 구분한다.
+
+**실행 환경·증거**
+
+실제 실행한 OS/JDK/Tomcat/Pool/DB 조합만 PASS 보고. Tomcat 기동만으로 DB 연동 PASS 금지(`getConnection`·SQL 필요). Docker 시험은 시험용 컨테이너·네트워크·볼륨만 정리하고 다른 자원은 건드리지 않는다.
+
+결과 로그·증거에 사용자 비밀값을 남기지 않는다.
+
+**CLI 사용성 QA**
+
+실제 PowerShell/ConPTY와 bash 콘솔 화면에서 관리자 비밀번호 최초 설정·변경·인증 프롬프트, `pass`/`key` 생성·원문 복사·보관 안내, 사유 프롬프트, `CHANGE`, `SHOW`, 키 상태·History·오류의 정렬·줄바꿈·표현을 검수한다.
+
+**실행하지 않은 검사를 PASS로 보고하지 않는다.**
+
+
+## 10. 변경 통제·완료 보고
+
+**사전 승인 없는 변경 금지**
+
+암호 알고리즘·포맷·최소 Java·공개 API 계약·설정 이름·키 공급원·WAS 어댑터·의존성·제품 산출물 구성·키/History 보안 범위 변경, 신규 기능/API 추가. 충돌 시 실제 소스 위치·재현 방법·보안/호환 영향·최소 대안을 보고한다.
+
+**Git/배포**
+
+사용자 명시 승인 전 `git add`·`git commit`·`git push`·Tag·GitHub Release·브랜치 생성·저장소/프로젝트 이름 변경 금지. 로컬 정본을 변경하는 pull·rebase·reset도 금지한다.
+
+CI는 빌드·시험용이며 릴리스 자동 게시 금지. 공개 릴리스에는 사용자 지정 비밀키/사용자 지정 키 내장 JAR/비밀 백업·토큰을 넣지 않는다. `LICENSE`(Apache-2.0) 원문은 임의 수정하지 않는다.
+
+**완료 보고**
+
+요구별 **구현/미구현/보류**, 실제 수행한 JUnit/JDK/CLI/문서/Docker 결과(PASS/FAIL/미실행), 기존 기능 회귀, 수정 파일, 재현·로그 위치와 남은 위험을 분리해 보고한다. 문서만 고치고 구현 검증을 완료한 것처럼 주장하지 않는다.

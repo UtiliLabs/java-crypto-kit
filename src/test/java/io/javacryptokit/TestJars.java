@@ -30,6 +30,9 @@ import java.util.jar.Manifest;
  * 실행해 결과를 돌려준다(실제 사용자가 내려받은 JAR로 실행하는 상황 재현). AWS SDK·JUnit은 넣지 않는다.
  */
 public final class TestJars {
+    /** 시험용 JAR의 버전(build.gradle의 version과 같게 유지). 배포 JAR 이름은 java-crypto-kit-&lt;버전&gt;.jar다. */
+    public static final String VERSION = "0.1.0";
+
     /** 프로세스 실행 결과. */
     public static final class Run {
         public final int exit;
@@ -57,25 +60,66 @@ public final class TestJars {
      * @return jar
      */
     public static Path build(Path jar) throws IOException {
+        return build(jar, false);
+    }
+
+    /**
+     * 키 목록(config key) 이전 형식과 같은 구조의 JAR를 만든다: {@code io.javacryptokit.KeyType}·
+     * {@code io.javacryptokit.config.LightObfuscation}·{@code io.javacryptokit.cli.AdminPassword} 클래스가 없고(관리자 비밀번호 미지원), JAR 내부 설정에 키 목록 항목({@code crypto.key.type}·
+     * {@code crypto.key.active.*}·{@code crypto.keys.*})이 없으며 내장 키는 이전 형식처럼 표준 Base64 평문이다. 새 CLI가 이전 버전 JAR를
+     * 고칠 때 그 버전이 모르는 형식(키 목록 항목, obf1)을 쓰지 않는지 확인하는 데 쓴다(데이터로만 쓰며 이 JAR를 실행하지 않는다).
+     *
+     * @param jar 만들 JAR 경로
+     * @return jar
+     */
+    public static Path buildLegacy(Path jar) throws IOException {
+        return build(jar, true);
+    }
+
+    private static Path build(Path jar, boolean legacy) throws IOException {
         Path classes = location(CryptoSettings.class);
         Path resources = location(CryptoSettings.class.getResource("/java-crypto-kit.properties"), "java-crypto-kit.properties");
         Map<String, Path> entries = new TreeMap<>();
         collect(classes, entries);
         collect(resources, entries);
         byte[] settings = Files.readAllBytes(resources.resolve("java-crypto-kit.properties"));
+        if (legacy) {
+            entries.remove("io/javacryptokit/KeyType.class");
+            entries.remove("io/javacryptokit/config/LightObfuscation.class");
+            entries.remove("io/javacryptokit/cli/AdminPassword.class");
+            StringBuilder kept = new StringBuilder();
+            for (String line : new String(settings, StandardCharsets.UTF_8).split("\n", -1)) {
+                String trimmed = line.trim();
+                if (trimmed.startsWith("crypto.key.type") || trimmed.startsWith("crypto.key.active.")
+                        || trimmed.startsWith("crypto.keys.")) continue;
+                if (trimmed.startsWith("crypto.key.embedded=obf1:")) {
+                    // 이전 형식는 내장 키를 표준 Base64 평문으로 두었다(같은 키 바이트).
+                    byte[] key = io.javacryptokit.config.LightObfuscation.decode(trimmed.substring("crypto.key.embedded=".length()));
+                    line = "crypto.key.embedded=" + java.util.Base64.getEncoder().encodeToString(key);
+                    Arrays.fill(key, (byte) 0);
+                }
+                kept.append(line).append('\n');
+            }
+            settings = kept.substring(0, kept.length() - 1).getBytes(StandardCharsets.UTF_8);
+        }
+        final byte[] settingsBytes = settings;
         Manifest manifest = new Manifest();
         Attributes main = manifest.getMainAttributes();
         main.put(Attributes.Name.MANIFEST_VERSION, "1.0");
         main.put(Attributes.Name.MAIN_CLASS, "io.javacryptokit.cli.CryptoCli");
         main.put(Attributes.Name.IMPLEMENTATION_TITLE, "java-crypto-kit");
-        main.put(Attributes.Name.IMPLEMENTATION_VERSION, "0.1.0");
+        main.put(Attributes.Name.IMPLEMENTATION_VERSION, VERSION);
         main.putValue("Build-Time", "2026-11-21T00:00:00Z");
-        main.putValue("Settings-Fingerprint", "sha256:" + hex(sha256(settings)).substring(0, 16));
+        main.putValue("Settings-Fingerprint", "sha256:" + hex(sha256(settingsBytes)).substring(0, 16));
         try (OutputStream file = Files.newOutputStream(jar); JarOutputStream out = new JarOutputStream(file, manifest)) {
             for (Map.Entry<String, Path> entry : entries.entrySet()) {
                 JarEntry jarEntry = new JarEntry(entry.getKey());
                 out.putNextEntry(jarEntry);
-                if (!entry.getKey().endsWith("/")) Files.copy(entry.getValue(), out);
+                if ("java-crypto-kit.properties".equals(entry.getKey())) {
+                    out.write(settingsBytes);
+                } else if (!entry.getKey().endsWith("/")) {
+                    Files.copy(entry.getValue(), out);
+                }
                 out.closeEntry();
             }
         }

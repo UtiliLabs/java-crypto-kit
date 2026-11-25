@@ -1,46 +1,36 @@
-keygen - 새 AES-256 난수 키 파일 생성
+keygen - 새 AES-256 키 파일 생성(key 유형 키가 필요할 때만)
 
-사용 형식
-  java -jar {jar} keygen --out <키 파일> [--lang en|ko]
+사용법
+  java -jar {jar} keygen --out <키 파일>
+       [--reason <사유>] [--operator <ID>]
+       [--admin-pass-file <파일>] [--lang en|ko]
 
 옵션
-  --out <키 파일>   만들 키 파일(필수). 상위 폴더가 있어야 합니다. 기존 파일은 절대 덮어쓰지 않습니다
-                    (키를 잃으면 그 키의 암호문을 복호화할 수 없음).
-  --lang en|ko      이번 실행의 메시지 언어(선택).
+  --out <키 파일>     만들 키 파일(필수). 상위 폴더가 있어야 하며
+                      이미 있으면 덮어쓰지 않습니다.
+  --reason <사유>     생성 사유(필수). 없으면 대화형 터미널에서 묻고,
+                      비대화형이면 키를 만들기 전에 오류로 멈춥니다.
+  --operator <ID>     작업자 ID(선택, 결과에만 표시)
+  --admin-pass-file <파일>
+                      관리자 비밀번호 파일(비대화형 인증, 한 줄, 권한 600)
+                      없으면 관리자 비밀번호를 숨김 입력으로 묻습니다
+  --lang en|ko        이번 실행의 메시지 언어(선택)
+  32바이트 보안 난수를 표준 Base64 한 줄로 씁니다(Linux/macOS는 권한 600).
+  대화형 터미널이면 같은 한 줄(생성값)을 한 번 보여 줍니다. 비대화형은
+  보여 주지 않습니다(키 파일이 원본). keygen은 JAR를 바꾸지 않으므로
+  사유·작업자를 어떤 이력에도 저장하지 않습니다.
+  Passphrase는 만들지 않습니다(pass 키: config key add --generate).
 
-동작
-  SecureRandom으로 32바이트 난수를 만들어 표준 Base64 한 줄(44자)로 씁니다. Linux/macOS에서는 권한 600으로 만듭니다.
-  키는 출력하지 않고 키 지문만 보여 줍니다. keygen은 설정·키를 읽지 않습니다.
+결과
+  키 파일   : C:\Users\me\jck-secure\example.key
+  키 지문   : 3f9a...(64자)
+  사유      : 운영 키 준비
+  이력      : 저장 안 함(JAR를 바꾸지 않는 명령이라 config history에 없음)
+  대화형이면 이어서 유형·키 ID(미등록)·형식, 생성값 한 줄, 안내를 보여 줍니다.
 
-예제(상위 폴더를 먼저 만듭니다)
-  Windows PowerShell(사용자 프로필 아래 폴더: 기본으로 본인·관리자만 접근)
-    New-Item -ItemType Directory -Force -Path "$HOME\jck-secure" | Out-Null
-    java -jar .\{jar} keygen --out "$HOME\jck-secure\example.key"
-    icacls "$HOME\jck-secure\example.key" /inheritance:r /grant:r "${env:USERNAME}:(R)"
-    C:\ 바로 아래에 만든 폴더(예: C:\secure)는 기본 상속으로 다른 로컬 사용자도 읽을 수 있으므로
-    icacls로 상속을 끊고 필요한 계정(운영자, Tomcat 서비스 계정)만 허용합니다.
-  Linux(키 내장용, 본인 폴더)
-    mkdir -p -m 700 ~/jck-secure
-    java -jar ./{jar} keygen --out ~/jck-secure/example.key
-  Linux 서버(파일 키로 사용, Tomcat 실행 계정이 읽음 - root로 실행, 계정 이름은 환경에 맞게)
-    install -d -m 750 -g tomcat /etc/java-crypto-kit
-    java -jar ./{jar} keygen --out /etc/java-crypto-kit/example.key
-    chown tomcat:tomcat /etc/java-crypto-kit/example.key
-
-예상 결과
-  키 파일이 생성됐습니다. 키 지문: 3f9a...
-  다음: config embed-key --from-file example.key --key-id <새 키ID> --operator <ID>로 키 내장 JAR를 만들거나, ...
-
-다음 단계
-  - JAR에 내장:      java -jar {jar} config embed-key --from-file example.key --key-id prod01 --operator <ID>
-  - 파일 키로 사용:  crypto.key.source=file, crypto.key.file=/etc/java-crypto-kit/example.key
-  - Vault KV v2에 저장(help vault)하거나 AWS KMS로 감싸기(kms datakey --help).
-
-대표 오류와 해결
-  [사유: USAGE] 키 파일이 이미 있습니다(FileAlreadyExistsException) -> 다른 이름을 지정하세요.
-  [사유: USAGE] 키 파일을 만들 폴더가 없습니다                       -> 폴더를 먼저 만드세요.
-
-보안 주의
-  사용 중인 모든 키는 보호된 백업을 두세요. 키 파일을 커밋하거나 메일·메신저로 보내지 마세요.
-
-관련 명령: config embed-key, fingerprint, rekey
+예제(Windows PowerShell)
+  mkdir $HOME\jck-secure
+  java -jar {jar} keygen --out $HOME\jck-secure\example.key
+예제(Linux)
+  mkdir -m 700 ~/jck-secure
+  java -jar {jar} keygen --out ~/jck-secure/example.key

@@ -1,0 +1,35 @@
+config key show - 키 관리정보 조회, 원문 표시·내보내기(관리자 인증)
+
+사용법
+  java -jar {jar} config key show --key-id <ID>
+       [--show] [--export <파일>] [--jar <jar>]
+       [--admin-pass-file <파일>] [--lang en|ko]
+
+옵션
+  --key-id <ID>     조회할 키 ID(필수)
+  --show            원문을 화면에 표시(대화형 전용). 노출 경고 뒤 SHOW를
+                    정확히 입력해야 보여 주고, 그 밖의 입력은 취소합니다.
+  --export <파일>   원문을 새 파일로 내보내기(덮어쓰지 않음, POSIX 600).
+                    key: keygen 형식 한 줄, pass: 복원 백업 형식
+  --jar <jar>       조회할 JAR(선택, 기본: 실행 중인 JAR)
+  --admin-pass-file <파일>
+                    관리자 비밀번호 파일(비대화형 인증, 한 줄, 권한 600)
+                    없으면 관리자 비밀번호를 숨김 입력으로 묻습니다
+  --lang en|ko      이번 실행의 메시지 언어(선택)
+  관리자 비밀번호 확인 뒤 키 ID·유형·공급원·상태·전체 지문(64자)과 pass는
+  KDF·반복 횟수·Salt·Salt 해시를 보여 줍니다. 원문은 --show·--export를 줄
+  때만 다룹니다. pass 원문은 file·env·vault 공급원에 보관된 경우에만 있고,
+  JAR 내장·aws-kms pass 키는 PBKDF2 파생 키만 있어 원문을 복원할 수
+  없습니다(생성 때 만든 백업으로 복원). JAR를 바꾸지 않아 이력에 없습니다.
+
+결과(일부)
+  키 ID     : k1
+  유형      : key
+  공급원    : embedded
+  키 지문   : 3f9a...(64자)
+  원문      : JAR 내장 AES 키(--show 화면 표시, --export 파일)
+
+예제
+  java -jar {jar} config key show --key-id k1
+  java -jar {jar} config key show --key-id k1 --show
+  내보내기: 위 명령에 --export <파일>(예: --export k1.key)

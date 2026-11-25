@@ -1,108 +1,22 @@
-help tomcat - use encrypted DB credentials in a Tomcat JNDI DataSource (DBCP2 or Tomcat JDBC Pool)
+help tomcat - decrypt the DB password of a Tomcat JNDI DataSource
 
-What it does
-  With factory="io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory" on the Resource, Tomcat decrypts the password
-  (and the user name if it is encrypted) when it creates the DataSource, then hands the Resource to the official Tomcat
-  pool (DBCP2 or Tomcat JDBC Pool). Your web application code does not change. A plain-text password is rejected.
+1) Place the JARs: copy the java-crypto-kit JAR (key-embedded in production)
+   and the JDBC driver JAR to CATALINA_BASE/lib (only one java-crypto-kit JAR).
+2) Encrypt: run encrypt with the same JAR to get ENC[v1:...].
+3) Edit the Resource in a Context file Tomcat reads (e.g. META-INF/context.xml
+   of the application) with these attributes (username: plain or encrypted):
+     factory="io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory"
+     password="ENC[v1:...]"
+   The key is found by the key ID of the ciphertext (pass or key both work).
+   For Tomcat JDBC Pool, one setting applies to every Resource of the JVM:
+     crypto.pool.factory=org.apache.tomcat.jdbc.pool.DataSourceFactory
+4) Only with an external config file add -Dcrypto.config.file=<file>:
+   CATALINA_OPTS in bin/setenv.sh (Linux) or bin/setenv.bat (Windows console);
+   for a Windows service, the Java Options of the service settings.
+5) Restart Tomcat; check in the application: JNDI lookup, getConnection(), SQL
 
-Supported Tomcat versions (the same single JAR for all; minimum Java of that Tomcat in parentheses)
-  11.0 (Java 17+) / 10.1 (Java 11+) / 9.0 (Java 8+)
-                     Supported. DBCP2 and Tomcat JDBC Pool verified on real servers (Docker): JNDI lookup ->
-                     connection -> SQL execution.
-  8.5 (Java 8+)      Legacy (end of life at Apache: 2024-03-31). Verified the same way, but not recommended for new
-                     installations.
-  Old Oracle JDK 8 (before 8u161) needs the unlimited crypto policy for AES-256: 8u151 to 8u160 set
-  crypto.policy=unlimited in java.security, older ones need the JCE Unlimited Strength policy files. Without it the
-  library fails with [reason: CRYPTO_PROVIDER].
-  The DB connection itself is made by the Tomcat pool and the JDBC driver. MariaDB is the database that was verified;
-  other databases can be configured the same way with their JDBC driver but have not been verified.
-
-Scope shared by one Tomcat JVM
-  The key source, key ID and pool type (crypto.pool.factory) are one for the whole JVM. If Resources need different
-  keys or pools, use separate Tomcat instances (CATALINA_BASE). Deploy the same key-embedded JAR to every server and
-  check with fingerprint that the key is the same.
-
-1) Install (no rebuild)
-  Copy {jar} (or your key-embedded JAR made with config embed-key) and the JDBC driver JAR to CATALINA_BASE/lib.
-  Keep only one java-crypto-kit JAR in lib. The pool library must be in the same lib (tomcat-dbcp.jar is included in
-  Tomcat; for the Tomcat JDBC Pool add tomcat-jdbc.jar of your Tomcat version if it is missing).
-  Windows: Copy-Item .\{jar} C:/tomcat/lib/
-  Linux  : cp ./{jar} /opt/tomcat/lib/ && chown tomcat:tomcat /opt/tomcat/lib/{jar}
-
-2) Encrypt the DB password (with the same JAR and settings as Tomcat)
-  java -jar {jar} encrypt          -> ENC[v1:prod01:...]
-
-3) Write the Resource
-  Where to put it (the files Tomcat really reads)
-    META-INF/context.xml of the web app, or CATALINA_BASE/conf/Catalina/localhost/<app>.xml   per-app Resource (usual)
-    CATALINA_BASE/conf/context.xml   default Context of every web app (each app gets its own pool: use with care)
-    GlobalNamingResources in conf/server.xml + a ResourceLink in each app   one Resource shared by several apps
-  In an existing file, paste only the one <Resource ... /> inside <Context> (do not replace the whole file).
-  The repository files docs/tomcat/dbcp2-context.xml and jdbc-pool-context.xml are examples; Tomcat does not read them.
-
-  3a) DBCP2 (default: used when nothing else is configured)
-  <Resource name="jdbc/appDS" auth="Container" type="javax.sql.DataSource"
-            factory="io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory"
-            driverClassName="org.mariadb.jdbc.Driver" url="jdbc:mariadb://db.example.internal:3306/app"
-            username="app" password="ENC[v1:prod01:...]"
-            initialSize="1" maxTotal="20" maxIdle="10" maxWaitMillis="10000"
-            validationQuery="SELECT 1" testOnBorrow="true"/>
-
-  3b) Tomcat JDBC Pool (when crypto.pool.factory=org.apache.tomcat.jdbc.pool.DataSourceFactory is set)
-  <Resource name="jdbc/appDS" auth="Container" type="javax.sql.DataSource"
-            factory="io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory"
-            driverClassName="org.mariadb.jdbc.Driver" url="jdbc:mariadb://db.example.internal:3306/app"
-            username="app" password="ENC[v1:prod01:...]"
-            initialSize="1" maxActive="20" maxIdle="10" maxWait="10000"
-            validationQuery="SELECT 1" testOnBorrow="true"/>
-
-  The pool is chosen with the setting crypto.pool.factory, not with a Resource attribute, and applies to every
-  Resource of the JVM.
-    Store it in the JAR: java -jar {jar} config set crypto.pool.factory=org.apache.tomcat.jdbc.pool.DataSourceFactory --operator <ID>
-    or in external Properties, or with -Dcrypto.pool.factory=... in CATALINA_OPTS
-
-  Attributes
-    name                 JNDI name the app looks up as java:comp/env/jdbc/appDS
-    auth                 Tomcat standard attribute (Container or Application). Container is usual for DB resources.
-                         Application is for designs where the app signs on to the resource manager itself; changing it
-                         alone does not change the DB account.
-    type                 Only javax.sql.DataSource is supported (still javax.sql on Tomcat 10.1 and 11).
-    factory              The same decrypting factory for both pools.
-    password / username  password must be ENC[...] or B64[...]; username may be plain text or a ciphertext.
-    scope / singleton    Standard optional attributes (defaults Shareable / true). Keep the defaults for a DataSource.
-    other pool options   Passed to the official pool unchanged. Names differ per pool (DBCP2: maxTotal, maxWaitMillis /
-                         Tomcat JDBC: maxActive, maxWait). Whether each is supported depends on the Tomcat/pool version.
-  Do not reuse this Resource setup outside Tomcat (WebLogic, JEUS, a default Spring Boot DataSource).
-
-4) Settings for Tomcat (only if you do not use the JAR built-in settings)
-  Linux           bin/setenv.sh  : CATALINA_OPTS="$CATALINA_OPTS -Dcrypto.config.file=/etc/java-crypto-kit/app.properties"
-  Windows console bin/setenv.bat : set "CATALINA_OPTS=%CATALINA_OPTS% -Dcrypto.config.file=C:/secure/app.properties"
-                  (read only when Tomcat is started with startup.bat or catalina.bat)
-  Windows service The service does not read setenv.bat. Add -Dcrypto.config.file=C:/secure/app.properties as one line
-                  to Java Options in the Tomcat service configuration tool (e.g. the Java tab of tomcat9w.exe), or run
-                  tomcat9.exe //US//Tomcat9 ++JvmOptions=-Dcrypto.config.file=C:/secure/app.properties
-                  and restart the service (use the executable and service name of your Tomcat). Not verified on a real server.
-  Key environment variables must be visible to the Tomcat service account (systemd Environment=, the environment of the Windows service).
-
-5) Restart and check
-  Stop Tomcat, start Tomcat, then check the DB connection from the application (a JNDI lookup and one query).
-  With initialSize > 0 the first connection is made at startup, so a wrong DB password shows up in the Tomcat log.
-  Settings and keys are read when the DataSource is created; restart Tomcat after changing them.
-
-Key rotation order
-  rekey -> replace password -> deploy the JAR on each server and compare fingerprint -> restart -> check with a real
-  SQL statement (keep the old JAR and old ciphertext for rollback until the end). Pin Vault with crypto.vault.ver.
-
-Errors and fixes (Tomcat log, line starting with [java-crypto-kit])
-  [reason: PLAINTEXT_PASSWORD]   -> password is not ENC[...]/B64[...]; encrypt it with step 2.
-  [reason: KEY_ID_MISMATCH]      -> the ciphertext was made with another key ID; use the JAR/settings that made it.
-  [reason: INTEGRITY]            -> different key; compare java -jar {jar} fingerprint on both sides.
-  [reason: KEY_SOURCE]           -> the key file, variable, Vault or KMS cannot be read; run doctor as the Tomcat user.
-  [reason: CONFIGURATION]        -> wrong setting name or value (e.g. a -D typo, an unknown key in external Properties); run doctor.
-  [reason: POOL_FAILURE] (cause type: ...SQLState=28000) -> the DB rejected the login; check the DB password itself.
-  [reason: POOL_FAILURE] (cause type: ClassNotFoundException) -> pool or JDBC driver JAR missing in CATALINA_BASE/lib.
-  The library never puts the password in the log. Messages of Tomcat or the JDBC driver after startup
-  (getConnection) are outside this library.
-
-Related: encrypt, doctor, fingerprint, config embed-key, config help
-Full guide: docs/user-guide.md in the repository (Korean), chapter 3 (Tomcat JNDI) and chapter 4 (Connection Pool)
+Supported: Tomcat 11.0 (Java 17+), 10.1 (Java 11+), 9.0 (Java 8+), 8.5 (legacy)
+Old Oracle JDK 8 (before 8u161) needs the unlimited crypto policy
+(crypto.policy=unlimited in java.security).
+Errors: the [java-crypto-kit] [reason: CODE] line in the Tomcat log (guide 9.3)
+Details (full Resource examples, pool options): docs/user-guide.md chapters 3-4

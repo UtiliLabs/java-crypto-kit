@@ -1,0 +1,22 @@
+config key - manage the key list in the JAR (no rebuild)
+
+Commands (every key change needs CHANGE or --yes, also for a new JAR)
+  config key add      Add a key (the default changes only with --active)
+  config key use      Change the default key of a type (other type unchanged)
+  config key remove   Remove a key (not the default or the crypto.key.* key)
+  config key show     Key management info; show (--show) or export (--export)
+  Options of each command: add --help, e.g. config key add --help
+  Each asks the admin password on every run (--admin-pass-file possible).
+
+Types
+  pass   AES key derived from a passphrase (PBKDF2, new salt per key). Default
+  key    32-byte AES key (keygen format)
+  Public default keys of the official JAR: pass-default (pass), default (key)
+  Decryption selects the key ID in the ciphertext. Reuse a previously used ID
+  only to restore the same key. To rotate, add a new ID, then use, rekey and
+  remove.
+
+Examples
+  java -jar {jar} config key add --key-id p2 --operator ops
+  java -jar {jar} config key use --key-id p2 --operator ops
+Details (sources, rotation, values): docs/user-guide.md 2.18-2.20, 2.24, app. A

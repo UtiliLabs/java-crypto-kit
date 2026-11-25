@@ -1,6 +1,7 @@
 package io.javacryptokit.file;
 
 import io.javacryptokit.CredentialCryptoException;
+import io.javacryptokit.core.Gcm;
 import io.javacryptokit.i18n.Messages;
 import io.javacryptokit.key.SecretFiles;
 import java.io.BufferedInputStream;
@@ -13,19 +14,14 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.GeneralSecurityException;
-import java.security.SecureRandom;
 import java.util.Arrays;
 import javax.crypto.AEADBadTagException;
-import javax.crypto.Cipher;
-import javax.crypto.spec.GCMParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
 
 /**
  * <b>내부 구현 클래스(공개 API 아님)</b>: 일반 파일(텍스트·CSV·JSON·PDF·이미지 등 형식 무관)을 AES-256-GCM으로 암복호화하는
@@ -50,7 +46,8 @@ import javax.crypto.spec.SecretKeySpec;
  *   <li>스트리밍 처리: 한 번에 청크 하나(64KiB)만 메모리에 둔다. 큰 파일도 전체를 메모리에 올리지 않는다.</li>
  *   <li>복호화 결과는 출력 폴더의 접근 제한 임시 파일(POSIX 600)에만 쓴다. 각 청크는 GCM 태그 검증이 끝난 뒤에만 쓰이고,
  *       파일 끝까지 모든 검증(마지막 청크 확인 포함)이 끝난 경우에만 최종 이름으로 옮긴다. 실패하면 임시 파일을 지운다.</li>
- *   <li>원본은 바꾸지 않는다. 출력 파일이 이미 있으면(심볼릭 링크 포함) 덮어쓰지 않는다. 입력과 출력이 같은 경로면 거부한다.
+ *   <li>원본은 바꾸지 않는다. 출력 파일이 이미 있으면(심볼릭 링크 포함) 덮어쓰지 않는다. 같은 출력 경로에 동시에 쓰는 다른
+ *       작업(다른 프로세스 포함)이 있어도 최종 이름을 파일시스템의 원자적 생성으로 차지하므로 하나만 성공한다. 입력과 출력이 같은 경로면 거부한다.
  *       입력은 일반 파일만 허용한다(심볼릭 링크는 대상이 일반 파일이면 허용, 폴더·장치·FIFO 거부).</li>
  *   <li>오류 메시지에는 파일 이름만 쓰고 경로 전체·내용·키는 넣지 않는다.</li>
  * </ul>
@@ -62,10 +59,10 @@ public final class FileCipher {
     private static final int VERSION = 1;
     /** 청크 평문 크기(v1 고정). */
     static final int CHUNK = 64 * 1024;
-    /** GCM IV 길이. */
-    private static final int IV_LENGTH = 12;
+    /** GCM IV 길이(공용 엔진 {@link Gcm}과 같다). */
+    private static final int IV_LENGTH = Gcm.IV_BYTES;
     /** GCM 태그 길이(바이트). */
-    private static final int TAG_LENGTH = 16;
+    private static final int TAG_LENGTH = Gcm.TAG_BYTES;
     /** 파일 하나의 최대 청크 수(2^32 - 1). */
     private static final long MAX_CHUNKS = 0xFFFFFFFFL;
     /** 중간 청크 표시. */
@@ -74,7 +71,6 @@ public final class FileCipher {
     private static final int FLAG_LAST = 1;
     /** 임시 파일 접미사. */
     static final String TEMP_SUFFIX = ".jck-tmp";
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     private FileCipher() { }
 
@@ -124,7 +120,7 @@ public final class FileCipher {
      */
     public static void encryptFile(Path in, Path out, String keyId, byte[] key) throws CredentialCryptoException {
         checkPaths(in, out);
-        process(in, out, true, keyId, key);
+        process(in, out, true, keyId, key, Files::deleteIfExists);
     }
 
     /**
@@ -138,16 +134,22 @@ public final class FileCipher {
      */
     public static void decryptFile(Path in, Path out, String keyId, byte[] key) throws CredentialCryptoException {
         checkPaths(in, out);
-        process(in, out, false, keyId, key);
+        process(in, out, false, keyId, key, Files::deleteIfExists);
     }
 
-    /** 임시 파일에 쓰고, 성공하면 옮기고, 실패하면 지운다. */
-    private static void process(Path in, Path out, boolean encrypt, String keyId, byte[] key) throws CredentialCryptoException {
+    @FunctionalInterface
+    interface TempDeletion {
+        void delete(Path temp) throws IOException;
+    }
+
+    /** 최종 이름을 공개한 뒤에도 임시 이름의 삭제는 별도로 실패할 수 있다. */
+    static void process(Path in, Path out, boolean encrypt, String keyId, byte[] key, TempDeletion deletion)
+            throws CredentialCryptoException {
         Path dir = out.toAbsolutePath().getParent();
         Path temp = null;
-        boolean moved = false;
+        Throwable failure = null;
         try {
-            temp = createTemp(dir, SecretFiles.fileName(out));
+            temp = createTemp(dir, out.getFileName().toString());
             try (InputStream input = Files.newInputStream(in);
                  OutputStream output = new BufferedOutputStream(Files.newOutputStream(temp, StandardOpenOption.WRITE,
                          StandardOpenOption.TRUNCATE_EXISTING), CHUNK)) {
@@ -160,33 +162,47 @@ public final class FileCipher {
             try (FileChannel channel = FileChannel.open(temp, StandardOpenOption.WRITE)) {
                 channel.force(true);
             }
-            try {
-                // 같은 폴더 안의 이름 변경. 대상이 생겼으면(경쟁 상황) 덮어쓰지 않고 실패한다.
-                Files.move(temp, out);
-            } catch (FileAlreadyExistsException e) {
-                throw input("file.err.outExists", SecretFiles.fileName(out));
-            }
-            moved = true;
+            publish(temp, out);
         } catch (IOException e) {
-            throw new CredentialCryptoException(CredentialCryptoException.Reason.INVALID_INPUT,
+            CredentialCryptoException ioFailure = new CredentialCryptoException(CredentialCryptoException.Reason.INVALID_INPUT,
                     Messages.get("file.err.io", SecretFiles.fileName(in), SecretFiles.fileName(out)), e);
+            failure = ioFailure;
+            throw ioFailure;
+        } catch (CredentialCryptoException | RuntimeException | Error e) {
+            failure = e;
+            throw e;
         } finally {
-            if (!moved && temp != null) {
+            if (temp != null) {
                 try {
-                    Files.deleteIfExists(temp);
-                } catch (IOException cleanup) {
-                    // 지우지 못한 임시 파일(인증 전 평문일 수 있음)을 사용자가 직접 지울 수 있게 알린다.
-                    throw new CredentialCryptoException(CredentialCryptoException.Reason.INVALID_INPUT,
-                            Messages.get("file.err.tempLeft", SecretFiles.fileName(temp)), cleanup);
+                    deletion.delete(temp);
+                } catch (IOException | RuntimeException cleanup) {
+                    String tempName = SecretFiles.fileName(temp);
+                    if (failure == null) { // publish가 성공했고 임시 이름만 남았다.
+                        throw new CredentialCryptoException(CredentialCryptoException.Reason.INVALID_INPUT,
+                                Messages.get("file.err.publishedTempLeft", SecretFiles.fileName(out), tempName), cleanup);
+                    }
+                    failure.addSuppressed(new CredentialCryptoException(CredentialCryptoException.Reason.INVALID_INPUT,
+                            Messages.get("file.err.tempLeft", tempName), cleanup));
                 }
             }
+        }
+    }
+
+    /** 완성된 임시 파일에 최종 이름을 붙인다. 하드 링크 생성은 기존 엔트리를 교체하지 않는다. */
+    private static void publish(Path temp, Path out) throws CredentialCryptoException {
+        try {
+            Files.createLink(out, temp);
+        } catch (FileAlreadyExistsException e) {
+            throw input("file.err.outExists", SecretFiles.fileName(out));
+        } catch (IOException | UnsupportedOperationException e) {
+            throw input("file.err.publish", SecretFiles.fileName(out));
         }
     }
 
     /** 출력 폴더에 접근 제한 임시 파일을 만든다(POSIX 600. Windows는 폴더 ACL을 상속). */
     private static Path createTemp(Path dir, String outName) throws IOException {
         String prefix = "." + (outName.length() > 40 ? outName.substring(0, 40) : outName) + ".";
-        if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
+        if (dir.getFileSystem().supportedFileAttributeViews().contains("posix")) {
             return Files.createTempFile(dir, prefix, TEMP_SUFFIX,
                     PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
         }
@@ -221,9 +237,8 @@ public final class FileCipher {
                     throw new CredentialCryptoException(CredentialCryptoException.Reason.INVALID_INPUT,
                             Messages.get("file.err.tooLarge"));
                 }
-                byte[] iv = new byte[IV_LENGTH];
-                RANDOM.nextBytes(iv);
-                byte[] sealed = gcm(Cipher.ENCRYPT_MODE, key, iv, aad(header, index, last), plain, length);
+                byte[] iv = Gcm.newIv();
+                byte[] sealed = gcm(true, key, iv, aad(header, index, last), plain, length);
                 output.write(last ? FLAG_LAST : FLAG_MORE);
                 output.write(iv);
                 output.write(sealed);
@@ -268,7 +283,7 @@ public final class FileCipher {
             if (index >= MAX_CHUNKS) throw truncated();
             byte[] iv = Arrays.copyOfRange(record, 0, IV_LENGTH);
             byte[] sealed = Arrays.copyOfRange(record, IV_LENGTH, length);
-            byte[] plain = gcm(Cipher.DECRYPT_MODE, key, iv, aad(header, index, flag == FLAG_LAST), sealed, sealed.length);
+            byte[] plain = gcm(false, key, iv, aad(header, index, flag == FLAG_LAST), sealed, sealed.length);
             try {
                 output.write(plain);
             } finally {
@@ -321,14 +336,11 @@ public final class FileCipher {
         return buffer.array();
     }
 
-    /** AES-GCM 한 번(청크 하나). */
-    private static byte[] gcm(int mode, byte[] key, byte[] iv, byte[] aad, byte[] data, int length)
+    /** AES-GCM 한 번(청크 하나, 공용 엔진 {@link Gcm}). */
+    private static byte[] gcm(boolean encrypt, byte[] key, byte[] iv, byte[] aad, byte[] data, int length)
             throws CredentialCryptoException {
         try {
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(mode, new SecretKeySpec(key, "AES"), new GCMParameterSpec(TAG_LENGTH * 8, iv));
-            cipher.updateAAD(aad);
-            return cipher.doFinal(data, 0, length);
+            return encrypt ? Gcm.seal(key, iv, aad, data, 0, length) : Gcm.open(key, iv, aad, data, 0, length);
         } catch (AEADBadTagException e) {
             throw new CredentialCryptoException(CredentialCryptoException.Reason.INTEGRITY, Messages.get("file.err.integrity"));
         } catch (GeneralSecurityException e) {

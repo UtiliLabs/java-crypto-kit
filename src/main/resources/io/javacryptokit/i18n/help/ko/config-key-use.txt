@@ -1,0 +1,31 @@
+config key use - 유형별 기본 키 변경(새 JAR 생성)
+
+사용법
+  java -jar {jar} config key use --key-id <ID>
+       --operator <ID> [--type pass|key] [--reason <사유>] [--jar <jar>]
+       [--out <jar> | --replace] [--yes]
+       [--admin-pass-file <파일>] [--lang en|ko]
+
+옵션
+  --key-id <ID>     기본 키로 정할 등록된 키 ID(필수, 유형 자동)
+  --type pass|key   기대하는 유형(선택, 다르면 실패)
+  --operator <ID>   이력에 남길 수정자 ID(필수)
+  --reason <사유>   이력에 남길 사유(필수, 없으면 대화형 터미널에서 질문)
+  --jar <jar>       바꿀 JAR(선택, 기본: 실행 중인 JAR)
+  --out <jar>       결과 JAR(선택, 기본 <이름>-configured.jar)
+  --replace         원본 교체(백업 후)
+  --yes             CHANGE 확인 생략(사유는 생략할 수 없음)
+  --admin-pass-file <파일>
+                    관리자 비밀번호 파일(비대화형 인증, 한 줄, 권한 600)
+                    없으면 관리자 비밀번호를 숨김 입력으로 묻습니다
+  --lang en|ko      이번 실행의 메시지 언어(선택)
+  그 유형의 기본 키(crypto.key.active.pass 또는 crypto.key.active.key)만
+  바뀝니다. 기존 암호문은 그대로 복호화됩니다(키 ID로 선택).
+
+결과
+  생성 JAR  : /opt/app/java-crypto-kit-{version}-configured.jar
+  변경 항목 : crypto.key.active.pass (pass-default -> p2)
+  기본 키   : pass=p2
+
+예제
+  java -jar {jar} config key use --key-id p2 --operator ops

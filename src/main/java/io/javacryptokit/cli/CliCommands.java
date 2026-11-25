@@ -19,10 +19,28 @@ import java.util.Set;
  * <p><b>공통 옵션</b>: {@code --lang en|ko}(이번 실행에만 적용하는 메시지 언어, 영구 설정은 {@code crypto.lang}),
  * {@code --help}/{@code -h}. 모든 명령에서 같은 위치 규칙으로 쓴다.</p>
  *
- * <p><b>보안</b>: 평문 비밀번호·원시 키·토큰을 값으로 받는 옵션은 없다. {@code --value}는 암호문(verify·rekey)만 받는다.
+ * <p><b>보안</b>: 평문 비밀번호·원시 키·Passphrase·토큰·관리자 비밀번호를 값으로 받는 옵션은 없다. {@code --value}는 암호문
+ * (verify·rekey)만 받고, 키 재료는 파일({@code --from-file})·입력(화면 비표시)·생성({@code --generate})으로만, 관리자 비밀번호는
+ * 입력(화면 비표시)·파일({@code --admin-pass-file})로만 받는다.
  * {@code -D...}를 {@code -jar} 뒤에 두면 JVM 속성이 아니라 프로그램 인자가 되므로 거부하고 올바른 위치를 안내한다.</p>
  */
 final class CliCommands {
+    /**
+     * 명령의 CLI 관리자 비밀번호 정책. 명령 정의마다 반드시 하나를 정하며(생성자 인자), 인증은 이 값만 보고 {@link CryptoCli}가 명령
+     * 본 처리 전에 한 곳에서 한다(명령별 인증 호출 없음).
+     */
+    enum Access {
+        /** 최초 설정만 마치면 묻지 않는다(평문·키 원문을 보여 주지 않는 명령: encrypt·verify·file encrypt·fingerprint·info·doctor). */
+        OPEN,
+        /** 미설정 JAR에서만 쓰는 최초 설정({@code admin setup}). 인증 대상이 아니다. */
+        SETUP,
+        /**
+         * 실행할 때마다 관리자 비밀번호를 확인한다(복호화·키 생성/등록/변경/삭제·키 조회·JAR 설정 조회/변경·비밀번호 변경). 입력 없이
+         * 하는 사전 검사 → 실행 중인 JAR와 {@code --jar}·{@code --from-jar} JAR의 인증({@code --to-jar}는 무결성만) → 본 처리 순서다.
+         */
+        ADMIN
+    }
+
     /** 명령 하나의 정의. */
     static final class Spec {
         /** 명령 이름(하위 명령은 공백으로 구분, 예: "config set"). */
@@ -35,13 +53,17 @@ final class CliCommands {
         final List<String> flags;
         /** {@code 이름=값} 형식의 설정 인자를 받는지(config set). */
         final boolean settingArgs;
+        /** 관리자 비밀번호 정책(단일 정본). */
+        final Access access;
 
-        Spec(String name, String topic, List<String> values, List<String> flags, boolean settingArgs) {
+        Spec(String name, String topic, List<String> values, List<String> flags, boolean settingArgs, Access access) {
+            if (access == null) throw new IllegalArgumentException("access");
             this.name = name;
             this.topic = topic;
             this.values = Collections.unmodifiableList(values);
             this.flags = Collections.unmodifiableList(flags);
             this.settingArgs = settingArgs;
+            this.access = access;
         }
 
         /** @return 이 명령이 받는 모든 옵션 이름(공통 옵션 제외) */
@@ -60,6 +82,8 @@ final class CliCommands {
         /** config set의 이름=값(입력 순서). */
         final Map<String, String> settings = new LinkedHashMap<>();
         boolean help;
+        /** 이번 실행의 관리자 비밀번호 확인 창구({@link CryptoCli}가 명령 실행 전에 채운다). */
+        AdminGate admin;
 
         Parsed(Spec spec) {
             this.spec = spec;
@@ -76,38 +100,79 @@ final class CliCommands {
 
     /** 공통 언어 옵션. */
     static final String LANG_OPTION = "--lang";
+    /** {@code config} 아래의 키 목록 묶음 이름({@code config key add|use|remove}). */
+    static final String KEY_GROUP = "key";
 
-    /** 전체 명령 정의(도움말 목차 순서). */
+    /** 관리자 비밀번호 파일 옵션(비대화형 인증·최초 설정). */
+    static final String ADMIN_FILE = AdminPassword.FILE_OPTION;
+
+    /**
+     * 전체 명령 정의(도움말 목차 순서). 명령마다 관리자 비밀번호 정책({@link Access})을 함께 정한다: 평문·키 원문을 보여 주지 않는
+     * 명령만 {@link Access#OPEN}이고, 복호화·키 생성/등록/변경/삭제·키 조회·JAR 설정 조회/변경·비밀번호 변경은 {@link Access#ADMIN}.
+     */
     static final List<Spec> ALL = Collections.unmodifiableList(Arrays.asList(
-            spec("encrypt", "encrypt", list("--config"), list()),
-            spec("verify", "verify", list("--config", "--value"), list()),
-            spec("decrypt", "decrypt", list("--config"), list()),
-            spec("file encrypt", "file-encrypt", list("--in", "--out", "--config"), list()),
-            spec("file decrypt", "file-decrypt", list("--in", "--out", "--config"), list()),
-            spec("keygen", "keygen", list("--out"), list()),
-            spec("fingerprint", "fingerprint", list("--config", "--key-file"), list()),
-            spec("rekey", "rekey", list("--from-config", "--from-jar", "--to-config", "--to-jar", "--value"), list()),
-            spec("info", "info", list("--config"), list()),
-            spec("doctor", "doctor", list("--config"), list("--offline")),
-            spec("config show", "config-show", list("--jar"), list()),
-            spec("config history", "config-history", list("--jar"), list()),
-            new Spec("config set", "config-set", list("--jar", "--out", "--operator", "--reason"),
-                    list("--replace", "--yes"), true),
+            spec("encrypt", "encrypt", list("--type", "--key-id", "--config"), list(), Access.OPEN),
+            spec("verify", "verify", list("--config", "--value"), list(), Access.OPEN),
+            spec("decrypt", "decrypt", list("--config", ADMIN_FILE), list(), Access.ADMIN),
+            spec("file encrypt", "file-encrypt", list("--in", "--out", "--type", "--key-id", "--config"), list(), Access.OPEN),
+            spec("file decrypt", "file-decrypt", list("--in", "--out", "--config", ADMIN_FILE), list(), Access.ADMIN),
+            spec("keygen", "keygen", list("--out", "--reason", "--operator", ADMIN_FILE), list(), Access.ADMIN),
+            spec("fingerprint", "fingerprint", list("--type", "--key-id", "--config", "--key-file"), list(), Access.OPEN),
+            spec("rekey", "rekey", list("--type", "--key-id", "--from-config", "--from-jar", "--to-config", "--to-jar",
+                    "--value", ADMIN_FILE), list(), Access.ADMIN),
+            spec("info", "info", list("--config"), list(), Access.OPEN),
+            spec("doctor", "doctor", list("--config"), list("--offline"), Access.OPEN),
+            spec("config show", "config-show", list("--jar", ADMIN_FILE), list(), Access.ADMIN),
+            spec("config history", "config-history", list("--type", "--jar", ADMIN_FILE), list("--all"), Access.ADMIN),
+            new Spec("config set", "config-set", list("--jar", "--out", "--operator", "--reason", ADMIN_FILE),
+                    list("--replace", "--yes"), true, Access.ADMIN),
             spec("config embed-key", "config-embed-key",
-                    list("--from-file", "--key-id", "--operator", "--reason", "--source", "--jar", "--out"),
-                    list("--replace", "--yes")),
-            spec("kms datakey", "kms-datakey", list("--out", "--from-file", "--config"), list())));
+                    list("--from-file", "--key-id", "--operator", "--reason", "--source", "--jar", "--out", ADMIN_FILE),
+                    list("--replace", "--yes"), Access.ADMIN),
+            spec("config key add", "config-key-add",
+                    list("--key-id", "--type", "--from-file", "--from-jar", "--source", "--location", "--export",
+                            "--operator", "--reason", "--jar", "--out", ADMIN_FILE),
+                    list("--generate", "--active", "--replace", "--yes"), Access.ADMIN),
+            spec("config key use", "config-key-use",
+                    list("--key-id", "--type", "--operator", "--reason", "--jar", "--out", ADMIN_FILE),
+                    list("--replace", "--yes"), Access.ADMIN),
+            spec("config key remove", "config-key-remove",
+                    list("--key-id", "--operator", "--reason", "--jar", "--out", ADMIN_FILE), list("--replace", "--yes"),
+                    Access.ADMIN),
+            spec("config key show", "config-key-show", list("--key-id", "--jar", "--export", ADMIN_FILE), list("--show"),
+                    Access.ADMIN),
+            spec("kms datakey", "kms-datakey", list("--out", "--from-file", "--config", "--reason", "--operator", ADMIN_FILE),
+                    list(), Access.ADMIN),
+            spec("admin setup", "admin-setup", list("--operator", "--out", ADMIN_FILE), list(), Access.SETUP),
+            spec("admin password change", "admin-password-change", list("--operator", "--reason", "--out"), list(),
+                    Access.ADMIN)));
 
-    /** 명령이 아닌 도움말 주제(설정 묶음 안내). */
-    static final List<String> EXTRA_TOPICS = Collections.unmodifiableList(Arrays.asList("config", "tomcat", "vault", "aws-kms"));
+    /** 명령이 아닌 도움말 주제(설정 묶음 안내, config key 묶음 안내, 미설정 JAR의 초기 설정 안내). */
+    static final List<String> EXTRA_TOPICS = Collections.unmodifiableList(Arrays.asList("config", "config-key", "tomcat", "vault",
+            "aws-kms", "admin-required"));
 
     /** 하위 명령을 가진 그룹 명령. */
-    static final List<String> GROUPS = Collections.unmodifiableList(Arrays.asList("config", "file", "kms"));
+    static final List<String> GROUPS = Collections.unmodifiableList(Arrays.asList("config", "file", "kms", "admin"));
+
+    /** 3단계 명령의 묶음(예: {@code config key add}) → 묶음만 입력했을 때 보여 줄 도움말 주제. */
+    static final Map<String, String> NESTED_GROUPS;
+
+    static {
+        Map<String, String> nested = new LinkedHashMap<>();
+        nested.put("config " + KEY_GROUP, "config-key");
+        nested.put("admin password", "admin-password-change");
+        NESTED_GROUPS = Collections.unmodifiableMap(nested);
+    }
+
+    /** @return 실행할 때마다 관리자 비밀번호를 확인하는 명령이면 true */
+    static boolean needsAdmin(Spec spec) {
+        return spec.access == Access.ADMIN;
+    }
 
     private CliCommands() { }
 
-    private static Spec spec(String name, String topic, List<String> values, List<String> flags) {
-        return new Spec(name, topic, values, flags, false);
+    private static Spec spec(String name, String topic, List<String> values, List<String> flags, Access access) {
+        return new Spec(name, topic, values, flags, false, access);
     }
 
     private static List<String> list(String... items) {

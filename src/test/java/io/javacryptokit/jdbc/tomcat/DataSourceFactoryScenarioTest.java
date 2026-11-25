@@ -173,7 +173,8 @@ class DataSourceFactoryScenarioTest {
 
     @Test
     void scenarioF_wrongTokenMissingKeyAndKeyIdMismatchFailWithoutLeaks() throws Exception {
-        String goodToken = TestSupport.jarDefaults().encryptText("dummy-f-pw");
+        // 공개 AES 키(default)로 만든 암호문: 아래 file 키 설정에는 이 Key ID가 없다(crypto.key.*가 다른 키로 바뀜).
+        String goodToken = TestSupport.jarDefaults().encryptText("dummy-f-pw", io.javacryptokit.KeyType.KEY);
         String tampered = goodToken.substring(0, goodToken.length() - 3)
                 + (goodToken.charAt(goodToken.length() - 3) == 'A' ? 'B' : 'A') + goodToken.substring(goodToken.length() - 2);
         assertFactoryFailsWithoutLeak(resource("u", tampered), tampered, "dummy-f-pw");

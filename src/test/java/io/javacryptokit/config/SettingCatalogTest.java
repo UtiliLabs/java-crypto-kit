@@ -41,12 +41,29 @@ class SettingCatalogTest {
 
     @Test
     void catalogJarDefaultsAndHelpDescriptionsDescribeExactlyTheSameSettings() throws Exception {
-        assertEquals(new java.util.TreeSet<>(jarDefaults().stringPropertyNames()), new java.util.TreeSet<>(SettingCatalog.keys()),
-                "JAR 기본 Properties와 설정 카탈로그의 항목이 정확히 같아야 한다");
+        java.util.Set<String> fixedNames = new java.util.TreeSet<>();
+        for (String name : jarDefaults().stringPropertyNames()) {
+            if (SettingCatalog.isProfileSetting(name)) continue; // 공개 pass 키(pass-default) 등 키 프로필 항목은 따로 검사
+            fixedNames.add(name);
+        }
+        assertEquals(fixedNames, new java.util.TreeSet<>(SettingCatalog.keys()),
+                "JAR 기본 Properties의 고정 설정과 설정 카탈로그의 항목이 정확히 같아야 한다");
+        for (String name : jarDefaults().stringPropertyNames()) {
+            String[] profile = SettingCatalog.parseProfileName(name);
+            if (profile == null) continue;
+            assertTrue(SettingCatalog.profileItem(profile[1]) != null, "정의된 키 프로필 항목만: " + name);
+            for (Messages.Language language : Messages.Language.values()) {
+                assertTrue(Messages.has(language, "setting.profile." + profile[1] + ".purpose"), language + " " + profile[1]);
+            }
+        }
         for (SettingCatalog.Setting setting : SettingCatalog.ALL) {
             for (Messages.Language language : Messages.Language.values()) {
                 for (String part : new String[]{"purpose", "allowed", "example"}) {
                     assertTrue(Messages.has(language, "setting." + setting.key + "." + part), language + " " + setting.key + "." + part);
+                }
+                // config help 표의 짧은 허용값: 선택형·숫자는 카탈로그에서 만들고, 그 밖의 항목은 .values 문구가 있어야 한다.
+                if (setting.choices.isEmpty() && setting.type != SettingCatalog.Type.NUMBER) {
+                    assertTrue(Messages.has(language, "setting." + setting.key + ".values"), language + " " + setting.key + ".values");
                 }
             }
         }
@@ -55,6 +72,8 @@ class SettingCatalogTest {
         assertFalse(CryptoSettings.JVM_OVERRIDABLE_KEYS.contains(CryptoSettings.KEY_EMBEDDED), "키 원문은 -D 불가");
         assertFalse(CryptoSettings.JVM_OVERRIDABLE_KEYS.contains(CryptoSettings.JVM_OVERRIDE_ENABLED), "정책 항목은 -D 불가");
         assertEquals(Collections.singleton(CryptoSettings.KEY_EMBEDDED), SettingCatalog.sensitiveKeys());
+        assertTrue(SettingCatalog.isSensitive("crypto.keys.pass-default.embedded"), "키 프로필의 내장 값도 비밀 항목");
+        assertFalse(SettingCatalog.isSensitive("crypto.keys.pass-default.salt"), "Salt는 비밀이 아니다");
         assertEquals("ko", jarDefaults().getProperty(CryptoSettings.LANG), "기본 메시지 언어는 ko");
     }
 

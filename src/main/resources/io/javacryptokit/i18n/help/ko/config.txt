@@ -1,45 +1,26 @@
-config help - java-crypto-kit 전체 설정과 JAR 내장 설정 관리 방법
+config help - JAR 내부 설정 관리와 전체 설정 목록
 
-관리 명령(JAR 파일만 다룸, 재빌드 없음)
-  java -jar {jar} config show              현재 내장 값과 최종 변경 요약                (config show --help)
-  java -jar {jar} config history           최초 변경부터 전체 변경 이력                  (config history --help)
-  java -jar {jar} config set <이름>=<값> ... --operator <ID>   값을 바꾼 새 JAR 생성       (config set --help)
-  java -jar {jar} config embed-key --from-file <키 파일> --key-id <ID> --operator <ID>   (config embed-key --help)
-  기본은 새 JAR <이름>-configured.jar를 만들고(이미 바꾼 JAR면 -configured-2.jar, -3 ... 순서), --replace는 백업 후
-  원본을 교체합니다. 결과 JAR 경로가 출력되므로 다음 작업에는 그 JAR를 씁니다.
+명령(JAR 파일만 다룸, 재빌드 없음)
+  config show                         JAR 내부 설정·키 목록
+  config history                      설정 변경 이력
+  config set <설정>=<값> ...          설정을 바꾼 새 JAR 생성
+  config embed-key --from-file <키>   AES 키를 내장한 새 JAR 생성
+  config key add|use|remove           키 추가·기본 키 변경·제거(help config key)
+  명령별 옵션: config set --help 처럼 명령 뒤에 --help
+  키가 바뀌는 변경은 새 JAR를 만들 때도 CHANGE 입력 또는 --yes가 필요합니다.
 
-설정값의 출처(위가 우선)
-  1) JVM 속성 -D<이름>=<값>           crypto.jvm.override.enabled=true이고 그 설정이 -D를 허용할 때만
-                                      (CLI: java와 -jar 사이, Tomcat: CATALINA_OPTS / setenv)
-  2) 외부 Properties 파일             CLI --config <파일>, 또는 -Dcrypto.config.file=<파일>, 또는 환경변수
-                                      CRYPTO_CONFIG_FILE=<파일> (이 순서로 확인해 처음 지정된 것 하나를 사용)
-  3) JAR 내장 값                      공개 배포 JAR의 기본값, 또는 config set으로 바꾼 값
-  --lang 같은 CLI 일회성 옵션은 그 명령에만 적용되며 아무것도 바꾸지 않습니다.
-  각 설정의 최종값과 출처는 info, JAR 안의 값만은 config show로 확인합니다.
+설정 우선순위: JVM -D > 외부 Properties > JAR 내부 값
+  외부 Properties: --config <파일>, -Dcrypto.config.file=<파일>,
+                   또는 환경변수 CRYPTO_CONFIG_FILE
+  -D는 java와 -jar 사이에 둡니다(crypto.key.embedded는 -D 거부,
+  crypto.jvm.override.enabled는 -D 무시). 설정은 시작할 때 읽습니다.
 
-규칙
-  - 외부 설정을 지정했는데 없거나 비어 있거나 읽을 수 없으면 오류로 중단합니다(내장 키로 대체하지 않음).
-  - 외부 Properties의 모르는 이름은 오류로 중단합니다("의도했는지 확인" 안내 포함).
-  - 이 라이브러리 설정의 오타로 보이는 -Dcrypto.* 이름은 오류로 중단합니다(예: -Dcrypto.key.soruce).
-    -Dcrypto.policy 같은 무관한 이름은 영향이 없습니다.
-  - 설정은 DataSource 생성·CLI 명령 시작 때 읽습니다. 바꾼 뒤 WAS를 재시작하세요.
-  - 비밀값은 설정이 아닙니다: 키 값은 config embed-key로만 바꾸고, Vault 토큰은 토큰 파일·환경변수,
-    AWS 자격증명은 AWS SDK 표준 체계에서 가져옵니다.
+예제
+  java -jar {jar} config set crypto.lang=en --operator ops
+  java -Dcrypto.config.file=app.properties -jar {jar} info
 
-메시지 언어(CLI, Java API 예외, Tomcat Factory 메시지, Vault/KMS 오류에 공통 적용)
-  기본 ko.  영구 변경:  java -jar {jar} config set crypto.lang=en --operator <ID>
-  한 번만:  --lang en  또는  --lang ko.  Tomcat·JDBC 드라이버·AWS SDK가 직접 출력하는 메시지는 번역하지 않습니다.
-
-설정 목록
 {settings}
-외부 Properties 예(UTF-8, 바꾸려는 항목만 적음)
-  crypto.key.source=file
-  crypto.key.id=prod01
-  crypto.key.file=/etc/java-crypto-kit/prod01.key
-  crypto.warning.enabled=false
-  Windows: 경로는 / 로 씁니다(C:/secure/prod01.key). Properties에서 역슬래시는 이스케이프 문자입니다.
-
-JVM 속성 예
-  Linux   : java -Dcrypto.config.file=/etc/java-crypto-kit/app.properties -jar ./{jar} info
-  Windows : java "-Dcrypto.key.source=env" "-Dcrypto.key.env=CRYPTO_KEY" -jar .\{jar} doctor
-  Tomcat  : CATALINA_OPTS="-Dcrypto.config.file=/etc/java-crypto-kit/app.properties"   (bin/setenv.sh)
+키 목록 항목 crypto.keys.<키 ID>.<항목>(type, source, embedded, file, env,
+  vault.path, vault.field, vault.ver, aws.kms.data-key.file, kdf,
+  kdf.iterations, salt, fingerprint)은 config key add가 만듭니다.
+상세(목적·예제·주의): docs/user-guide.md 10장

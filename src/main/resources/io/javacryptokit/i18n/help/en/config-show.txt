@@ -1,36 +1,37 @@
-config show - current settings stored inside a JAR file and the last-change summary
+config show - settings stored in the JAR and its key list (admin, no -D)
 
 Usage
-  java -jar {jar} config show [--jar <jar>] [--lang en|ko]
+  java -jar {jar} config show [--jar <jar>]
+       [--admin-pass-file <file>] [--lang en|ko]
 
 Options
-  --jar <jar>    JAR to read (optional). Default: the running JAR.
-  --lang en|ko   Message language for this run only (optional).
+  --jar <jar>    JAR to read (optional, default: the running JAR)
+  --admin-pass-file <file>
+                 Admin password file (non-interactive, mode 600)
+                 Without it the admin password is asked (hidden)
+  --lang en|ko   Message language for this run (optional)
+  For another JAR (--jar) that JAR's admin password is checked as well.
 
-What it does
-  Reads only the JAR file: every built-in value in file order, the summary (key source, key ID, key status with
-  fingerprint, language, warnings, JVM override, algorithm, output, pool), the initial build time, the last modified
-  time, operator, total number of changes and the last changed settings. External Properties, JVM -D and environment
-  variables are not read, so it works even when they are broken. The built-in key value is never shown.
-  For every change from the first one use config history; for runtime values use info.
+Result (part)
+  JAR file     : java-crypto-kit-{version}-configured.jar (version {version})
+  State        : 2 change(s), last 2026-11-22T05:30:12Z by ops
+  Admin        : password set (sensitive commands need it)
+  Key type     : pass
+  Default keys : pass=pass-default, key=key01
+  Keys         :
+    key01: key, embedded, custom key, crypto.key.*
+      Fingerprint:
+        ab12cd34...(all 64)
+    pass-default: pass, embedded, public default key
+      KDF: pbkdf2-sha256, 600,000 rounds
+      Salt: ...(Base64)   Salt SHA-256: ...(64)
+  Settings hash: sha256:...      (settings file content, not a key)
+  crypto.key.id = key01          (then every built-in value; key: (secret))
+  External keys show their pinned fingerprints. To view a key value, run
+  config key show --key-id <ID> --show in an interactive terminal.
+  Keys used at run time: info, fingerprint. Exit code 1 if history damaged.
 
 Examples
-  Windows PowerShell
-    java -jar .\{jar} config show
-    java -jar .\{jar} config show --jar .\java-crypto-kit-{version}-configured.jar
-  Linux
-    java -jar ./{jar} config show --jar /opt/tomcat/lib/{jar}
-
-Expected result (excerpt)
-  Initial build time: 2026-11-21T01:02:03Z (UTC, manifest Build-Time)
-  Internal settings state: changed (modified by config set / embed-key)
-  Last modified: 2026-11-21T05:30:12Z (UTC)
-  Last operator: 123456 (recorded ID, not authentication)
-  Total changes: 2
-  crypto.key.embedded = <hidden for security> (set - replaced key ..., key fingerprint 5b1c...)
-
-Errors and fixes
-  Internal settings state: history check FAILED -> exit code 1; see config history and use a trusted JAR.
-  [reason: USAGE] It is not a java-crypto-kit JAR -> check --jar.
-
-Related: config history, config set, config embed-key, info
+  java -jar {jar} config show
+  java -jar {jar} config show --jar new.jar
+See section 2.10 of docs/user-guide.md.

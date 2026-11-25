@@ -1,50 +1,24 @@
-help aws-kms - AWS KMS envelope encryption as the key source (crypto.key.source=aws-kms)
+help aws-kms - use a data key protected by AWS KMS (crypto.key.source=aws-kms)
 
-How it works
-  KMS master key (never leaves KMS) =(protects)=> AES-256 data key => java-crypto-kit AES-GCM => your ciphertext
-  1) Once: kms datakey asks KMS for a data key (GenerateDataKey AES_256) or wraps your existing key (Encrypt), and
-     stores only the encrypted data key (CiphertextBlob) in a file.
-  2) At every WAS start: KMS Decrypt restores the same data key from that file. A new data key is never created at
-     start (that would make existing ciphertext undecryptable).
-  The encryption context java-crypto-kit:key-id=<crypto.key.id> is always sent, so the data key is bound to the key ID.
+1) Install the optional AWS SDK bundle (needed only for aws-kms)
+   Put aws-kms-lib/*.jar from java-crypto-kit-aws-kms-lib-{version}.zip
+   into CATALINA_BASE/lib for Tomcat; for the CLI add it with -cp
+   (java -jar ignores -cp). Classpath CP (current folder):
+   PowerShell: $CP = "{jar};aws-kms-lib/*"
+   Linux     : CP="{jar}:aws-kms-lib/*"
+2) Create the data key file (once): kms datakey --help
+3) Settings
+   crypto.key.source=aws-kms          crypto.key.id=prod01
+   crypto.aws.kms.key.id=alias/java-crypto-kit-prod
+   crypto.aws.kms.data-key.file=/etc/java-crypto-kit/prod.datakey
+   crypto.aws.region=ap-northeast-2   (empty = the SDK default region chain)
+4) Check
+   java -cp "$CP" io.javacryptokit.cli.CryptoCli doctor --offline
+   java -cp "$CP" io.javacryptokit.cli.CryptoCli doctor
 
-1) Install the optional AWS SDK bundle (only for aws-kms; the basic JAR needs nothing)
-  Download java-crypto-kit-aws-kms-lib-{version}.zip (or build it: gradlew build -> build/distributions).
-  It contains AWS SDK for Java 2.x (kms, sts, url-connection-client and their dependencies, Apache-2.0).
-  Tomcat: unzip aws-kms-lib/*.jar into CATALINA_BASE/lib next to {jar}.
-  CLI   : Windows  java -cp "{jar};aws-kms-lib/*" io.javacryptokit.cli.CryptoCli <command>
-          Linux    java -cp "{jar}:aws-kms-lib/*" io.javacryptokit.cli.CryptoCli <command>
-  java -jar ignores -cp, so use the -cp form for commands that need KMS (kms datakey, doctor, rekey, encrypt).
-
-2) Permissions (least privilege)
-  WAS: kms:Decrypt on the KMS key.  Creating the data key: kms:GenerateDataKey or kms:Encrypt (+ kms:Decrypt).
-  Credentials come from the AWS SDK standard chain: environment variables, web identity (EKS IRSA), profile,
-  container credentials (ECS, EKS Pod Identity), EC2 instance profile. Never put access keys in Properties or -D.
-
-3) Create the data key file
-  java -cp "{jar}:aws-kms-lib/*" io.javacryptokit.cli.CryptoCli kms datakey --out /etc/java-crypto-kit/prod.datakey --config /etc/java-crypto-kit/kms.properties
-  To keep existing ciphertext: add --from-file <your current key file> (same key, same key ID).
-
-4) Settings
-  crypto.key.source=aws-kms
-  crypto.key.id=prod01
-  crypto.aws.region=ap-northeast-2            (empty = AWS_REGION or the SDK default region chain)
-  crypto.aws.kms.key.id=alias/java-crypto-kit-prod
-  crypto.aws.kms.data-key.file=/etc/java-crypto-kit/prod.datakey
-  crypto.aws.kms.timeout.ms=10000
-  Endpoint (VPC endpoint, FIPS, emulator): AWS SDK standard variable AWS_ENDPOINT_URL_KMS=https://...
-
-5) Check
-  java -cp "{jar}:aws-kms-lib/*" io.javacryptokit.cli.CryptoCli doctor --offline    (SDK, files, region, no network)
-  java -cp "{jar}:aws-kms-lib/*" io.javacryptokit.cli.CryptoCli doctor              (also KMS Decrypt and self test)
-
-Failures and recovery
-  - AccessDeniedException: IAM or key policy. IncorrectKeyException: the data key belongs to another KMS key.
-    InvalidCiphertextException: damaged data key file or a different crypto.key.id. NotFoundException: wrong key or
-    region. Credentials/region not found, timeout, network: see the message of doctor.
-  - Every failure stops the DataSource creation and never falls back to another key. The total time of one KMS call
-    is limited by crypto.aws.kms.timeout.ms (SDK standard retries included). Fix the cause and restart the WAS.
-  - Keep the data key file and the KMS key: if either is lost or the KMS key is deleted, the ciphertext is lost.
-  - Messages of the AWS SDK itself are not translated; the SDK error message is never printed (only the error code).
-
-Related: kms datakey --help, doctor, rekey, fingerprint
+Pass keys and further keys: config key add --source aws-kms --location
+<file> (for pass, KMS wraps the derived AES key in the same format).
+Permissions: kms:Decrypt for the WAS; kms:GenerateDataKey or kms:Encrypt to
+create the data key. Credentials come only from the AWS SDK standard chain
+(IAM role, profile, environment variables).
+Details (CP, errors and recovery): docs/user-guide.md 8.2

@@ -1,0 +1,15 @@
+java-crypto-kit CLI {version} - the admin password must be set first
+
+This JAR has no CLI admin password yet, so CLI functions are unavailable.
+Setting it creates a new JAR that holds the admin password:
+  {configured}
+
+  java -jar {jar} admin setup --operator <operator-ID>
+
+Input        operator ID -> new password -> confirmation (hidden)
+Unattended   admin setup --operator <ID> --admin-pass-file <file>
+Rules        10-128 characters with a letter, a digit and a special character
+             (ASCII only, no spaces)
+Then         run the created JAR (the original JAR stays unset).
+Scope        CLI only. The Java API and Tomcat decrypt without the password.
+Details: admin setup --help, docs/user-guide.md 1.4

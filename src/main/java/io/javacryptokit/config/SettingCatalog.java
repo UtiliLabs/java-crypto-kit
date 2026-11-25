@@ -117,9 +117,29 @@ public final class SettingCatalog {
     /** 전체 설정 정의(도움말에 보이는 순서). */
     public static final List<Setting> ALL;
 
+    /** KDF 반복 횟수 최솟값. */
+    public static final int KDF_MIN_ITERATIONS = 100_000;
+    /** KDF 반복 횟수 최댓값. */
+    public static final int KDF_MAX_ITERATIONS = 5_000_000;
+    /** KDF 반복 횟수 기본값(새 pass 키). */
+    public static final int KDF_DEFAULT_ITERATIONS = 600_000;
+
+    /** 키 프로필 항목 정의(도움말 표시 순서). */
+    public static final List<ProfileItem> PROFILE_ITEMS;
+
+    /** {@code crypto.key.type}과 프로필 {@code type}의 허용값(pass가 기본). */
+    public static final List<String> KEY_TYPES = Collections.unmodifiableList(Arrays.asList("pass", "key"));
+
+    /** 프로필 {@code kdf}의 허용값(PBKDF2-HMAC-SHA256 하나). */
+    public static final List<String> KDF_NAMES = Collections.singletonList("pbkdf2-sha256");
+
     static {
         List<Setting> all = new ArrayList<>();
-        // ---- 키·알고리즘 ----
+        // ---- 키 선택(유형 생략 시 기본 유형, 유형별 기본 Key ID) ----
+        all.add(choice(CryptoSettings.KEY_TYPE, Group.KEY, KEY_TYPES, true));
+        all.add(text(CryptoSettings.KEY_ACTIVE_PASS, Group.KEY, Type.TEXT, JvmRule.ALLOWED, true));
+        all.add(text(CryptoSettings.KEY_ACTIVE_KEY, Group.KEY, Type.TEXT, JvmRule.ALLOWED, true));
+        // ---- 레거시 AES 슬롯(crypto.key.*)·알고리즘 ----
         all.add(choice(CryptoSettings.KEY_SOURCE, Group.KEY, KEY_SOURCES, true));
         all.add(text(CryptoSettings.KEY_ID, Group.KEY, Type.TEXT, JvmRule.ALLOWED, true));
         all.add(text(CryptoSettings.KEY_FILE, Group.KEY, Type.FILE, JvmRule.ALLOWED, true, "file"));
@@ -152,6 +172,121 @@ public final class SettingCatalog {
         all.add(text(CryptoSettings.AWS_KMS_DATA_KEY_FILE, Group.AWS_KMS, Type.FILE, JvmRule.ALLOWED, true, "aws-kms"));
         all.add(number(CryptoSettings.AWS_KMS_TIMEOUT_MS, Group.AWS_KMS, 500, 120000, "aws-kms"));
         ALL = Collections.unmodifiableList(all);
+
+        List<ProfileItem> items = new ArrayList<>();
+        // 키 정체성 항목(바깥 계층·-D로 바꿀 수 없음: 같은 Key ID에 다른 키가 생기는 것을 막는다)
+        items.add(new ProfileItem(KeyProfile.TYPE, Type.CHOICE, KEY_TYPES, 0, 0, false, false));
+        items.add(new ProfileItem(KeyProfile.SOURCE, Type.CHOICE, KEY_SOURCES, 0, 0, false, false));
+        items.add(new ProfileItem(KeyProfile.EMBEDDED, Type.TEXT, Collections.<String>emptyList(), 0, 0, false, true));
+        // 위치 항목(서버마다 다를 수 있으므로 외부 Properties·-D로 바꿀 수 있음)
+        items.add(new ProfileItem(KeyProfile.FILE, Type.FILE, Collections.<String>emptyList(), 0, 0, true, false));
+        items.add(new ProfileItem(KeyProfile.ENV, Type.TEXT, Collections.<String>emptyList(), 0, 0, true, false));
+        items.add(new ProfileItem(KeyProfile.VAULT_PATH, Type.TEXT, Collections.<String>emptyList(), 0, 0, true, false));
+        items.add(new ProfileItem(KeyProfile.VAULT_FIELD, Type.TEXT, Collections.<String>emptyList(), 0, 0, true, false));
+        items.add(new ProfileItem(KeyProfile.VAULT_VER, Type.TEXT, Collections.<String>emptyList(), 0, 0, true, false));
+        items.add(new ProfileItem(KeyProfile.AWS_KMS_DATA_KEY_FILE, Type.FILE, Collections.<String>emptyList(), 0, 0, true,
+                false));
+        // 키 파생 메타데이터(pass만)와 외부 공급 키의 고정 지문(키 정체성 항목)
+        items.add(new ProfileItem(KeyProfile.KDF, Type.CHOICE, KDF_NAMES, 0, 0, false, false));
+        items.add(new ProfileItem(KeyProfile.KDF_ITERATIONS, Type.NUMBER, Collections.<String>emptyList(),
+                KDF_MIN_ITERATIONS, KDF_MAX_ITERATIONS, false, false));
+        items.add(new ProfileItem(KeyProfile.SALT, Type.TEXT, Collections.<String>emptyList(), 0, 0, false, false));
+        items.add(new ProfileItem(KeyProfile.FINGERPRINT, Type.TEXT, Collections.<String>emptyList(), 0, 0, false, false));
+        PROFILE_ITEMS = Collections.unmodifiableList(items);
+    }
+
+    /**
+     * 키 프로필 항목 하나의 정의({@code crypto.keys.<Key ID>.<항목>}). Key ID마다 같은 정의를 쓴다.
+     * 위치 항목만 외부 Properties·{@code -D}로 덮어쓸 수 있고, 나머지(유형·공급원·비밀·KDF·지문)는 키의 정체성이라 처음 정한
+     * 계층에서만 정한다({@code -D}로 지정하면 오류).
+     */
+    public static final class ProfileItem {
+        /** 항목 이름(예: {@code type}, {@code vault.path}). */
+        public final String name;
+        /** 자료형. */
+        public final Type type;
+        /** CHOICE 허용값. */
+        public final List<String> choices;
+        /** NUMBER 최솟값. */
+        public final int min;
+        /** NUMBER 최댓값. */
+        public final int max;
+        /** 위치 항목이면 true(외부 Properties·-D 덮어쓰기 가능). */
+        public final boolean location;
+        /** 비밀 항목이면 true(값을 화면·이력·오류에 보여 주지 않음). */
+        public final boolean sensitive;
+
+        private ProfileItem(String name, Type type, List<String> choices, int min, int max, boolean location,
+                            boolean sensitive) {
+            this.name = name;
+            this.type = type;
+            this.choices = choices;
+            this.min = min;
+            this.max = max;
+            this.location = location;
+            this.sensitive = sensitive;
+        }
+    }
+
+    /** 템플릿 프로필 설정 이름 형식: crypto.keys.&lt;Key ID&gt;.&lt;항목&gt; (Key ID 규칙은 crypto.key.id와 같다). */
+    private static final java.util.regex.Pattern PROFILE_NAME =
+            java.util.regex.Pattern.compile("crypto\\.keys\\.([A-Za-z0-9_-]{1,64})\\.([a-z.-]{1,32})");
+
+    /**
+     * @param item 항목 이름
+     * @return 정의, 없으면 null
+     */
+    public static ProfileItem profileItem(String item) {
+        for (ProfileItem candidate : PROFILE_ITEMS) {
+            if (candidate.name.equals(item)) return candidate;
+        }
+        return null;
+    }
+
+    /**
+     * 설정 이름을 템플릿 프로필 이름으로 해석한다.
+     *
+     * @param name 설정 이름
+     * @return {Key ID, 항목} 또는 형식이 아니면 null(항목이 정의에 없어도 형식만 맞으면 돌려준다)
+     */
+    public static String[] parseProfileName(String name) {
+        java.util.regex.Matcher m = PROFILE_NAME.matcher(name);
+        return m.matches() ? new String[]{m.group(1), m.group(2)} : null;
+    }
+
+    /** @return 이 이름이 정의된 항목을 쓰는 템플릿 프로필 설정 이름이면 true */
+    public static boolean isProfileSetting(String name) {
+        String[] parts = parseProfileName(name);
+        return parts != null && profileItem(parts[1]) != null;
+    }
+
+    /** @return 값을 보여 주지 않는 비밀 설정이면 true(고정 항목과 프로필 항목 모두) */
+    public static boolean isSensitive(String name) {
+        if (sensitiveKeys().contains(name)) return true;
+        String[] parts = parseProfileName(name);
+        ProfileItem item = parts == null ? null : profileItem(parts[1]);
+        return item != null && item.sensitive;
+    }
+
+    /**
+     * 변경 이력에 값 대신 고정 표시(비공개·없음)만 남기는 항목: 비밀 설정(내장 키 값)뿐이다. pass 키의 Salt는 비밀이 아닌 관리정보라
+     * 값 그대로 남긴다(이전 형식의 이력에는 Salt 줄이 고정 표시로 남아 있으며 그대로 읽는다).
+     *
+     * @return 이력에서 값을 감추는 항목이면 true
+     */
+    public static boolean isHistoryMasked(String name) {
+        return isSensitive(name);
+    }
+
+    /** @return pass 키 프로필의 Salt 항목({@code crypto.keys.<id>.salt})이면 true */
+    public static boolean isSaltSetting(String name) {
+        String[] parts = parseProfileName(name);
+        return parts != null && KeyProfile.SALT.equals(parts[1]);
+    }
+
+    /** @return 바꾸면 실제 사용 키나 기존 암호문 복호화에 영향을 주는 설정이면 true(프로필 항목은 모두 해당) */
+    public static boolean isKeyAffecting(String name) {
+        return keyAffectingKeys().contains(name) || isProfileSetting(name);
     }
 
     private SettingCatalog() { }

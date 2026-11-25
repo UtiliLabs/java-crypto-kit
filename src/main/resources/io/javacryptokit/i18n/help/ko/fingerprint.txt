@@ -1,39 +1,31 @@
-fingerprint - 두 곳이 같은 키를 쓰는지 확인하는 키 지문 표시(키 원문은 표시하지 않음)
+fingerprint - 키 지문(SHA-256, 64자)으로 같은 키인지 정확히 비교
 
-사용 형식
-  java [-D...] -jar {jar} fingerprint [--config <파일>] [--lang en|ko]
-  java -jar {jar} fingerprint --key-file <키 파일> [--lang en|ko]
+사용법
+  java [-D...] -jar {jar} fingerprint
+       [--type pass|key] [--key-id <ID>] [--config <파일>] [--lang en|ko]
+  java -jar {jar} fingerprint --key-file <키 파일>
+       [--lang en|ko]
 
 옵션
-  --config <파일>     외부 Properties 파일(선택). --key-file이 없으면 현재 실행 설정의 키를 읽습니다
-                      (embedded, file, env, vault, aws-kms - 원격 공급원은 실제로 연결).
-  --key-file <파일>   대신 키 파일(keygen 형식)의 지문을 보여 줍니다. --config와 함께 쓸 수 없습니다.
-  --lang en|ko        이번 실행의 메시지 언어(선택).
+  --type pass|key     그 유형의 기본 키(선택). 없으면 새 암호화의 기본 키
+  --key-id <ID>       등록된 키 ID(선택, 유형 자동)
+  --config <파일>     외부 Properties 파일(선택). 없으면 지금 실행 설정의 키
+                      (원격 공급원은 실제로 연결)
+  --key-file <파일>   대신 키 파일(keygen 형식)의 지문을 보여 줍니다.
+                      --config·--type·--key-id와 함께 쓸 수 없습니다.
+  --lang en|ko        이번 실행의 메시지 언어(선택)
 
-동작
-  키 지문 = SHA-256("java-crypto-kit/key-fingerprint/v1" || 0x00 || 32바이트 키), 16진수 64자.
-  같은 키는 Windows·Linux 어디서나 같은 지문, 다른 키는 다른 지문입니다.
-  aws-kms는 KMS 마스터 키가 아니라 KMS가 복원한 AES 데이터 키의 지문입니다.
+결과
+  키 공급원 : embedded
+  키 위치   : JAR 내장(crypto.key.embedded)
+  키 ID     : key01
+  키 유형   : key
+  키 상태   : 사용자 지정
+  키 지문   : 5b1c...(64자, 키 원문 아님)
+  두 곳의 키 지문이 같으면 같은 키입니다(pass는 파생한 AES 키의 지문).
+  info·config show는 지문의 앞 12자와 뒤 8자만 보여 줍니다.
 
 예제
-  Windows PowerShell
-    java -jar .\{jar} fingerprint
-    java -jar .\{jar} fingerprint --key-file "$HOME\jck-secure\example.key"
-  Linux
-    java -jar ./{jar} fingerprint --config /etc/java-crypto-kit/app.properties
-    java -jar ./java-crypto-kit-{version}-configured.jar fingerprint
-
-예상 결과
-  키 공급 방식: embedded (JAR 내장(crypto.key.embedded))
-  키ID: prod01
-  키 지문(SHA-256, v1): 5b1c...e2
-  키 파일(--key-file)과 키 내장 JAR에서 각각 출력한 이 지문 줄이 같으면 같은 키입니다.
-
-대표 오류와 해결
-  [사유: KEY_SOURCE] ... -> 키를 읽지 못함. doctor로 자세한 원인을 확인하세요.
-
-보안 주의
-  키 지문은 키 비교용 식별값일 뿐입니다. 사용자 인증·키 소유 증명·비밀 보호 수단이 아닙니다.
-  공유해도 안전하며 키 원문은 나타나지 않습니다.
-
-관련 명령: doctor, info, config show, rekey
+  java -jar {jar} fingerprint
+  java -jar {jar} fingerprint --type key
+  java -jar {jar} fingerprint --key-file example.key

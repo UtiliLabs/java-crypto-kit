@@ -1,43 +1,26 @@
 file decrypt - file encrypt로 만든 파일(JCKF v1) 복호화
 
-사용 형식
-  java [-D...] -jar {jar} file decrypt --in <파일> [--out <파일>] [--config <파일>] [--lang en|ko]
+사용법
+  java [-D...] -jar {jar} file decrypt --in <파일>
+       [--out <파일>] [--config <파일>]
+       [--admin-pass-file <파일>] [--lang en|ko]
 
 옵션
-  --in <파일>       암호화 파일(필수).
-  --out <파일>      만들 복호화 파일(선택). 기본값: 입력 이름에서 .jck를 뗀 이름.
-                    입력 이름이 .jck로 끝나지 않으면 필수입니다. 아직 없어야 합니다(덮어쓰지 않음).
-  --config <파일>   외부 Properties 파일(선택, encrypt와 같은 규칙).
-  --lang en|ko      이번 실행의 메시지 언어(선택).
+  --in <파일>       암호화된 파일(필수)
+  --out <파일>      결과 파일(선택, 기본 입력 이름에서 .jck를 뺀 이름).
+                    입력이 .jck로 끝나지 않으면 필수입니다.
+                    이미 있으면 덮어쓰지 않습니다.
+  --config <파일>   외부 Properties 파일(선택, encrypt와 같은 규칙)
+  --admin-pass-file <파일>
+                    관리자 비밀번호 파일(비대화형 인증, 한 줄, 권한 600)
+                    없으면 관리자 비밀번호를 숨김 입력으로 묻습니다
+  --lang en|ko      이번 실행의 메시지 언어(선택)
+  키는 파일 헤더의 키 ID로 자동 선택합니다. 모든 청크의 인증이 끝난 뒤에만
+  결과 파일이 생깁니다(실패하면 결과 없음).
 
-동작
-  키를 읽기 전에 헤더(형식·버전·키ID)를 확인한 뒤 청크 단위로 복호화합니다. 각 청크는 인증이 끝난 뒤에만,
-  그리고 소유자 전용 임시 파일(Linux/macOS 600)에만 씁니다. 마지막 청크까지 검증된 뒤에만 결과 파일이 나타나며,
-  실패하면 임시 파일을 지웁니다.
+결과
+  복호화 완료: data.jck -> data.csv (1048576바이트)
 
 예제
-  Windows PowerShell
-    java -jar .\{jar} file decrypt --in "C:/data/monthly report.pdf.jck"
-    java -jar .\{jar} file decrypt --in D:/backup/users.csv.jck --out C:/restore/users.csv
-  Linux
-    java -jar ./{jar} file decrypt --in /secure/img.png.jck --out /tmp/restore/img.png
-    java -jar ./{jar} file decrypt --in /data/export/users.csv.jck --config /etc/java-crypto-kit/batch.properties
-
-예상 결과
-  복호화·인증 완료: users.csv.jck -> users.csv (1048576바이트)
-  복호화한 파일은 평문입니다(Linux/macOS는 소유자 전용 권한 600). 사용 후 안전하게 지우세요.
-
-대표 오류와 해결
-  [사유: INVALID_TOKEN] java-crypto-kit가 만든 암호화 파일이 아닙니다 -> --in을 확인하세요.
-  [사유: KEY_ID_MISMATCH] -> 다른 키ID로 암호화된 파일입니다. 그 키의 설정을 쓰세요.
-  [사유: INTEGRITY]       -> 다른 키이거나 파일이 변조·손상·잘림. 결과 파일은 만들지 않았습니다.
-  [사유: INVALID_INPUT] 출력 파일(...)이 이미 있습니다 -> 다른 --out을 지정하세요.
-
-보안 주의
-  - 결과는 평문입니다. Windows에서는 폴더 권한을 상속하므로 보호된 폴더에 복호화하세요.
-  - Windows에서 암호화한 파일을 Linux에서 복호화할 수 있고 그 반대도 같습니다(바이트 단위 동일).
-
-Java API(같은 구현)
-  CredentialCrypto.fromDefaultConfiguration().decryptFile(Paths.get("users.csv.jck"), Paths.get("users.csv"));
-
-관련 명령: file encrypt, fingerprint, doctor
+  java -jar {jar} file decrypt --in report.pdf.jck
+  java -jar {jar} file decrypt --in data.jck --out data.csv

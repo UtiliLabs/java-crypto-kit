@@ -58,11 +58,15 @@ public final class CryptoSelfTest {
     public static void main(String[] args) throws Exception {
         // ===== 기존 1~3: 기본 암복호화 =====
         CryptoSettings defaultSettings = CryptoSettings.load(null);
-        String first = CryptoService.of(defaultSettings).encryptText("비밀번호:Ω!".toCharArray());
-        String second = CryptoService.of(defaultSettings).encryptText("비밀번호:Ω!".toCharArray());
+        // 아래 엔진 검사는 crypto.key.* AES 키(key 유형, 키ID default)로 한다. 유형 미지정 기본은 pass(pass-default)다.
+        String first = CryptoService.of(defaultSettings).encryptText("비밀번호:Ω!".toCharArray(), KeyType.KEY, null);
+        String second = CryptoService.of(defaultSettings).encryptText("비밀번호:Ω!".toCharArray(), KeyType.KEY, null);
         check(!first.equals(second), "난수 IV로 암호문이 매번 달라야 한다");
         check(first.startsWith("ENC[v1:default:"), "암호문 형식/키 식별자");
         check("비밀번호:Ω!".equals(CryptoService.of(defaultSettings).decryptText(first)), "UTF-8 복호화");
+        String passToken = CryptoService.of(defaultSettings).encryptText("비밀번호:Ω!".toCharArray());
+        check(passToken.startsWith("ENC[v1:pass-default:"), "유형 미지정 기본은 pass(공개 pass 키 pass-default)");
+        check("비밀번호:Ω!".equals(CryptoService.of(defaultSettings).decryptText(passToken)), "pass 암호문도 키ID로 자동 복호화");
 
         // ===== 기존 4~6: 변조·형식 오류 거부 =====
         // GCM 인증 태그를 변조하면 평문이 반환되지 않아야 한다.
@@ -106,7 +110,8 @@ public final class CryptoSelfTest {
             Files.write(keyFile, Base64.getEncoder().encode(random));
             java.util.Arrays.fill(random, (byte) 0);
             // Properties에서 역슬래시는 이스케이프 문자이므로 Windows 경로는 '/'로 바꿔 기록한다.
-            Files.write(props, ("crypto.key.source=file\n"
+            Files.write(props, ("crypto.key.type=key\n"
+                    + "crypto.key.source=file\n"
                     + "crypto.key.id=test01\n"
                     + "crypto.key.file=" + propertiesPath(keyFile) + "\n")
                     .getBytes(StandardCharsets.UTF_8));
@@ -204,7 +209,8 @@ public final class CryptoSelfTest {
         // file 방식인데 키 파일이 없으면 내장 키로 암호화하지 않고 실패해야 한다.
         Path missingKey = Files.createTempFile("java-crypto-kit-missing", ".key");
         Files.delete(missingKey);
-        Path fileConfig = writeProperties("crypto.key.source=file", "crypto.key.file=" + propertiesPath(missingKey));
+        Path fileConfig = writeProperties("crypto.key.type=key", "crypto.key.source=file",
+                "crypto.key.file=" + propertiesPath(missingKey));
         try {
             CryptoSettings fileSettings = CryptoSettings.load(fileConfig.toString());
             fails(CredentialCryptoException.class,
@@ -215,7 +221,7 @@ public final class CryptoSelfTest {
 
         // env 방식인데 환경변수가 없으면 실패해야 한다. 우연히 존재하지 않도록 난수로 변수 이름을 만든다.
         String unsetName = "JAVA_CRYPTO_KIT_SELFTEST_UNSET_" + Integer.toHexString(new SecureRandom().nextInt());
-        Path envConfig = writeProperties("crypto.key.source=env", "crypto.key.env=" + unsetName);
+        Path envConfig = writeProperties("crypto.key.type=key", "crypto.key.source=env", "crypto.key.env=" + unsetName);
         try {
             CryptoSettings envSettings = CryptoSettings.load(envConfig.toString());
             fails(CredentialCryptoException.class,
@@ -229,7 +235,8 @@ public final class CryptoSelfTest {
         Path shortConfig = null;
         try {
             Files.write(shortKey, Base64.getEncoder().encode(new byte[16]));
-            shortConfig = writeProperties("crypto.key.source=file", "crypto.key.file=" + propertiesPath(shortKey));
+            shortConfig = writeProperties("crypto.key.type=key", "crypto.key.source=file",
+                    "crypto.key.file=" + propertiesPath(shortKey));
             CryptoSettings shortSettings = CryptoSettings.load(shortConfig.toString());
             fails(CredentialCryptoException.class,
                     () -> CryptoService.of(shortSettings).encryptText("dummy".toCharArray()), "32바이트가 아닌 키 거부");

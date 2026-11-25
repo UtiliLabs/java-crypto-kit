@@ -1,11 +1,12 @@
 package io.javacryptokit.key.vault;
 
 import io.javacryptokit.config.CryptoSettings;
+import io.javacryptokit.config.KeyProfile;
 import io.javacryptokit.config.SafeMessageException;
 import io.javacryptokit.i18n.Messages;
+import io.javacryptokit.json.StrictJson;
 import io.javacryptokit.key.Diagnostic;
 import io.javacryptokit.key.KeyProvider;
-import io.javacryptokit.key.KeyResolver;
 import io.javacryptokit.key.SecretFiles;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -35,8 +36,10 @@ import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManagerFactory;
 
 /**
- * <b>내부 구현 클래스(공개 API 아님)</b>: HashiCorp Vault <b>KV v2</b> Secret의 필드에 저장한 AES-256 키(표준 Base64)를 읽는
- * 키 공급원({@code crypto.key.source=vault})이다. JDK 표준 {@link HttpsURLConnection}만 사용하므로 추가 의존성이 없다.
+ * <b>내부 구현 클래스(공개 API 아님)</b>: HashiCorp Vault <b>KV v2</b> Secret의 필드 값을 키 재료로 읽는 키 공급원
+ * ({@code source=vault})이다. key 유형은 표준 Base64 AES-256 키, pass 유형은 Passphrase를 필드에 둔다. 연결 정보(주소·마운트·토큰·CA·
+ * 제한 시간)는 공통 설정 {@code crypto.vault.*}, Secret 경로·필드·버전은 키 프로필마다 정한다(레거시 슬롯은 {@code crypto.vault.path}
+ * 등 기존 이름). JDK 표준 {@link HttpsURLConnection}만 사용하므로 추가 의존성이 없다.
  * (Vault Transit처럼 Vault 안에서 암복호화하는 방식은 별개 기능이며 구현하지 않았다.)
  *
  * <p><b>요청</b>: {@code GET <crypto.vault.url>/v1/<crypto.vault.mount>/data/<crypto.vault.path>[?version=<crypto.vault.ver>]},
@@ -82,11 +85,26 @@ public final class VaultKeyProvider implements KeyProvider {
     }
 
     @Override
-    public String describe(CryptoSettings settings) {
-        String version = settings.get(CryptoSettings.VAULT_VER);
+    public String describe(CryptoSettings settings, KeyProfile profile) {
+        String version = profile.value(KeyProfile.VAULT_VER);
         return Messages.get("key.describe.vault", settings.get(CryptoSettings.VAULT_MOUNT),
-                settings.get(CryptoSettings.VAULT_PATH), settings.get(CryptoSettings.VAULT_FIELD),
+                profile.value(KeyProfile.VAULT_PATH), field(settings, profile),
                 version.isEmpty() ? Messages.get("key.vault.latest") : version, tokenSourceDescription(settings));
+    }
+
+    /** 프로필의 필드 이름. 템플릿 프로필이 비워 두면 공통 {@code crypto.vault.field}를 쓴다. */
+    private static String field(CryptoSettings settings, KeyProfile profile) {
+        String field = profile.value(KeyProfile.VAULT_FIELD);
+        return field.isEmpty() ? settings.get(CryptoSettings.VAULT_FIELD) : field;
+    }
+
+    /** 필수 설정이 비어 있으면 그 설정 이름, 모두 있으면 null. */
+    private static String missingSetting(CryptoSettings settings, KeyProfile profile) {
+        if (settings.get(CryptoSettings.VAULT_URL).isEmpty()) return CryptoSettings.VAULT_URL;
+        if (settings.get(CryptoSettings.VAULT_MOUNT).isEmpty()) return CryptoSettings.VAULT_MOUNT;
+        if (profile.value(KeyProfile.VAULT_PATH).isEmpty()) return profile.settingName(KeyProfile.VAULT_PATH);
+        if (field(settings, profile).isEmpty()) return profile.settingName(KeyProfile.VAULT_FIELD);
+        return null;
     }
 
     /** 토큰 공급 방법 설명(파일은 이름만, 환경변수는 이름만). */
@@ -97,18 +115,16 @@ public final class VaultKeyProvider implements KeyProvider {
     }
 
     @Override
-    public List<Diagnostic> offlineChecks(CryptoSettings settings) {
+    public List<Diagnostic> offlineChecks(CryptoSettings settings, KeyProfile profile) {
         List<Diagnostic> results = new ArrayList<>();
-        for (String key : new String[]{CryptoSettings.VAULT_URL, CryptoSettings.VAULT_MOUNT, CryptoSettings.VAULT_PATH,
-                CryptoSettings.VAULT_FIELD}) {
-            if (settings.get(key).isEmpty()) {
-                results.add(Diagnostic.fail(Messages.get("config.err.required", "vault", key),
-                        Messages.get("key.action.vaultSettings")));
-            }
+        String missing = missingSetting(settings, profile);
+        if (missing != null) {
+            results.add(Diagnostic.fail(Messages.get("config.err.required", "vault", missing),
+                    Messages.get("key.action.vaultSettings")));
         }
         String file = settings.get(CryptoSettings.VAULT_TOKEN_FILE);
         if (!file.isEmpty()) {
-            results.addAll(SecretFiles.check(CryptoSettings.VAULT_TOKEN_FILE, file, true));
+            results.addAll(SecretFiles.check(CryptoSettings.VAULT_TOKEN_FILE, file));
         } else {
             String env = settings.get(CryptoSettings.VAULT_TOKEN_ENV);
             String value = env.isEmpty() ? null : System.getenv(env);
@@ -123,30 +139,29 @@ public final class VaultKeyProvider implements KeyProvider {
         }
         String ca = settings.get(CryptoSettings.VAULT_CA_FILE);
         if (!ca.isEmpty()) {
-            results.addAll(SecretFiles.check(CryptoSettings.VAULT_CA_FILE, ca, false));
+            results.addAll(SecretFiles.check(CryptoSettings.VAULT_CA_FILE, ca));
         } else {
             results.add(Diagnostic.info(Messages.get("key.check.vaultDefaultTrust")));
         }
-        if (settings.get(CryptoSettings.VAULT_VER).isEmpty()) {
-            results.add(Diagnostic.warn(Messages.get("key.check.vaultLatest"), Messages.get("key.action.vaultPinVersion")));
-        }
+        // 읽을 Secret 버전(crypto.vault.ver)은 키 위치 설명에 사실로만 표시한다(버전 고정 여부는 운영 판단).
         return results;
     }
 
     @Override
-    public byte[] loadKey(CryptoSettings settings) throws IOException {
-        for (String key : new String[]{CryptoSettings.VAULT_URL, CryptoSettings.VAULT_MOUNT, CryptoSettings.VAULT_PATH,
-                CryptoSettings.VAULT_FIELD}) {
-            if (settings.get(key).isEmpty()) {
-                throw new SafeMessageException(Messages.get("config.err.required", "vault", key));
-            }
-        }
+    public boolean textMaterial() {
+        return true;
+    }
+
+    @Override
+    public byte[] loadMaterial(CryptoSettings settings, KeyProfile profile) throws IOException {
+        String missing = missingSetting(settings, profile);
+        if (missing != null) throw new SafeMessageException(Messages.get("config.err.required", "vault", missing));
         String token = readToken(settings);
         SSLSocketFactory tls = tlsFactory(settings);
         int timeout = settings.intValue(CryptoSettings.VAULT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
         String base = stripSlash(settings.get(CryptoSettings.VAULT_URL));
-        String version = settings.get(CryptoSettings.VAULT_VER);
-        String url = base + "/v1/" + settings.get(CryptoSettings.VAULT_MOUNT) + "/data/" + settings.get(CryptoSettings.VAULT_PATH)
+        String version = profile.value(KeyProfile.VAULT_VER);
+        String url = base + "/v1/" + settings.get(CryptoSettings.VAULT_MOUNT) + "/data/" + profile.value(KeyProfile.VAULT_PATH)
                 + (version.isEmpty() ? "" : "?version=" + version);
 
         Reply reply = getWithRetry(url, token, tls, timeout);
@@ -165,22 +180,24 @@ public final class VaultKeyProvider implements KeyProvider {
 
         Object json;
         try {
-            json = MiniJson.parse(reply.body);
+            json = StrictJson.parse(reply.body);
         } catch (IllegalArgumentException e) {
             throw new SafeMessageException(Messages.get("key.vault.err.response"));
         }
-        Object deletion = MiniJson.path(json, "data", "metadata", "deletion_time");
-        Object destroyed = MiniJson.path(json, "data", "metadata", "destroyed");
+        Object deletion = StrictJson.path(json, "data", "metadata", "deletion_time");
+        Object destroyed = StrictJson.path(json, "data", "metadata", "destroyed");
         if (Boolean.TRUE.equals(destroyed) || (deletion instanceof String && !((String) deletion).isEmpty())) {
             throw new SafeMessageException(Messages.get("key.vault.err.deleted"));
         }
-        Object data = MiniJson.path(json, "data", "data");
+        Object data = StrictJson.path(json, "data", "data");
         if (!(data instanceof java.util.Map)) throw new SafeMessageException(Messages.get("key.vault.err.response"));
-        Object field = MiniJson.path(data, settings.get(CryptoSettings.VAULT_FIELD));
+        String fieldName = field(settings, profile);
+        Object field = StrictJson.path(data, fieldName);
         if (!(field instanceof String)) {
-            throw new SafeMessageException(Messages.get("key.vault.err.field", settings.get(CryptoSettings.VAULT_FIELD)));
+            throw new SafeMessageException(Messages.get("key.vault.err.field", fieldName));
         }
-        return KeyResolver.decodeKey((String) field);
+        // 해석(key: Base64, pass: Passphrase 파생)은 KeyResolver가 프로필 유형에 맞게 한다.
+        return ((String) field).getBytes(StandardCharsets.UTF_8);
     }
 
     /** 토큰을 읽는다: 토큰 파일이 지정되면 파일, 아니면 환경변수. 값은 메시지에 넣지 않는다. */

@@ -32,9 +32,10 @@ import javax.naming.spi.ObjectFactory;
  *       Resource의 모든 속성은 {@link Reference} 안에 문자열 속성({@link StringRefAddr})으로 들어 있다.</li>
  *   <li>공통 서비스({@link CryptoService#load})로 설정을 읽는다(CLI·공개 API와 같은 규칙). 최종값은 JVM 개별 속성
  *       ({@code -Dcrypto.key.source=file} 등, {@code crypto.jvm.override.enabled=true}일 때) &gt; 외부 설정 파일
- *       ({@code -Dcrypto.config.file=<경로>} 또는 같은 의미의 별칭·이전 이름·환경변수) &gt; JAR 기본값 순서로 정해진다.</li>
+ *       ({@code -Dcrypto.config.file=<경로>} 또는 환경변수 {@code CRYPTO_CONFIG_FILE}) &gt; JAR 기본값 순서로 정해진다.</li>
  *   <li>새 Reference를 만들어 속성을 복사하면서 접속정보만 복호화한 값으로 바꾸고, 이 클래스를 가리키는 {@code factory}
- *       속성은 뺀다. 원본 Reference는 건드리지 않는다.</li>
+ *       속성은 뺀다. 원본 Reference는 건드리지 않는다. 복호화 키는 암호문에 기록된 Key ID로 등록된 키(pass·key 유형 모두)에서
+ *       고르므로 Resource에 유형·Key ID 속성을 따로 적지 않는다. 등록되지 않은 Key ID는 다른 키로 시도하지 않고 실패한다.</li>
  *   <li>허용 목록의 Tomcat Pool Factory(DBCP2 기본, Tomcat JDBC Pool 선택)를 만들어 새 Reference를 넘기고, 돌려받은
  *       {@link javax.sql.DataSource}를 Tomcat에 반환한다.</li>
  * </ol>
