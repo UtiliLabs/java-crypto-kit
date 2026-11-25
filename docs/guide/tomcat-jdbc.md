@@ -117,20 +117,10 @@ Windows에서는 `/secure/app-aes.key`를 접근 제한된 실제 Windows 경로
 
 1. 사용자 지정 키를 설정한 JAR와 JDBC 드라이버를 `CATALINA_BASE/lib`에 배치합니다.
 2. 같은 키로 DB 비밀번호를 암호화합니다.
-3. JNDI `Resource`의 `factory`와 `password`를 변경합니다. 계정도 암호화할 수 있습니다.
+3. JNDI `Resource`의 `factory`와 `password`를 변경하고 `cryptoPool`로 Pool을 선택합니다. 계정도 암호화할 수 있습니다.
 4. 재시작 후 JNDI 조회·DB 연결·SQL을 확인합니다.
 
-```xml
-<Resource name="jdbc/myDB" auth="Container" type="javax.sql.DataSource"
-          factory="io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory"
-          driverClassName="org.mariadb.jdbc.Driver"
-          url="jdbc:mariadb://db.example.com:3306/mydb"
-          username="app_user" password="ENC[v1:...실제 encrypt 출력...]"
-          maxTotal="20" validationQuery="SELECT 1" testOnBorrow="true" />
-```
-
-기본 Pool은 DBCP2입니다. Tomcat JDBC Pool은 `crypto.pool.factory`로 선택합니다(JVM 공통). 아래에서 두 가지 Pool의 전체 설정 예제와 적용 옵션을 확인할 수 있습니다.
-
+아래 [Pool 선택표](#topic-tomcat--32-dbcp2와-tomcat-jdbc-pool-선택)에서 Resource에 넣을 값을 확인하세요.
 
 <a name="topic-tomcat--31-적용-순서"></a>
 ### 적용 순서 (3.1)
@@ -138,7 +128,7 @@ Windows에서는 `/secure/app-aes.key`를 접근 제한된 실제 Windows 경로
 1. **운영 키 준비:** 공개 예제 키 대신 사용자 지정 키를 씁니다([1.3절](key-management.md#topic-key-selection--13-체험용-내장-키와-운영용-사용자-지정-키)).
 2. **설치:** 키 내장 JAR(또는 외부 키를 쓰는 공개 JAR)와 DB의 JDBC 드라이버 JAR를 `CATALINA_BASE/lib`에 복사합니다. 같은 `lib`에는 java-crypto-kit JAR를 **하나만** 둡니다(웹앱 `WEB-INF/lib`에도 둘 때의 동작은 [3.7절](#topic-tomcat--37-jar를-lib과-웹앱에-함께-둘-때)).
 3. **암호화:** Tomcat과 같은 JAR·설정으로 `encrypt`를 실행해 DB 비밀번호 암호문을 만듭니다. pass·key 어느 유형의 암호문이든 쓸 수 있습니다(Factory가 암호문의 키 ID로 키를 고름).
-4. **Resource 작성:** 실제 Context 파일에 `factory`와 암호문 `password`를 넣은 `<Resource>`를 둡니다([3.3절](#topic-tomcat--33-resource를-넣을-파일)·[3.4절](#topic-tomcat--34-resource-주요-속성)).
+4. **Resource 작성:** 실제 Context 파일에 `factory`, `cryptoPool`과 암호문 `password`를 넣은 `<Resource>`를 둡니다([3.3절](#topic-tomcat--33-resource를-넣을-파일)·[3.4절](#topic-tomcat--34-resource-주요-속성)).
 5. **재시작과 확인:** Tomcat을 재시작한 뒤 애플리케이션에서 JNDI 조회·`getConnection()`·실제 SQL을 확인합니다([3.5절](#topic-tomcat--35-애플리케이션의-조회-코드)).
 
 Tomcat Factory는 CLI 관리자 비밀번호를 읽거나 묻지 않습니다. 관리자 비밀번호를 설정한 JAR·설정하지 않은 JAR·검증값이 손상된 JAR 모두 Tomcat 기동과 복호화는 같게 동작합니다(관리자 비밀번호는 CLI 전용, [1.4절](cli.md#topic-admin--14-cli-관리자-비밀번호)).
@@ -158,25 +148,39 @@ cp ./java-crypto-kit-0.1.0-configured-2.jar /opt/tomcat/lib/ && chown tomcat:tom
 |---|---|---|
 | 언제 선택 | **신규·일반 DB 연결(기본값)** | 이미 Tomcat JDBC Pool을 쓰거나 `jdbcInterceptors` 등 전용 기능이 필요할 때 |
 | Pool JAR | `tomcat-dbcp.jar`(Tomcat에 포함) | `tomcat-jdbc.jar`(없으면 Tomcat 버전에 맞게 추가) |
-| 선택 방법 | 아무 설정 없음(`crypto.pool.factory` 기본값) | `crypto.pool.factory=org.apache.tomcat.jdbc.pool.DataSourceFactory` |
+| XML Resource 속성 | `cryptoPool="dbcp2"` | `cryptoPool="tomcat-jdbc"` |
 | 최대 연결 | `maxTotal` | `maxActive` |
 | 최대 대기(ms) | `maxWaitMillis` | `maxWait` |
 | 예제 | [dbcp2-context.xml](../tomcat/dbcp2-context.xml) | [jdbc-pool-context.xml](../tomcat/jdbc-pool-context.xml) |
 
 두 예제의 `factory`는 같은 복호화 Factory입니다.
 
-Pool 종류는 Resource 속성이 아니라 설정 `crypto.pool.factory`로 정합니다. **JCK를 공용 `lib`에 하나만 둔 기본 배치에서는 같은 Factory를 쓰는 JVM의 모든 Resource에 적용됩니다.** 웹앱에 별도 사본을 두는 경우는 [클래스로더별 배치](#topic-tomcat--37-jar를-lib과-웹앱에-함께-둘-때)를 확인하세요. 설정 방법은 JAR 내장값(`config set crypto.pool.factory=... --operator <ID>`, [2.12절](cli.md#topic-cli-settings--212-config-set--jar-기본-설정-변경)), 외부 Properties, `CATALINA_OPTS`의 `-Dcrypto.pool.factory=...` 중 하나입니다.
+**선택 우선순위:** Resource의 `cryptoPool` > 유효한 공통 `crypto.pool.factory` > 배포 JAR 기본값 DBCP2. XML에서 생략한 Resource만 공통 설정을 따릅니다. 같은 Context, JVM, JCK JAR에서 Resource마다 두 Pool을 섞어 쓸 수 있습니다.
+
+`cryptoPool`은 정확한 소문자 `dbcp2` 또는 `tomcat-jdbc`를 한 번만 받습니다. 빈 값·공백·대소문자 차이·클래스명·중복 설정은 복호화 전에 `CONFIGURATION`으로 거부합니다. Properties와 JVM 옵션에 쓰는 키는 기존 `crypto.pool.factory`입니다. 공통 설정 자체가 잘못된 경우 XML 값을 지정해도 오류입니다.
 
 Pool 속성 이름은 Pool마다 다르므로 섞어 쓰지 않습니다.
+
+**최소 Resource 예제**
+
+```xml
+<Resource name="jdbc/myDB" auth="Container" type="javax.sql.DataSource"
+          factory="io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory"
+          cryptoPool="dbcp2"
+          driverClassName="org.mariadb.jdbc.Driver"
+          url="jdbc:mariadb://db.example.com:3306/mydb"
+          username="app_user" password="ENC[v1:...실제 encrypt 출력...]"
+          maxTotal="20" validationQuery="SELECT 1" testOnBorrow="true" />
+```
 
 <a name="pool-configuration-examples"></a>
 ### DBCP2·Tomcat JDBC Pool 전체 설정 예제
 
-둘 중 하나만 선택합니다. `<Context>`가 이미 있으면 그 안에 `<Resource>`만 추가합니다. MariaDB 예시이므로 드라이버 클래스·URL·계정·검증 SQL을 실제 DB에 맞춥니다. `password` 예시는 유효한 암호문이 아니므로 위 `encrypt` 실행 결과로 **전체를 교체**하세요.
+필요한 Pool의 `<Resource>`를 기존 `<Context>` 안에 추가합니다. 둘 다 쓰려면 아래 혼용 예처럼 서로 다른 JNDI 이름을 사용하세요. MariaDB 예시이므로 드라이버 클래스·URL·계정·검증 SQL을 실제 DB에 맞춥니다. `password` 예시는 유효한 암호문이 아니므로 위 `encrypt` 실행 결과로 **전체를 교체**하세요.
 
 #### DBCP2 (기본 Pool)
 
-추가 Pool 선택 설정은 필요하지 않습니다. Tomcat의 `tomcat-dbcp.jar`를 사용하며, JNDI 이름과 Pool 한도를 기존 환경에 맞춰 설정합니다.
+`cryptoPool="dbcp2"`를 지정합니다. Tomcat의 `tomcat-dbcp.jar`를 사용하며, JNDI 이름과 Pool 한도를 기존 환경에 맞춰 설정합니다.
 
 ```xml
 <Context>
@@ -184,10 +188,11 @@ Pool 속성 이름은 Pool마다 다르므로 섞어 쓰지 않습니다.
             auth="Container"
             type="javax.sql.DataSource"
             factory="io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory"
+            cryptoPool="dbcp2"
             driverClassName="org.mariadb.jdbc.Driver"
             url="jdbc:mariadb://db.example.com:3306/mydb"
             username="app_user"
-            password="ENC[v1:app-pass:REPLACE_IV:REPLACE_CIPHERTEXT]"
+            password="ENC[v1:key01:REPLACE_IV:REPLACE_CIPHERTEXT]"
             initialSize="1"
             maxTotal="20"
             minIdle="1"
@@ -206,15 +211,7 @@ Pool 속성 이름은 Pool마다 다르므로 섞어 쓰지 않습니다.
 
 #### Tomcat JDBC Pool
 
-기존 Tomcat JDBC Pool을 유지하려면 `tomcat-jdbc.jar`를 준비하고, JCK의 `crypto.pool.factory`를 해당 Pool Factory로 지정합니다. JNDI Resource의 `factory`는 아래처럼 JCK Factory 그대로입니다.
-
-키 내장 JAR의 설정을 바꾸는 경우 다음 CLI 명령으로 새 JAR를 만들고, 그 결과를 배포합니다. 이미 외부 설정이나 JVM 설정으로 Pool 종류를 관리하는 환경이면 해당 설정만 바꿉니다.
-
-```bash
-java -jar app-tomcat.jar config set crypto.pool.factory=org.apache.tomcat.jdbc.pool.DataSourceFactory --operator example-admin --reason "Tomcat JDBC Pool 선택" --out app-tomcat-jdbc.jar
-java -jar app-tomcat-jdbc.jar info
-java -jar app-tomcat-jdbc.jar doctor
-```
+Tomcat JDBC Pool을 쓰려면 `tomcat-jdbc.jar`를 준비하고 같은 Resource에 `cryptoPool="tomcat-jdbc"`를 지정합니다. 공통 기본값을 운영하는 경우는 [설정 사전](../reference/configuration.md#102-동작과-tomcat-정책)을 참고하세요.
 
 ```xml
 <Context>
@@ -222,10 +219,11 @@ java -jar app-tomcat-jdbc.jar doctor
             auth="Container"
             type="javax.sql.DataSource"
             factory="io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory"
+            cryptoPool="tomcat-jdbc"
             driverClassName="org.mariadb.jdbc.Driver"
             url="jdbc:mariadb://db.example.com:3306/mydb"
             username="app_user"
-            password="ENC[v1:app-pass:REPLACE_IV:REPLACE_CIPHERTEXT]"
+            password="ENC[v1:key01:REPLACE_IV:REPLACE_CIPHERTEXT]"
             initialSize="1"
             maxActive="20"
             minIdle="1"
@@ -239,6 +237,53 @@ java -jar app-tomcat-jdbc.jar doctor
   <!-- 추가 선택(기본 비활성): validationInterval, jdbcInterceptors, removeAbandoned,
        removeAbandonedTimeout, logAbandoned 등은 Tomcat JDBC Pool 전용이다. 연결 누수 회수와
        인터셉터는 성능·트랜잭션에 영향이 있으므로 운영 기준에 따라 별도로 설정한다. -->
+</Context>
+```
+
+#### 같은 Context에서 두 Pool 사용
+
+JNDI 이름별로 Pool을 고릅니다. 아래에서 DBCP2에 pass 키, Tomcat JDBC Pool에 key 키로 만든 암호문을 넣는 것은 예시입니다. 두 유형은 어느 Pool에서도 사용할 수 있습니다.
+
+```xml
+<Context>
+  <Resource name="jdbc/DBCP2"
+            auth="Container"
+            type="javax.sql.DataSource"
+            factory="io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory"
+            cryptoPool="dbcp2"
+            driverClassName="org.mariadb.jdbc.Driver"
+            url="jdbc:mariadb://db.example.com:3306/mydb"
+            username="app_user"
+            password="ENC[v1:key01:REPLACE_IV:REPLACE_CIPHERTEXT]"
+            initialSize="1"
+            maxTotal="20"
+            minIdle="1"
+            maxIdle="10"
+            maxWaitMillis="5000"
+            validationQuery="SELECT 1"
+            validationQueryTimeout="3"
+            testOnBorrow="true"
+            testWhileIdle="true"
+            timeBetweenEvictionRunsMillis="30000" />
+  <Resource name="jdbc/TomcatJDBC"
+            auth="Container"
+            type="javax.sql.DataSource"
+            factory="io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory"
+            cryptoPool="tomcat-jdbc"
+            driverClassName="org.mariadb.jdbc.Driver"
+            url="jdbc:mariadb://db.example.com:3306/mydb"
+            username="app_user"
+            password="ENC[v1:key01:REPLACE_IV:REPLACE_CIPHERTEXT]"
+            initialSize="1"
+            maxActive="20"
+            minIdle="1"
+            maxIdle="10"
+            maxWait="5000"
+            validationQuery="SELECT 1"
+            validationQueryTimeout="3"
+            testOnBorrow="true"
+            testWhileIdle="true"
+            timeBetweenEvictionRunsMillis="30000" />
 </Context>
 ```
 
@@ -266,6 +311,7 @@ java -jar app-tomcat-jdbc.jar doctor
 <!-- conf/server.xml: 기존 GlobalNamingResources 내부에 추가 -->
 <Resource name="jdbc/myDB" auth="Container" type="javax.sql.DataSource"
           factory="io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory"
+          cryptoPool="dbcp2"
           driverClassName="org.mariadb.jdbc.Driver"
           url="jdbc:mariadb://db.example.com:3306/mydb"
           username="app_user" password="ENC[v1:실제-암호문]" />
@@ -289,6 +335,7 @@ java -jar app-tomcat-jdbc.jar doctor
 | `auth` | **`Container`(일반)** / `Application` | 리소스 인증 책임 선언. 앱이 리소스 관리자에 직접 인증하는 별도 설계가 아니면 `Container` |
 | `type` | `javax.sql.DataSource` | 이 Factory가 지원하는 타입(Tomcat 10.1·11에서도 `javax.sql`) |
 | `factory` | `io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory` | **항상 이 복호화 Factory**를 써야 ENC/B64 비밀번호를 처리 |
+| `cryptoPool` | `dbcp2` / `tomcat-jdbc` | 이 Resource의 공식 Pool. 생략하면 공통 `crypto.pool.factory` 사용 |
 | `driverClassName` | `org.mariadb.jdbc.Driver` | 실제 DB 드라이버 클래스 |
 | `url` | `jdbc:mariadb://...` | 대상 DB의 실제 JDBC URL |
 | `username` | 평문 계정 또는 `ENC[...]` | 계정 암호화는 선택 |
@@ -331,7 +378,7 @@ try (java.sql.Connection conn = ds.getConnection();
 <a name="topic-tomcat--36-jvm-공통-범위와-재시작"></a>
 ### JVM 공통 범위와 재시작 (3.6)
 
-- **Tomcat의 공용 `lib`에서 JCK 하나를 쓰는 배치에서는 모든 Resource가 키 목록·설정·Pool 종류를 공유합니다.** Resource마다 다른 키를 쓰려면 그 키들을 모두 같은 JAR의 키 목록에 등록하고 Resource마다 해당 키로 만든 암호문을 넣습니다(암호문의 키 ID로 자동 선택). 공용 JAR 한 개를 유지하면서 Pool 종류(`crypto.pool.factory`)를 달리해야 한다면 Tomcat 인스턴스(`CATALINA_BASE`)를 나눕니다.
+- **Tomcat의 공용 `lib`에서 JCK 하나를 쓰는 배치에서는 같은 키 목록과 공통 설정을 사용합니다.** Resource마다 다른 키를 쓰려면 그 키들을 모두 같은 JAR의 키 목록에 등록하고 Resource마다 해당 키로 만든 암호문을 넣습니다(암호문의 키 ID로 자동 선택). Pool은 각 Resource의 `cryptoPool`로 정하고, 생략한 Resource는 공통 기본값을 따릅니다.
 
   여러 서버에는 같은 키 내장 JAR를 배포하고 `fingerprint`로 같은 키인지 확인합니다.
 - **설정과 키는 DataSource를 만들 때 읽습니다**(실행 중 자동 반영 없음). 설정·키·암호문을 바꾸면 Tomcat을 재시작합니다. `initialSize`가 0보다 크면 기동할 때 첫 연결을 만들므로 비밀번호 오류가 바로 로그에 나타납니다.
@@ -356,7 +403,7 @@ try (java.sql.Connection conn = ds.getConnection();
 | `conf/context.xml`(모든 웹앱의 기본 Context) | 위와 같은 규칙으로 **웹앱마다** 따로 정해짐 | 같은 Resource 정의라도 JAR B가 있는 앱은 JAR B, 없는 앱은 JAR A가 처리 |
 | 웹앱 코드의 Java API(`CredentialCrypto`) | 그 웹앱 `WEB-INF/lib`의 JAR B | JAR B의 키 목록·기본 키만 보임(JAR A와 다른 클래스). 문자열·파일 암복호화 모두 JAR B의 키로 하며, JAR A가 만든 암호문·암호화 파일은 `KEY_ID_MISMATCH`로 거부 |
 
-- **키·설정·지문은 사본마다 따로입니다.** 각 JAR는 자기 내장 설정(키 목록·기본 키·`crypto.pool.factory`)을 읽습니다. 다른 JAR의 키로 만든 암호문은 `KEY_ID_MISMATCH`로 거부되어 교차 복호화되지 않습니다. JAR마다 키 ID를 다르게 만들어 두면 어느 JAR가 처리했는지 오류만으로도 구분됩니다.
+- **키·설정·지문은 사본마다 따로입니다.** 각 JAR는 자기 내장 설정(키 목록·기본 키·생략 시의 `crypto.pool.factory`)을 읽습니다. 다른 JAR의 키로 만든 암호문은 `KEY_ID_MISMATCH`로 거부되어 교차 복호화되지 않습니다. JAR마다 키 ID를 다르게 만들어 두면 어느 JAR가 처리했는지 오류만으로도 구분됩니다.
 - **JVM 전체 설정은 두 JAR에 모두 적용됩니다.** `CATALINA_OPTS`의 `-Dcrypto.*`, `-Dcrypto.config.file`, 환경변수 `CRYPTO_CONFIG_FILE`은 사본을 가리지 않습니다.
 
   예를 들어 JAR A에만 있는 키 ID를 `-Dcrypto.key.active.pass`로 주면 JAR B는 `CONFIGURATION`으로 실패합니다. 외부 설정이 `crypto.key.*`(AES 키 슬롯)를 바꾸면 두 JAR가 같은 AES 키를 쓰게 되어 그 키의 암호문은 서로 복호화됩니다.

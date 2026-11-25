@@ -71,7 +71,7 @@ Gradle Wrapper(Windows `gradlew.bat clean build`, Linux `./gradlew clean build`)
 
 **파일 형식**
 
-기존 `JCKF v1` 헤더·청크·AAD와 스트리밍 처리 유지. 실패·무결성 오류 시 불완전한 최종 평문 파일을 남기지 않으며 기존 원본·대상 파일을 임의 덮어쓰지 않는다. 별도 업무 백업·복구 기능은 추가하지 않는다.
+기존 `JCKF v1` 헤더·청크·AAD와 스트리밍 처리 유지. 실패·무결성 오류 시 불완전한 최종 평문 파일을 남기지 않으며 기존 원본·대상 파일을 임의 덮어쓰지 않는다. CLI의 `file encrypt`·`file decrypt`는 `--out`을 요구하고 Java API는 기존 출력 Path를 사용한다. 별도 업무 백업·복구 기능은 추가하지 않는다.
 
 **키 유형**
 
@@ -282,7 +282,7 @@ Java 소스/클래스 전체 난독화, 안티디버깅, 임의 새 암호 알�
 
 **Tomcat**
 
-기존 JNDI `EncryptedDataSourceFactory` 하나로 공식 DBCP2·Tomcat JDBC Pool을 위임한다. `pass`·`key` 암호문 모두 Key ID로 복호화하며 업무 코드 변경 없이 JNDI 접속이 가능해야 한다.
+기존 JNDI `EncryptedDataSourceFactory` 하나로 공식 DBCP2·Tomcat JDBC Pool을 위임한다. XML Resource의 `cryptoPool`은 정확히 `dbcp2` 또는 `tomcat-jdbc`를 받으며 생략한 경우 유효한 공통 `crypto.pool.factory`를 사용한다. 선택값을 복호화 전에 검사하고 위임 Reference에 전달하지 않는다. `pass`·`key` 암호문 모두 Key ID로 복호화하며 업무 코드 변경 없이 JNDI 접속이 가능해야 한다.
 
 비암호문 비밀번호, 인증 실패, 키 공급 실패에서 평문 fallback 금지. Reference 원본 불변, 하위 Factory 오류의 비밀값·원인 객체 노출 방지. 신뢰할 수 있는 Tomcat Pool Factory만 라이브러리를 로딩한 ClassLoader/부모 체인에서 확인(임의 웹앱 가짜 클래스 로딩 금지).
 

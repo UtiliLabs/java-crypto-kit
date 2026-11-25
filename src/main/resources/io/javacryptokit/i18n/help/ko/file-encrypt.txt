@@ -2,12 +2,12 @@ file encrypt - 파일 암호화(내용 형식 무관, JCKF v1, 큰 파일도 스
 
 사용법
   java [-D...] -jar {jar} file encrypt --in <파일>
-       [--out <파일>] [--type pass|key] [--key-id <ID>]
+       --out <파일> [--type pass|key] [--key-id <ID>]
        [--config <파일>] [--lang en|ko]
 
 옵션
   --in <파일>       암호화할 파일(필수)
-  --out <파일>      결과 파일(선택, 기본 <입력>.jck).
+  --out <파일>      결과 파일(필수).
                     이미 있으면 덮어쓰지 않습니다.
   --type pass|key   키 유형(선택, encrypt와 같은 규칙)
   --key-id <ID>     등록된 키 ID(선택, 유형 자동)
@@ -19,5 +19,5 @@ file encrypt - 파일 암호화(내용 형식 무관, JCKF v1, 큰 파일도 스
   암호화 완료: data.csv -> data.jck (키 ID key01, 1048650바이트)
 
 예제
-  java -jar {jar} file encrypt --in "monthly report.pdf"
-  java -jar {jar} file encrypt --in data.csv --type key
+  java -jar {jar} file encrypt --in a.pdf --out a.jck
+  java -jar {jar} file encrypt --in a --out b --type key

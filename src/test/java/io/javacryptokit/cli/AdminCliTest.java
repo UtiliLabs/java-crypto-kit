@@ -86,7 +86,7 @@ class AdminCliTest {
         List<String> before = files();
         String token = TestSupport.jarDefaults().encryptText("dummy-x");
         String[][] commands = {{"encrypt"}, {"decrypt"}, {"verify", "--value", token}, {"info"}, {"doctor"}, {"fingerprint"},
-                {"file", "encrypt", "--in", plain.toString()}, {"config", "history"}, {"config", "show"},
+                {"file", "encrypt", "--in", plain.toString(), "--out", dir.resolve("plain.jck").toString()}, {"config", "history"}, {"config", "show"},
                 {"config", "key", "show", "--key-id", "default"}, {"keygen", "--out", dir.resolve("k.key").toString(), "--reason", "r"},
                 {"admin", "password", "change"}};
         for (String[] args : commands) {

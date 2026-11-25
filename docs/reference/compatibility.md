@@ -43,7 +43,7 @@
 
 - [ ] 공개 예제 키(`pass-default`·`default`)가 아닌 **사용자 지정 키**와 올바른 키ID를 쓴다(`info`의 기본 유형·기본 키 확인).
 - [ ] 최종 JAR가 Tomcat `lib`에 **한 개만** 있고 JDBC 드라이버(·Tomcat JDBC Pool이면 `tomcat-jdbc.jar`)도 있다.
-- [ ] `crypto.pool.factory`와 Resource의 Pool 속성 이름이 맞고, XML의 암호문에 자리표시자가 남아 있지 않다.
+- [ ] Resource의 `cryptoPool`(생략 시 `crypto.pool.factory`)과 Pool 속성 이름이 맞고, XML의 암호문에 자리표시자가 남아 있지 않다.
 - [ ] 키를 만든 쪽의 키와 WAS의 키가 같다는 것을 `fingerprint`로 확인했다.
 - [ ] `doctor`가 `결과: PASS`이고 키 상태가 `사용자 지정`이며, **실제 JNDI 조회·SQL**로 연결을 검증했다.
 - [ ] 키 내장 JAR(`--out`으로 정한 이름 포함)·키 파일·토큰·`--replace` 백업을 Git·공개 저장소에 올리지 않았다.

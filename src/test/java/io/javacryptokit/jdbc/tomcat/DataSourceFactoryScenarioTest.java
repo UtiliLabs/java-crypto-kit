@@ -143,6 +143,103 @@ class DataSourceFactoryScenarioTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void xmlSelectionWinsOverEitherFallbackWithoutChangingOtherResources(boolean jdbcDefault) throws Exception {
+        String fallback = jdbcDefault ? CryptoSettings.TOMCAT_JDBC_FACTORY : CryptoSettings.DBCP2_FACTORY;
+        Path config = TestSupport.writeConfig(dir, "mixed.properties", "crypto.pool.factory=" + fallback);
+        try (AutoCloseable ignored = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY, config.toString())) {
+            CredentialCrypto crypto = CredentialCrypto.fromConfigFile(config);
+            String pass = crypto.encryptText("dummy-pass", io.javacryptokit.KeyType.PASS);
+            String key = crypto.encryptText("dummy-key", io.javacryptokit.KeyType.KEY);
+            Reference dbcp = resource("u", jdbcDefault ? key : pass);
+            Reference jdbc = resource("u", jdbcDefault ? pass : key);
+            dbcp.add(new StringRefAddr("cryptoPool", "dbcp2"));
+            jdbc.add(new StringRefAddr("cryptoPool", "tomcat-jdbc"));
+            dbcp.add(new StringRefAddr("maxTotal", "15"));
+            jdbc.add(new StringRefAddr("maxActive", "27"));
+            EncryptedDataSourceFactory factory = new EncryptedDataSourceFactory();
+            java.util.concurrent.ExecutorService threads = java.util.concurrent.Executors.newFixedThreadPool(2);
+            try {
+                java.util.concurrent.CyclicBarrier start = new java.util.concurrent.CyclicBarrier(2);
+                java.util.concurrent.Future<Object> left = threads.submit(() -> {
+                    start.await();
+                    return factory.getObjectInstance(dbcp, null, null, null);
+                });
+                java.util.concurrent.Future<Object> right = threads.submit(() -> {
+                    start.await();
+                    return factory.getObjectInstance(jdbc, null, null, null);
+                });
+                assertEquals("FakeDbcp2DataSource", left.get(15, java.util.concurrent.TimeUnit.SECONDS).toString());
+                assertEquals("FakeTomcatJdbcDataSource", right.get(15, java.util.concurrent.TimeUnit.SECONDS).toString());
+            } finally {
+                threads.shutdownNow();
+            }
+            assertEquals("FakeTomcatJdbcDataSource", factory.getObjectInstance(jdbc, null, null, null).toString());
+            assertEquals("FakeDbcp2DataSource", factory.getObjectInstance(dbcp, null, null, null).toString());
+            Reference clearDbcp = BasicDataSourceFactory.lastReference;
+            Reference clearJdbc = org.apache.tomcat.jdbc.pool.DataSourceFactory.lastReference;
+            for (Reference clear : new Reference[] {clearDbcp, clearJdbc}) {
+                assertNull(clear.get("cryptoPool"));
+                assertNull(clear.get("factory"));
+                assertEquals("u", clear.get("username").getContent());
+            }
+            assertEquals("15", clearDbcp.get("maxTotal").getContent());
+            assertEquals("27", clearJdbc.get("maxActive").getContent());
+            assertEquals(jdbcDefault ? "dummy-key" : "dummy-pass", clearDbcp.get("password").getContent());
+            assertEquals(jdbcDefault ? "dummy-pass" : "dummy-key", clearJdbc.get("password").getContent());
+            assertEquals(jdbcDefault ? key : pass, dbcp.get("password").getContent());
+            assertEquals(jdbcDefault ? pass : key, jdbc.get("password").getContent());
+            assertEquals("dbcp2", dbcp.get("cryptoPool").getContent());
+            assertEquals("tomcat-jdbc", jdbc.get("cryptoPool").getContent());
+            assertEquals(jdbcDefault ? "FakeTomcatJdbcDataSource" : "FakeDbcp2DataSource",
+                    factory.getObjectInstance(resource("u", pass), null, null, null).toString());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", " ", "DBCP2", " dbcp2", "tomcat-jdbc ", "unsupported-pool-id",
+            "org.apache.tomcat.jdbc.pool.DataSourceFactory"})
+    void invalidXmlSelectionFailsBeforeDecryption(String selection) {
+        Reference ref = resource("u", "dummy-plaintext-must-not-leak");
+        ref.add(new StringRefAddr("cryptoPool", selection));
+        assertSelectionRejected(ref);
+    }
+
+    @Test
+    void duplicateAndNonStringSelectionsAreRejectedAndSettingsStillValidate() throws Exception {
+        Reference duplicate = resource("u", "bad-password");
+        duplicate.add(new StringRefAddr("cryptoPool", "dbcp2"));
+        duplicate.add(new StringRefAddr("cryptoPool", "dbcp2"));
+        assertSelectionRejected(duplicate);
+        Reference binary = resource("u", "bad-password");
+        binary.add(new javax.naming.BinaryRefAddr("cryptoPool", new byte[]{1, 2}));
+        assertSelectionRejected(binary);
+
+        Path config = TestSupport.writeConfig(dir, "invalid.properties", "crypto.pool.factory=not-an-official-factory");
+        try (AutoCloseable ignored = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY, config.toString())) {
+            Reference valid = resource("u", "bad-password");
+            valid.add(new StringRefAddr("cryptoPool", "dbcp2"));
+            NamingException failure = assertThrows(NamingException.class,
+                    () -> new EncryptedDataSourceFactory().getObjectInstance(valid, null, null, null));
+            assertTrue(failure.getMessage().contains("CONFIGURATION"), failure.getMessage());
+            assertFalse(failure.getMessage().contains("bad-password"));
+        }
+    }
+
+    private static void assertSelectionRejected(Reference ref) {
+        NamingException failure = assertThrows(NamingException.class,
+                () -> new EncryptedDataSourceFactory().getObjectInstance(ref, null, null, null));
+        assertTrue(failure.getMessage().contains("CONFIGURATION") && failure.getMessage().contains("cryptoPool"));
+        assertFalse(failure.getMessage().contains("unsupported-pool-id"));
+        assertFalse(failure.getMessage().contains("org.apache.tomcat.jdbc.pool.DataSourceFactory"));
+        assertFalse(failure.getMessage().contains("dummy-plaintext"));
+        assertNull(failure.getCause());
+        assertEquals(0, failure.getSuppressed().length);
+        assertEquals(0, BasicDataSourceFactory.invocations);
+        assertEquals(0, org.apache.tomcat.jdbc.pool.DataSourceFactory.invocations);
+    }
+
     @Test
     void scenarioE_warningDisabledProducesNoLibraryWarningsAcrossDataSources() throws Exception {
         Path config = TestSupport.writeConfig(dir, "e-off.properties", "crypto.key.source=embedded",

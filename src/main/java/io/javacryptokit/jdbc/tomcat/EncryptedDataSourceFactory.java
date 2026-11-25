@@ -34,9 +34,10 @@ import javax.naming.spi.ObjectFactory;
  *       ({@code -Dcrypto.key.source=file} 등, {@code crypto.jvm.override.enabled=true}일 때) &gt; 외부 설정 파일
  *       ({@code -Dcrypto.config.file=<경로>} 또는 환경변수 {@code CRYPTO_CONFIG_FILE}) &gt; JAR 기본값 순서로 정해진다.</li>
  *   <li>새 Reference를 만들어 속성을 복사하면서 접속정보만 복호화한 값으로 바꾸고, 이 클래스를 가리키는 {@code factory}
- *       속성은 뺀다. 원본 Reference는 건드리지 않는다. 복호화 키는 암호문에 기록된 Key ID로 등록된 키(pass·key 유형 모두)에서
+ *       속성과 JCK 전용 {@code cryptoPool} 속성은 뺀다. 원본 Reference는 건드리지 않는다. 복호화 키는 암호문에 기록된 Key ID로 등록된 키(pass·key 유형 모두)에서
  *       고르므로 Resource에 유형·Key ID 속성을 따로 적지 않는다. 등록되지 않은 Key ID는 다른 키로 시도하지 않고 실패한다.</li>
- *   <li>허용 목록의 Tomcat Pool Factory(DBCP2 기본, Tomcat JDBC Pool 선택)를 만들어 새 Reference를 넘기고, 돌려받은
+ *   <li>{@code cryptoPool="dbcp2"} 또는 {@code cryptoPool="tomcat-jdbc"}로 위임할 공식 Factory를 고른다. 생략하면
+ *       유효한 {@code crypto.pool.factory} 설정을 쓴다. 선택값 검사는 복호화에 앞서며, 새 Reference를 넘긴 뒤 돌려받은
  *       {@link javax.sql.DataSource}를 Tomcat에 반환한다.</li>
  * </ol>
  *
@@ -63,6 +64,7 @@ public final class EncryptedDataSourceFactory implements ObjectFactory {
     private static final Logger LOG = Logger.getLogger(EncryptedDataSourceFactory.class.getName());
     /** 원인 유형을 몇 단계까지 붙일지. 너무 긴 메시지를 막는다. */
     private static final int MAX_CAUSE_DEPTH = 5;
+    private static final String POOL_ATTRIBUTE = "cryptoPool";
 
     /**
      * Tomcat이 JNDI Resource(DataSource)를 실제로 생성할 때 호출하는 진입점이다.
@@ -73,7 +75,7 @@ public final class EncryptedDataSourceFactory implements ObjectFactory {
      * @param environment JNDI 환경 정보(위임 대상 Factory에 그대로 전달)
      * @return Tomcat 공식 Pool Factory가 만든 {@link javax.sql.DataSource}
      * @throws NamingException 다음 경우 모두 정제된 메시지로 실패한다(평문 fallback 없음): Reference가 아니거나 DataSource가 아님,
-     *                         설정 로딩·검증 실패, 접속정보가 문자열이 아님, 비밀번호가 암호문이 아님, 비밀번호 누락,
+     *                         설정 로딩·검증 실패, cryptoPool 값·유형·개수 오류, 접속정보가 문자열이 아님, 비밀번호가 암호문이 아님, 비밀번호 누락,
      *                         복호화 실패(위조·손상·키ID 불일치·키 오류), Pool Factory 로딩·생성 실패, DataSource 미반환
      */
     @Override
@@ -108,6 +110,7 @@ public final class EncryptedDataSourceFactory implements ObjectFactory {
     private static Object createDataSource(Reference original, CryptoService crypto, Name name, Context nameContext,
                                            Hashtable<?, ?> environment) throws NamingException {
 
+        String poolFactory = selectPool(original, crypto.settings().poolFactory());
         // [3] 새 Reference에 속성을 복사하면서 접속정보만 복호화한다. 원본 Reference는 건드리지 않는다.
         Reference clear = new Reference(original.getClassName());
         boolean passwordFound = false;
@@ -115,7 +118,7 @@ public final class EncryptedDataSourceFactory implements ObjectFactory {
         while (addresses.hasMoreElements()) {
             RefAddr address = addresses.nextElement();
             String property = address.getType();
-            if ("factory".equals(property)) {
+            if ("factory".equals(property) || POOL_ATTRIBUTE.equals(property)) {
                 // 이 Factory 자신을 가리키는 속성이므로 하위 Pool에 다시 전달하지 않는다.
                 continue;
             }
@@ -155,9 +158,9 @@ public final class EncryptedDataSourceFactory implements ObjectFactory {
 
         // [4] 허용 목록의 Tomcat 공식 Pool Factory에 생성을 위임한다.
         Object datasource;
-        String[] pool = poolLabel(crypto.settings().poolFactory());
+        String[] pool = poolLabel(poolFactory);
         try {
-            ObjectFactory delegate = createOfficialPoolFactory(crypto.settings().poolFactory());
+            ObjectFactory delegate = createOfficialPoolFactory(poolFactory);
             datasource = delegate.getObjectInstance(clear, name, nameContext, environment);
         } catch (Exception | Error ex) {
             // JVM 자체 장애(메모리 부족·스택 넘침 등 VirtualMachineError)와 스레드 종료 신호(ThreadDeath)는 그대로 전달한다.
@@ -171,10 +174,32 @@ public final class EncryptedDataSourceFactory implements ObjectFactory {
         }
         // Tomcat Pool Factory는 처리할 수 없는 Reference에 null을 돌려줄 수 있으므로 결과 타입을 확인한다.
         if (!(datasource instanceof javax.sql.DataSource)) {
-            throw sanitized(Messages.get("factory.err.noDataSource"), "POOL_FAILURE");
+            throw sanitized(Messages.get("factory.err.noDataSource", pool[0], pool[1]), "POOL_FAILURE");
         }
-        LOG.fine(Messages.TAG + " " + Messages.get("factory.log.delegated"));
+        LOG.fine(Messages.TAG + " " + Messages.get("factory.log.delegated", pool[0]));
         return datasource;
+    }
+
+    /** Resource별 선택은 다른 Resource나 공통 설정에 영향을 주지 않는다. */
+    private static String selectPool(Reference resource, String fallback) throws NamingException {
+        String selected = null;
+        Enumeration<RefAddr> addresses = resource.getAll();
+        while (addresses.hasMoreElements()) {
+            RefAddr address = addresses.nextElement();
+            if (!POOL_ATTRIBUTE.equals(address.getType())) continue;
+            if (selected != null || !(address instanceof StringRefAddr)) {
+                throw sanitized(Messages.get("factory.err.poolSelection"), "CONFIGURATION");
+            }
+            Object value = address.getContent();
+            if ("dbcp2".equals(value)) {
+                selected = CryptoSettings.DBCP2_FACTORY;
+            } else if ("tomcat-jdbc".equals(value)) {
+                selected = CryptoSettings.TOMCAT_JDBC_FACTORY;
+            } else {
+                throw sanitized(Messages.get("factory.err.poolSelection"), "CONFIGURATION");
+            }
+        }
+        return selected == null ? fallback : selected;
     }
 
     /**

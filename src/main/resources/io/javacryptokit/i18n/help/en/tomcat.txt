@@ -8,8 +8,8 @@ help tomcat - decrypt the DB password of a Tomcat JNDI DataSource
      factory="io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory"
      password="ENC[v1:...]"
    The key is found by the key ID of the ciphertext (pass or key both work).
-   For Tomcat JDBC Pool, one setting applies to every Resource of the JVM:
-     crypto.pool.factory=org.apache.tomcat.jdbc.pool.DataSourceFactory
+   Set cryptoPool="dbcp2" or cryptoPool="tomcat-jdbc" on each Resource.
+   Omitting cryptoPool uses the valid crypto.pool.factory setting.
 4) Only with an external config file add -Dcrypto.config.file=<file>:
    CATALINA_OPTS in bin/setenv.sh (Linux) or bin/setenv.bat (Windows console);
    for a Windows service, the Java Options of the service settings.

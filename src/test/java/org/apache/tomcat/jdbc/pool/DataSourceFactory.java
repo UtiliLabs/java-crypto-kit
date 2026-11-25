@@ -21,6 +21,7 @@ public final class DataSourceFactory implements ObjectFactory {
     public static volatile String lastUsername;
     /** 마지막으로 전달받은 maxActive 값(Tomcat JDBC Pool 고유 속성 보존 확인용). */
     public static volatile String lastMaxActive;
+    public static volatile Reference lastReference;
     /** 호출 횟수. */
     public static volatile int invocations;
     /** 지정하면 다음 호출에서 이 예외(Exception 또는 Error)를 던지고 비운다(하위 Pool 예외 정제 검증용). */
@@ -31,6 +32,7 @@ public final class DataSourceFactory implements ObjectFactory {
         lastPassword = null;
         lastUsername = null;
         lastMaxActive = null;
+        lastReference = null;
         invocations = 0;
         nextFailure = null;
     }
@@ -45,6 +47,7 @@ public final class DataSourceFactory implements ObjectFactory {
                                     Hashtable<?, ?> environment) throws Exception {
         invocations++;
         Reference ref = (Reference) object;
+        lastReference = ref;
         lastPassword = content(ref, "password");
         lastUsername = content(ref, "username");
         lastMaxActive = content(ref, "maxActive");

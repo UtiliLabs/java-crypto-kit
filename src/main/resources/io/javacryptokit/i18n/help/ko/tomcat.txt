@@ -8,8 +8,8 @@ help tomcat - Tomcat JNDI DataSource의 DB 비밀번호 복호화(DBCP2 기본)
      factory="io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory"
      password="ENC[v1:...]"
    키는 암호문의 키 ID로 고르므로 pass·key 암호문 모두 쓸 수 있습니다.
-   Tomcat JDBC Pool을 쓰려면 설정 하나로 JVM의 모든 Resource에 적용합니다:
-     crypto.pool.factory=org.apache.tomcat.jdbc.pool.DataSourceFactory
+   Resource별로 cryptoPool="dbcp2" 또는 cryptoPool="tomcat-jdbc"를 지정합니다.
+   생략하면 유효한 공통 crypto.pool.factory 설정을 따릅니다.
 4) 외부 설정 파일을 쓸 때만 -Dcrypto.config.file=<파일>을 추가합니다.
    Linux bin/setenv.sh, Windows 콘솔 bin/setenv.bat의 CATALINA_OPTS,
    Windows 서비스는 서비스 설정의 Java Options.

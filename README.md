@@ -50,13 +50,13 @@ JCK의 관리형 암복호화는 `pass`와 `key` 두 가지 키 준비 방식을
 
 ## CLI — 코드 없이 암호화 및 키 관리
 
-JAR를 직접 실행해 DB 계정·비밀번호나 설정값을 암복호화하고, 파일을 보호하거나 복원할 수 있습니다. 새 키 생성·등록·조회·백업·복구·교체, JAR 설정 변경 및 진단도 CLI로 수행합니다. 최초 관리자 비밀번호 설정 후 사용하며, 민감 명령은 매 실행 시 인증합니다.
+JAR를 직접 실행해 DB 계정·비밀번호나 설정값을 암복호화하고, 파일을 보호하거나 복원할 수 있습니다. 두 파일 명령에서 결과 경로(`--out`)를 지정합니다. 새 키 생성·등록·조회·백업·복구·교체, JAR 설정 변경 및 진단도 CLI로 수행합니다. 최초 관리자 비밀번호 설정 후 사용하며, 민감 명령은 매 실행 시 인증합니다.
 
 [CLI 첫 실행](docs/guide/cli.md#topic-cli-encryption--첫-실행-예제) · [전체 명령·옵션](docs/guide/cli.md#topic-cli--22-명령-목록) · [키 관리 절차](docs/guide/key-management.md) · [파일 처리](docs/guide/file-encryption.md)
 
 ## Tomcat — JDBC 접속정보 암호화 연동
 
-기존 JNDI Resource에 저장하는 DB 접속정보를 암호문으로 바꾸고 JCK Factory에서 복호화합니다. `pass` 또는 `key`로 CLI에서 암호문을 준비하고, 같은 키를 사용할 수 있는 JAR·설정을 Tomcat에 배포합니다. DBCP2와 Tomcat JDBC Pool을 지원하며 기존 JNDI 조회 코드를 유지할 수 있습니다.
+기존 JNDI Resource에 저장하는 DB 접속정보를 암호문으로 바꾸고 JCK Factory에서 복호화합니다. `pass` 또는 `key`로 CLI에서 암호문을 준비하고, 같은 키를 사용할 수 있는 JAR·설정을 Tomcat에 배포합니다. XML의 `cryptoPool`로 Resource마다 DBCP2 또는 Tomcat JDBC Pool을 고릅니다. 두 Pool을 같은 Context에서 함께 사용하며 기존 JNDI 조회 코드를 유지할 수 있습니다.
 
 [Tomcat JDBC 연동 전체 절차 및 두 Pool 설정 예제](docs/guide/tomcat-jdbc.md)
 

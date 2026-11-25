@@ -308,7 +308,7 @@ ENC[v1:key01:...]                            ← 유형을 정하지 않아도 k
 
 `-D`로는 이미 등록된 키의 위치 항목, `crypto.key.type`, `crypto.key.active.*`만 바꿀 수 있습니다([5.5절](#topic-key-management--55-키-목록과-유형-선택)).
 
-`auth`·`maxTotal` 같은 Resource 속성은 `crypto.*` 설정이 아니고, 반대로 `crypto.key.source`·`crypto.lang`·`crypto.pool.factory`는 XML 속성이 아닙니다.
+`cryptoPool`·`auth`·`maxTotal` 같은 Resource 속성은 `crypto.*` 설정이 아니고, 반대로 `crypto.key.source`·`crypto.lang`·`crypto.pool.factory`는 XML 속성이 아닙니다.
 
 키 원문 `crypto.key.embedded`는 `-D`로 지정하면 오류로 중단합니다(프로세스 목록·로그 노출 방지). JAR 내장값은 `config embed-key`로만 바꾸며, 외부 Properties에 적어 공급할 수도 있지만 키 원문이 파일에 남으므로 권장하지 않습니다(키를 JAR 밖에 두려면 `file`·`env`를 씁니다).
 

@@ -28,7 +28,7 @@ Tomcat의 JNDI DataSource에 설정된 DB 계정·비밀번호를 보호합니�
 
 <a name="3-tomcat-jndi-연동"></a><a name="31-적용-순서"></a><a name="32-dbcp2와-tomcat-jdbc-pool-선택"></a><a name="33-resource를-넣을-파일"></a><a name="34-resource-주요-속성"></a><a name="35-애플리케이션의-조회-코드"></a><a name="36-jvm-공통-범위와-재시작"></a><a name="37-jar를-lib과-웹앱에-함께-둘-때"></a><a name="4-connection-pool-설정"></a><a name="41-먼저-볼-기본-옵션"></a><a name="42-문제가-생겼을-때-볼-고급-옵션"></a>
 
-**바로가기:** [적용 절차 및 Resource 설정](guide/tomcat-jdbc.md#topic-tomcat) · [Connection Pool 옵션](guide/tomcat-jdbc.md#topic-connection-pools)
+**바로가기:** [적용 절차 및 Resource 설정](guide/tomcat-jdbc.md#topic-tomcat) · [Resource별 Pool 선택](guide/tomcat-jdbc.md#topic-tomcat--32-dbcp2와-tomcat-jdbc-pool-선택) · [Connection Pool 옵션](guide/tomcat-jdbc.md#topic-connection-pools)
 
 ### [CLI 사용 가이드](guide/cli.md)
 

@@ -11,7 +11,7 @@
 #   2  실제 CLI: 가상 터미널로 encrypt(pass·key)·decrypt(관리자 비밀번호 숨김 입력·파일·틀린 값)·rekey(같은 유형·유형 간,
 #      미설정 --from-jar 거부), JDK 8 verify, 암호문 키ID, 위조 거부
 #   3  MariaDB: 시험 전용 계정·테이블(tmpfs)
-#   4  M-*      8개 조합(Tomcat 4개 버전 × DBCP2/Tomcat JDBC Pool): 한 JVM에서 pass·key 암호문 정상 연결과
+#   4  M-*      공통 설정 fallback 8개 조합(Tomcat 4개 버전 × 두 Pool): 한 JVM에서 pass·key 암호문 정상 연결과
 #               오류 판정(평문·위조·변조·미등록 키ID·DB 로그인 거부), 실제 테이블 SELECT·INSERT(pass·key 각각)
 #   5  E01~E23  설정·보안 시나리오: 우선순위(-D > 외부 Properties > JAR), file·env 키, 언어·경고 끄기,
 #               공개 키 JAR(빌드 JAR 그대로 = 관리자 비밀번호 미설정), 키 원문 -D 거부, 키 누락 Fail Closed,

@@ -481,6 +481,37 @@ class CryptoCliTest {
     }
 
     @Test
+    void fileCommandsRequireExplicitOutputBeforeWorkInBothLanguages() throws Exception {
+        Path source = Files.write(dir.resolve("input.txt"), new byte[] {1, 2, 3});
+        Path encrypted = dir.resolve("input.jck");
+        TestSupport.jarDefaults().encryptFile(source, encrypted);
+        java.util.Set<Path> before;
+        try (java.util.stream.Stream<Path> paths = Files.list(dir)) {
+            before = paths.collect(java.util.stream.Collectors.toSet());
+        }
+        for (String command : new String[] {"encrypt", "decrypt"}) {
+            Path input = command.equals("encrypt") ? source : encrypted;
+            for (String language : new String[] {"ko", "en"}) {
+                for (String value : new String[] {null, "", "  ", "invalid" + (char) 0}) {
+                    errBytes.reset();
+                    outBytes.reset();
+                    List<String> args = new ArrayList<>(java.util.Arrays.asList("file", command, "--in", input.toString(), "--lang", language));
+                    if (value != null) {
+                        args.add("--out");
+                        args.add(value);
+                    }
+                    assertEquals(1, run(null, args.toArray(new String[0])));
+                    assertTrue(err().contains("USAGE") && err().contains("--out"), err());
+                    assertEquals("", out());
+                    try (java.util.stream.Stream<Path> paths = Files.list(dir)) {
+                        assertEquals(before, paths.collect(java.util.stream.Collectors.toSet()));
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     void displayedFileNamesStayOnOneLineWithoutChangingPaths() throws Exception {
         // zipfs 경로는 Windows에서도 CR, LF, TAB 및 C1 문자를 파일명에 담을 수 있다.
         Path archive = dir.resolve("names.zip");

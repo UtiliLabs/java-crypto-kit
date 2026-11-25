@@ -2,13 +2,12 @@ file decrypt - decrypt a file made by file encrypt (JCKF v1)
 
 Usage
   java [-D...] -jar {jar} file decrypt --in <file>
-       [--out <file>] [--config <file>]
+       --out <file> [--config <file>]
        [--admin-pass-file <file>] [--lang en|ko]
 
 Options
   --in <file>       Encrypted file (required)
-  --out <file>      Result file (optional, default: input name without .jck).
-                    Required when the input does not end with .jck.
+  --out <file>      Result file (required).
                     An existing file is never overwritten.
   --config <file>   External Properties file (optional, same rules as encrypt)
   --admin-pass-file <file>
@@ -22,5 +21,5 @@ Result
   Decrypted: data.jck -> data.csv (1048576 bytes)
 
 Examples
-  java -jar {jar} file decrypt --in report.pdf.jck
+  java -jar {jar} file decrypt --in a.jck --out a.pdf
   java -jar {jar} file decrypt --in data.jck --out data.csv

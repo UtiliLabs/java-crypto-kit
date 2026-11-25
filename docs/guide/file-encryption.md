@@ -40,6 +40,8 @@ CLI에서 정리 실패는 종료 코드 1이며, 파일명의 제어문자는 `
 <a name="guide-section-2"></a>
 ## 파일 암복호화에서 키와 출력 선택
 
+CLI는 암호화와 복호화 모두 `--out <경로>`를 요구합니다. 생략하거나 빈 값을 주면 `USAGE`로 종료하며 작업 파일을 만들지 않습니다. 스크립트의 기존 자동 이름은 `--out`에 직접 지정하세요.
+
 파일 형식은 JCKF이며 관리형·직접 키 주입 모두 AES-256-GCM입니다. `pass`와 `key`는 키 준비 방법이며 CSV·PDF·ZIP 등 파일 종류와 무관합니다. JAR 자체의 공개 키 두 개는 시험용입니다.
 
 | 입력 상황 | 선택 |
@@ -63,12 +65,11 @@ CLI에서 정리 실패는 종료 코드 1이며, 파일명의 제어문자는 `
 
 | 하려는 작업 | 명령 | 기본 결과·주의 |
 |---|---|---|
-| 파일 암호화 | `file encrypt --in <원본>` | `<원본>.jck` 생성. 원본 보존, 결과 파일 덮어쓰기 금지. 키는 `--type`·`--key-id`(생략하면 기본 유형의 기본 키) |
-| 파일 복호화 | `file decrypt --in <원본>.jck` | `.jck`를 뗀 이름으로 복원. 같은 이름의 파일이 있으면 실패 |
-| 다른 이름으로 복원 | `file decrypt --in <암호화 파일> --out <복원 경로>` | 보호된 출력 폴더 지정, 기존 파일 덮어쓰기 금지 |
+| 파일 암호화 | `file encrypt --in <원본> --out <암호화 파일>` | 명시한 경로에 JCKF v1 생성. 키 옵션을 생략하면 기본 유형의 기본 키 |
+| 파일 복호화 | `file decrypt --in <암호화 파일> --out <복원 파일>` | 인증이 모두 끝나면 지정한 경로에 복원. 기존 출력 파일 보호 |
 
 ```powershell
-java -jar .\java-crypto-kit-0.1.0-configured-2.jar file encrypt --in 'C:/data/report.pdf'
+java -jar .\java-crypto-kit-0.1.0-configured-2.jar file encrypt --in 'C:/data/report.pdf' --out 'C:/data/report.pdf.jck'
 java -jar .\java-crypto-kit-0.1.0-configured-2.jar file decrypt --in 'C:/data/report.pdf.jck' --out 'C:/restore/report.pdf'
 ```
 
@@ -84,14 +85,14 @@ java -jar .\java-crypto-kit-0.1.0-configured-2.jar file decrypt --in 'C:/data/re
 **사용 상황:** CSV·PDF·JSON·이미지·압축 파일 등 내용 형식과 관계없이 파일 전체를 암호화할 때. 자세한 형식은 [7장](#topic-file-encryption--7-파일-암복호화).
 
 ```text
-java -jar <JAR> file encrypt --in <원본 파일> [--out <출력 파일>] [--type pass|key] [--key-id <키 ID>]
+java -jar <JAR> file encrypt --in <원본 파일> --out <출력 파일> [--type pass|key] [--key-id <키 ID>]
     [--config <외부 Properties>] [--lang ko|en]
 ```
 
 | 옵션 | 필수 | 의미·기본값 |
 |---|---|---|
 | `--in <경로>` | 예 | 암호화할 일반 파일 |
-| `--out <경로>` | 아니요 | 생략하면 `<입력 파일>.jck`. 출력 파일이 이미 있으면 덮어쓰지 않음 |
+| `--out <경로>` | 예 | 결과 파일 경로. 기존 파일은 덮어쓰지 않음 |
 | `--type pass\|key` | 아니요 | 키 유형(`encrypt`와 같은 규칙, 생략하면 기본 유형의 기본 키) |
 | `--key-id <ID>` | 아니요 | 등록된 키 ID로 선택(유형 자동) |
 | `--config <경로>` | 아니요 | 외부 키 공급 설정을 쓸 때 |
@@ -100,7 +101,7 @@ java -jar <JAR> file encrypt --in <원본 파일> [--out <출력 파일>] [--typ
 **예제**
 
 ```powershell
-java -jar .\java-crypto-kit-0.1.0-configured-2.jar file encrypt --in 'C:/data/report.pdf'
+java -jar .\java-crypto-kit-0.1.0-configured-2.jar file encrypt --in 'C:/data/report.pdf' --out 'C:/data/report.pdf.jck'
 ```
 
 ```bash
@@ -122,13 +123,13 @@ java -jar ./java-crypto-kit-0.1.0-configured-2.jar file encrypt --in /data/expor
 **사용 상황:** `file encrypt`(또는 Java API `encryptFile`)로 만든 `JCKF v1` 파일을 원래 파일로 되돌릴 때.
 
 ```text
-java -jar <JAR> file decrypt --in <암호화 파일> [--out <복원 파일>] [--config <외부 Properties>] [--admin-pass-file <파일>] [--lang ko|en]
+java -jar <JAR> file decrypt --in <암호화 파일> --out <복원 파일> [--config <외부 Properties>] [--admin-pass-file <파일>] [--lang ko|en]
 ```
 
 | 옵션 | 필수 | 의미·기본값 |
 |---|---|---|
 | `--in <경로>` | 예 | `JCKF v1` 암호화 파일(보통 `.jck`) |
-| `--out <경로>` | 조건부 | `.jck` 파일이면 확장자를 뗀 이름이 기본. `.jck`가 아닌 이름이면 **필수**. 출력 파일이 있으면 덮어쓰지 않음 |
+| `--out <경로>` | 예 | 결과 파일 경로. 기존 파일은 덮어쓰지 않음 |
 | `--config <경로>` | 아니요 | 파일 암호화에 쓴 키 공급 설정 |
 | `--admin-pass-file <파일>` | 아니요 | 관리자 비밀번호 파일(한 줄, 비대화형 인증). 생략하면 대화형 터미널에서 묻고, 비대화형이면 아무것도 하지 않고 실패([1.4절](cli.md#topic-admin--14-cli-관리자-비밀번호)) |
 | `--lang ko\|en` | 아니요 | 이번 실행의 메시지 언어 |
@@ -156,12 +157,12 @@ java -jar ./java-crypto-kit-0.1.0-configured-2.jar file decrypt --in /secure/use
 ### 파일 암복호화 (A.13)
 
 ```powershell
-java -jar .\app-pass.jar file encrypt --in .\report.csv
+java -jar .\app-pass.jar file encrypt --in .\report.csv --out .\report.csv.jck
 java -jar .\app-pass.jar file decrypt --in .\report.csv.jck --out .\report-restored.csv
 ```
 
 ```bash
-java -jar ./app-pass.jar file encrypt --in ./report.csv
+java -jar ./app-pass.jar file encrypt --in ./report.csv --out ./report.csv.jck
 java -jar ./app-pass.jar file decrypt --in ./report.csv.jck --out ./report-restored.csv
 ```
 

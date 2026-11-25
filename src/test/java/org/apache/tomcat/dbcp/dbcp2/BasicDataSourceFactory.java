@@ -29,6 +29,7 @@ public final class BasicDataSourceFactory implements ObjectFactory {
     public static volatile String lastUrl;
     /** 마지막으로 전달받은 Reference에 factory 속성이 남아 있었는지. */
     public static volatile boolean lastHadFactoryAttribute;
+    public static volatile Reference lastReference;
     /** 호출 횟수. */
     public static volatile int invocations;
     /** 지정하면 다음 호출에서 이 예외(Exception 또는 Error)를 던지고 비운다(실패 재현용). */
@@ -40,6 +41,7 @@ public final class BasicDataSourceFactory implements ObjectFactory {
         lastUsername = null;
         lastUrl = null;
         lastHadFactoryAttribute = false;
+        lastReference = null;
         invocations = 0;
         nextFailure = null;
     }
@@ -55,6 +57,7 @@ public final class BasicDataSourceFactory implements ObjectFactory {
                                     Hashtable<?, ?> environment) throws Exception {
         invocations++;
         Reference ref = (Reference) object;
+        lastReference = ref;
         lastPassword = content(ref, "password");
         lastUsername = content(ref, "username");
         lastUrl = content(ref, "url");

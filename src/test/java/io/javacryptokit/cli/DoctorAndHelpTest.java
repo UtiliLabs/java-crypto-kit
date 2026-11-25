@@ -245,6 +245,21 @@ class DoctorAndHelpTest {
     }
 
     @Test
+    void bothFileHelpTopicsRequireOutputInBothLanguages() {
+        for (Messages.Language language : Messages.Language.values()) {
+            for (String topic : new String[] {"file-encrypt", "file-decrypt"}) {
+                String help = Messages.text(language, topic);
+                assertTrue(help.contains("--out" + (language == Messages.Language.KO ? " <파일>" : " <file>")));
+                assertFalse(help.contains("[--out"));
+                assertFalse(help.contains("Required when the input") || help.contains("입력이 .jck로 끝나지 않으면"));
+                for (String line : help.split("\r?\n")) {
+                    if (line.trim().startsWith("java -jar")) assertTrue(line.contains("--out"), line);
+                }
+            }
+        }
+    }
+
+    @Test
     void helpNeverShowsSecretsAndWorksWithBrokenExternalConfig() throws Exception {
         try (AutoCloseable ignored = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY,
                 dir.resolve("missing.properties").toString())) {

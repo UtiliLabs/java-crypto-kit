@@ -43,6 +43,7 @@ java -jar .\java-crypto-kit-0.1.0-configured-2.jar encrypt
 | `KEY_ID_MISMATCH` | 암호문의 키ID가 이 JAR·설정의 키 목록에 없음 | `config show`·`info`의 키 목록·이전 JAR·Resource 암호문 비교 |
 | `INTEGRITY` | 키가 다르거나 암호문 손상. CLI에서는 JAR 이력 손상(해시 체인·설정 지문), 관리자 비밀번호 검증값 손상·알 수 없는 버전·삭제 의심, 검증값은 있는데 이력이 없거나 관리자 기록이 맞지 않음(실행 중인 JAR·`--jar`·`--from-jar`·`--to-jar` 모두)도 이 코드 | `fingerprint`로 키 비교 후 원본 암호문 대조. 이력·관리자 검증값 손상은 신뢰하는 백업·원본 JAR로 다시 준비([12.8절](security.md#128-cli-관리자-인증의-범위와-한계), Java API·Tomcat은 관리자 검증값과 무관) |
 | `KEY_SOURCE` | 파일·환경변수·Vault·KMS 키를 읽지 못함, 외부 키의 지문이 등록할 때와 다름 | **Tomcat 서비스 계정**의 권한·환경변수·TLS·IAM 확인. 지문 불일치는 외부 값이 바뀐 것이므로 원래 값으로 되돌리거나 새 키 ID로 회전([9.2절](../guide/key-management.md#topic-key-rotation--92-키-교체)) |
+| `CONFIGURATION`과 `cryptoPool` 안내 | XML Pool 선택 오류 | 대소문자를 포함해 `dbcp2` 또는 `tomcat-jdbc`를 한 번만 지정합니다. 생략하면 공통 기본값을 사용합니다. |
 | `POOL_FAILURE` | DB 로그인·Pool 초기화 실패 | 원인 유형의 SQLState(28000 = 로그인 거부), JDBC URL·계정, Pool별 속성 이름, `lib`의 Pool·드라이버 JAR |
 | `UNSUPPORTED_RESOURCE` | DataSource가 아닌 JNDI Resource | `type="javax.sql.DataSource"`인지 확인 |
 | `CRYPTO_PROVIDER` | JDK 암호화 Provider 오류. 구형 Oracle JDK 8(8u161 미만)의 AES-256 정책 제한이 흔한 원인 | 실제 JDK 버전·보안 정책 확인([11.1절](compatibility.md#111-검증-상태)의 JDK 8 정책) |

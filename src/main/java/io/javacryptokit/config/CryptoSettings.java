@@ -1131,7 +1131,7 @@ public final class CryptoSettings {
         return id.matches("[A-Za-z0-9_-]{1,64}") ? id : "?";
     }
 
-    /** @return [Tomcat 연동] 위임할 공식 Pool Factory 클래스 이름({@code crypto.pool.factory}) */
+    /** @return [Tomcat 연동] XML에서 Pool 선택을 생략한 경우 위임할 공식 클래스 이름({@code crypto.pool.factory}) */
     public String poolFactory() { return get(POOL_FACTORY); }
 
     /** @return 키 공급 방식을 외부 설정 파일이나 JVM 속성으로 직접 지정했으면 true, JAR 내부 값을 물려받았으면 false */

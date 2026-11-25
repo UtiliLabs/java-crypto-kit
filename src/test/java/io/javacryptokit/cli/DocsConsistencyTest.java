@@ -113,6 +113,9 @@ class DocsConsistencyTest {
                     if (option.equals("--help") || option.equals("--lang")) continue;
                     assertTrue(spec.options().contains(option), document + " 예제의 잘못된 옵션 " + option + ": " + line);
                 }
+                if (name.equals("file encrypt") || name.equals("file decrypt")) {
+                    assertTrue(tokens(OPTION, m.group(2)).contains("--out"), document + ": " + line);
+                }
                 checked++;
             }
         }
@@ -200,6 +203,12 @@ class DocsConsistencyTest {
             for (int i = 0; i < resources.getLength(); i++) {
                 Element resource = (Element) resources.item(i);
                 assertEquals(FACTORY, resource.getAttribute("factory"), path);
+                boolean dbcp2 = DBCP2_XML.equals(path);
+                assertEquals(dbcp2 ? "dbcp2" : "tomcat-jdbc", resource.getAttribute("cryptoPool"), path);
+                assertTrue(resource.hasAttribute(dbcp2 ? "maxTotal" : "maxActive"), path);
+                assertTrue(resource.hasAttribute(dbcp2 ? "maxWaitMillis" : "maxWait"), path);
+                assertFalse(resource.hasAttribute(dbcp2 ? "maxActive" : "maxTotal"), path);
+                assertFalse(resource.hasAttribute(dbcp2 ? "maxWait" : "maxWaitMillis"), path);
                 assertEquals("javax.sql.DataSource", resource.getAttribute("type"), path);
                 assertEquals("Container", resource.getAttribute("auth"), path + ": 기본 JNDI 인증 주체");
                 assertTrue(resource.getAttribute("password").startsWith("ENC[v1:"), path + ": password는 암호문 형식 자리표시자");
@@ -210,10 +219,9 @@ class DocsConsistencyTest {
         String tomcatJdbc = read(JDBC_POOL_XML);
         assertTrue(dbcp.contains("maxTotal") && dbcp.contains("validationQuery=\"SELECT 1\"") && dbcp.contains("testOnBorrow=\"true\""),
                 "DBCP2 예제는 그 Pool의 속성 이름과 연결 검사 옵션을 보여 줘야 한다");
-        // Pool 종류는 Resource 속성이 아니라 JVM 공통 설정 crypto.pool.factory로 고른다(Resource별 선택 기능 없음).
-        assertTrue(tomcatJdbc.contains("maxActive") && tomcatJdbc.contains(CryptoSettings.TOMCAT_JDBC_FACTORY)
+        assertTrue(tomcatJdbc.contains("maxActive") && tomcatJdbc.contains("cryptoPool=\"tomcat-jdbc\"")
                         && tomcatJdbc.contains("validationQuery=\"SELECT 1\"") && tomcatJdbc.contains("testOnBorrow=\"true\""),
-                "Tomcat JDBC Pool 예제는 그 Pool의 속성과 crypto.pool.factory 값을 안내해야 한다");
+                "Tomcat JDBC Pool 예제는 명시 선택값과 그 Pool의 속성을 안내해야 한다");
         for (String xml : new String[] {dbcp, tomcatJdbc}) {
             // 예제 파일 이름과 Tomcat이 실제로 읽는 Context 파일을 구분해 안내한다.
             assertTrue(xml.contains("Tomcat은 이 파일을 직접 읽지 않는다") && xml.contains("META-INF/context.xml"),
@@ -262,9 +270,9 @@ class DocsConsistencyTest {
         // 체험용 내장 키와 운영용 사용자 지정 키를 구분하고, keygen이 필수 단계가 아님을 안내한다.
         assertTrue(guide.contains("체험용 내장 키와 운영용 사용자 지정 키") && guide.contains("필수 선행 단계가 아닙니다"),
                 "체험용 키·운영용 키 구분과 keygen 선택 안내 누락");
-        // Pool은 JVM 공통 설정 crypto.pool.factory 하나로 고른다(Resource별 선택 기능 없음).
-        assertTrue(guide.contains(CryptoSettings.TOMCAT_JDBC_FACTORY) && guide.contains("JVM의 모든 Resource"),
-                "Pool 선택 방법(crypto.pool.factory, JVM 공통) 안내 누락");
+        String tomcat = read("docs/guide/tomcat-jdbc.md");
+        assertTrue(tomcat.contains("cryptoPool=\"dbcp2\"") && tomcat.contains("cryptoPool=\"tomcat-jdbc\"")
+                && tomcat.contains("Resource의 `cryptoPool` > 유효한 공통 `crypto.pool.factory`"));
         assertTrue(guide.contains("키 파일을 매번 만들거나") && guide.contains("비밀번호 + Salt")
                 && guide.contains("미지원"), "암호화 키 공급 방식과 Salt·PBE 지원 범위 설명 누락");
         // 운영자가 자주 묻는 JNDI·WAS·API 차이가 문서에서 누락되지 않게 한다.
@@ -325,9 +333,9 @@ class DocsConsistencyTest {
                 files.filter(Files::isRegularFile).forEach(sources::add);
             }
         }
-        // 마지막 세 개는 승인 없이 들어왔다가 사용자 결정으로 원복한 기능(Resource별 Pool 선택, 호출별 출력 형식 API)이다.
+        // 현재 범위에서 제외한 호출별 출력 형식 API의 이전 이름은 금지한다.
         String[] stale = {"examples/", "config/java-crypto-kit.properties.example", "qa/integration", "context-dbcp2.xml",
-            "context-tomcat-jdbc.xml", "tomcat-smoke-test", "cryptoPool", "OutputFormat", "POOL_CONFIGURATION"};
+            "context-tomcat-jdbc.xml", "tomcat-smoke-test", "OutputFormat", "POOL_CONFIGURATION"};
         for (Path source : sources) {
             String text = new String(Files.readAllBytes(source), StandardCharsets.UTF_8);
             for (String old : stale) {

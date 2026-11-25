@@ -41,10 +41,12 @@
 | `crypto.warning.enabled` | `true` / `true`·`false` | 공개 기본 키를 쓸 때의 WARN 한 줄(공급 방식 무관, JVM당 1회) 출력 여부. 이 경고 하나만 제어 | **`false`여도 오류·FAIL·`info`·`doctor`의 키 상태는 그대로이고 공개 키 위험도 그대로**([12.1절](security.md#121-공개-기본-키-경고)) |
 | `crypto.output.encoding` | `enc` / `enc`·`base64` | 암호화 결과를 `ENC[...]` 또는 `B64[...]`로 출력 | `B64[...]`는 ENC의 추가 포장이지 추가 암호화가 아님 |
 | `crypto.jvm.override.enabled` | `true` / `true`·`false` | 허용된 `-Dcrypto.*`가 설정을 덮어쓰게 할지 | 이 항목 자체는 `-D`로 바꿀 수 없음. `-Dcrypto.config.file`은 항상 동작 |
-| `crypto.pool.factory` | DBCP2 / 공식 Factory 클래스 2종 | Tomcat Resource가 쓸 Pool 선택(공용 `lib`의 같은 JCK Factory를 쓰는 Resource에 공통) | 두 Factory 외 임의 클래스 불가 |
+| `crypto.pool.factory` | DBCP2 / 공식 Factory 클래스 2종 | XML에서 `cryptoPool`을 생략한 Tomcat Resource의 기본 Pool | 두 Factory 외 임의 클래스 불가 |
 | `crypto.require.encrypted.password` | `true`만 | Resource의 평문 DB 비밀번호 거부 | 보안상 `false` 허용 안 함 |
 
 `crypto.pool.factory`의 허용값은 `org.apache.tomcat.dbcp.dbcp2.BasicDataSourceFactory`(DBCP2, 기본)와 `org.apache.tomcat.jdbc.pool.DataSourceFactory`(Tomcat JDBC Pool)입니다.
+
+XML의 [Resource별 `cryptoPool`](../guide/tomcat-jdbc.md#topic-tomcat--32-dbcp2와-tomcat-jdbc-pool-선택)이 우선합니다. 공통 설정의 유효성 검사는 그대로 적용됩니다.
 
 이 Factory 클래스도 이 라이브러리를 로딩한 클래스로더에서만 찾으므로, 웹앱에 같은 이름의 클래스를 넣어도 쓰이지 않습니다.
 

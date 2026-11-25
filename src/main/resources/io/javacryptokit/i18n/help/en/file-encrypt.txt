@@ -2,12 +2,12 @@ file encrypt - encrypt a file (any content, JCKF v1, streaming for large files)
 
 Usage
   java [-D...] -jar {jar} file encrypt --in <file>
-       [--out <file>] [--type pass|key] [--key-id <ID>]
+       --out <file> [--type pass|key] [--key-id <ID>]
        [--config <file>] [--lang en|ko]
 
 Options
   --in <file>       File to encrypt (required)
-  --out <file>      Result file (optional, default <input>.jck).
+  --out <file>      Result file (required).
                     An existing file is never overwritten.
   --type pass|key   Key type (optional, same rules as encrypt)
   --key-id <ID>     A registered key ID (optional, type found from the key)
@@ -19,5 +19,5 @@ Result
   Encrypted: data.csv -> data.jck (key ID key01, 1048650 bytes)
 
 Examples
-  java -jar {jar} file encrypt --in "monthly report.pdf"
-  java -jar {jar} file encrypt --in data.csv --type key
+  java -jar {jar} file encrypt --in a.pdf --out a.jck
+  java -jar {jar} file encrypt --in a --out b --type key

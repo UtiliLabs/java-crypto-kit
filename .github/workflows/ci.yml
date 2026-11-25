@@ -203,17 +203,17 @@ jobs:
 
           # 파일 암복호화 왕복(복호화만 관리자 인증)
           printf 'hello\n한글 파일\n' > "ci-tmp/in put.txt"
-          java -jar ci-tmp/company.jar file encrypt --in "ci-tmp/in put.txt"
+          java -jar ci-tmp/company.jar file encrypt --in "ci-tmp/in put.txt" --out "ci-tmp/in put.txt.jck"
           java -jar ci-tmp/company.jar file decrypt --in "ci-tmp/in put.txt.jck" --out ci-tmp/out.txt $ADM
           cmp "ci-tmp/in put.txt" ci-tmp/out.txt
 
           # 빈 파일과 32MiB 파일 검증
           : > ci-tmp/empty.txt
-          java -jar ci-tmp/company.jar file encrypt --in ci-tmp/empty.txt
+          java -jar ci-tmp/company.jar file encrypt --in ci-tmp/empty.txt --out ci-tmp/empty.txt.jck
           java -jar ci-tmp/company.jar file decrypt --in ci-tmp/empty.txt.jck --out ci-tmp/empty.out $ADM
           cmp ci-tmp/empty.txt ci-tmp/empty.out
           head -c 33554432 /dev/urandom > ci-tmp/big.bin
-          java -jar ci-tmp/company.jar file encrypt --in ci-tmp/big.bin
+          java -jar ci-tmp/company.jar file encrypt --in ci-tmp/big.bin --out ci-tmp/big.bin.jck
           java -jar ci-tmp/company.jar file decrypt --in ci-tmp/big.bin.jck --out ci-tmp/big.out $ADM
           cmp ci-tmp/big.bin ci-tmp/big.out
           rm -rf ci-tmp

@@ -15,8 +15,7 @@
   - 신규·일반 DB 연결은 DBCP2(이 예제). 이미 Tomcat JDBC Pool을 쓰거나 jdbcInterceptors 같은
     전용 기능이 필요하면 jdbc-pool-context.xml 예제를 쓴다.
   - factory는 두 예제가 같다(EncryptedDataSourceFactory: 암호문 복호화 후 공식 Pool에 위임).
-  - Pool은 설정 crypto.pool.factory로 고르며 기본값이 DBCP2라 이 예제는 따로 설정할 것이 없다.
-    이 설정은 Tomcat JVM의 모든 Resource에 적용된다(Resource마다 다른 Pool이 필요하면 Tomcat 인스턴스를 나눈다).
+  - XML Resource에 cryptoPool="dbcp2"를 지정한다. 생략하면 기존 공통 crypto.pool.factory 값을 쓴다.
 
   [JNDI 표준 속성]
   - name: 앱이 찾는 이름(java:comp/env/jdbc/myDB).
@@ -42,6 +41,7 @@
             auth="Container"
             type="javax.sql.DataSource"
             factory="io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory"
+            cryptoPool="dbcp2"
             driverClassName="org.mariadb.jdbc.Driver"
             url="jdbc:mariadb://db.example.com:3306/mydb"
             username="app_user"

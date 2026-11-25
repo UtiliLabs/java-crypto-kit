@@ -73,6 +73,8 @@ java -jar java-crypto-kit-0.1.0-configured.jar verify
 
 ### 옵션의 대상과 함께 쓸 수 있는 조합
 
+`file encrypt`와 `file decrypt`는 `--in`과 `--out`을 모두 요구합니다. [파일 명령과 출력 예제](file-encryption.md)
+
 | 하려는 일 | 옵션을 고르는 기준 |
 |---|---|
 | 실행 환경 또는 JAR 조사 | `--config`는 이번 암복호화·진단이 읽을 외부 Properties입니다. `config show --jar`는 지정한 JAR 안의 값을 봅니다. 실제 적용값은 `info`에서 확인하세요. |
@@ -827,7 +829,7 @@ java -jar <입력 JAR> config set <설정>=<값> [<설정>=<값> ...] --operator
 # 키 내장 JAR를 바꾸면 -configured-2.jar가 새로 만들어집니다(원본 그대로).
 java -jar .\java-crypto-kit-0.1.0-configured-2.jar config set crypto.lang=en --operator example-admin --reason "English messages"
 java -jar .\java-crypto-kit-0.1.0-configured-3.jar config show
-# Tomcat JDBC Pool 사용(JVM의 모든 Resource에 적용)
+# XML에서 cryptoPool을 생략한 Resource의 기본 Pool 변경
 java -jar .\java-crypto-kit-0.1.0-configured-2.jar config set crypto.pool.factory=org.apache.tomcat.jdbc.pool.DataSourceFactory --operator example-admin
 ```
 

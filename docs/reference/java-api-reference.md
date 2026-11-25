@@ -290,6 +290,8 @@ java -cp '.:java-crypto-kit-0.1.0.jar' AesExample
 
 `io.javacryptokit.jdbc.tomcat.EncryptedDataSourceFactory`
 
+XML Resource에서 `cryptoPool`로 Pool을 선택하는 절차는 [Tomcat Pool 선택표](../guide/tomcat-jdbc.md#topic-tomcat--32-dbcp2와-tomcat-jdbc-pool-선택)를 참고하세요.
+
 - `EncryptedDataSourceFactory()`  
   Tomcat이 Resource의 factory 속성으로 인스턴스를 만듭니다. 애플리케이션은 JNDI로 DataSource를 조회합니다.
 - `getObjectInstance(Object object, Name name, Context nameContext, Hashtable<?,?> environment)`  
