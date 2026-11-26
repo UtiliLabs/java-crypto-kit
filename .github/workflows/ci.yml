@@ -118,8 +118,8 @@ jobs:
           mkdir -p ci-tmp
           trap 'rm -rf ci-tmp' EXIT
 
-          # 빌드 JAR은 CLI 관리자 비밀번호 미설정: 도움말은 설정 안내만, 다른 명령은 아무것도 하지 않고 실패(비대화형)
-          java -jar "$JAR" help --lang en | grep "the admin password must be set first" > /dev/null
+          # 빌드 JAR은 CLI 관리자 비밀번호 미설정: 전체 도움말은 공개, 실제 명령은 설정 전 실패(비대화형)
+          java -jar "$JAR" help --lang en | grep -F "Admin (set once before using the CLI)" > /dev/null || { echo "::error::미설정 JAR의 공개 도움말에 관리자 초기 설정 안내가 없음"; exit 1; }
           rc=0
           msg=$(java -jar "$JAR" doctor 2>&1) || rc=$?
           [ "$rc" -eq 1 ] || { echo "::error::미설정 doctor 종료 코드가 1이 아님($rc)"; exit 1; }
@@ -196,10 +196,10 @@ jobs:
 
           # 연속 설정 변경 시 JAR 이름 검증
           java -jar ci-tmp/company.jar config set crypto.lang=en --operator ci $ADM > /dev/null
-          java -jar ci-tmp/company-configured.jar config set crypto.warning.enabled=false --operator ci $ADM > /dev/null
-          test -f ci-tmp/company-configured-2.jar
-          if ls ci-tmp | grep 'configured-.*configured' > /dev/null; then echo "::error::JAR 이름 접미사 누적"; exit 1; fi
-          java -jar ci-tmp/company-configured-2.jar config history --all --lang en $ADM | grep "crypto.warning.enabled: true -> false" > /dev/null
+          java -jar ci-tmp/company-cfg.jar config set crypto.warning.enabled=false --operator ci $ADM > /dev/null
+          test -f ci-tmp/company-cfg-2.jar
+          if ls ci-tmp | grep -E '(cfg|configured)-.*(cfg|configured)' > /dev/null; then echo "::error::JAR 이름 접미사 누적"; exit 1; fi
+          java -jar ci-tmp/company-cfg-2.jar config history --all --lang en $ADM | grep "crypto.warning.enabled: true -> false" > /dev/null
 
           # 파일 암복호화 왕복(복호화만 관리자 인증)
           printf 'hello\n한글 파일\n' > "ci-tmp/in put.txt"
