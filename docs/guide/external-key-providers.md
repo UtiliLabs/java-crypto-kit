@@ -14,6 +14,8 @@
 <a name="guide-section-1"></a>
 ## 공급원 선택 및 연결 흐름
 
+Vault와 AWS KMS는 관리형 키를 공급합니다. `api` 명령은 입력받은 키만 사용하며 이 공급원을 호출하지 않습니다.
+
 | 상황 | 선택 | 사용하는 도구 |
 |---|---|---|
 | Vault KV v2에 등록한 업무용 키를 읽음 | [Vault](#topic-vault) | 외부 Properties·환경 설정, CLI `info`·`doctor` |
@@ -100,9 +102,9 @@ crypto.vault.timeout.ms=5000
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.1.0-configured-2.jar doctor --config /etc/java-crypto-kit/vault.properties --offline
-java -jar ./java-crypto-kit-0.1.0-configured-2.jar doctor --config /etc/java-crypto-kit/vault.properties
-java -jar ./java-crypto-kit-0.1.0-configured-2.jar fingerprint --config /etc/java-crypto-kit/vault.properties
+java -jar ./java-crypto-kit-0.2.0-cfg-2.jar doctor --config /etc/java-crypto-kit/vault.properties --offline
+java -jar ./java-crypto-kit-0.2.0-cfg-2.jar doctor --config /etc/java-crypto-kit/vault.properties
+java -jar ./java-crypto-kit-0.2.0-cfg-2.jar fingerprint --config /etc/java-crypto-kit/vault.properties
 ```
 
 **결과 판단:** `--offline`은 네트워크 확인을 건너뜁니다(SKIP). `--offline` 없는 `doctor`는 TLS·토큰·KV v2 키 조회까지 확인합니다. 403이면 토큰 권한뿐 아니라 **mount·path 오타**도 확인합니다(정책 밖 경로도 Vault는 권한 부족으로 답함). 404면 Secret·버전·KV v2 여부를 확인합니다.
@@ -147,9 +149,9 @@ java -cp '<JAR>;aws-kms-lib/*' io.javacryptokit.cli.CryptoCli kms datakey --out 
 
 | 셸 | 변수 만들기 | 사용 |
 |---|---|---|
-| Windows PowerShell | `$CP = "java-crypto-kit-0.1.0-configured-2.jar;aws-kms-lib/*"` | `java -cp "$CP" io.javacryptokit.cli.CryptoCli <명령>` |
-| Windows 명령 프롬프트 | `set "CP=java-crypto-kit-0.1.0-configured-2.jar;aws-kms-lib/*"` | `java -cp "%CP%" io.javacryptokit.cli.CryptoCli <명령>` |
-| Linux(bash) | `CP="java-crypto-kit-0.1.0-configured-2.jar:aws-kms-lib/*"` | `java -cp "$CP" io.javacryptokit.cli.CryptoCli <명령>` |
+| Windows PowerShell | `$CP = "java-crypto-kit-0.2.0-cfg-2.jar;aws-kms-lib/*"` | `java -cp "$CP" io.javacryptokit.cli.CryptoCli <명령>` |
+| Windows 명령 프롬프트 | `set "CP=java-crypto-kit-0.2.0-cfg-2.jar;aws-kms-lib/*"` | `java -cp "%CP%" io.javacryptokit.cli.CryptoCli <명령>` |
+| Linux(bash) | `CP="java-crypto-kit-0.2.0-cfg-2.jar:aws-kms-lib/*"` | `java -cp "$CP" io.javacryptokit.cli.CryptoCli <명령>` |
 
 변수는 만든 터미널 창에서만 유지되므로 새 창에서는 다시 만듭니다.
 
@@ -157,7 +159,7 @@ java -cp '<JAR>;aws-kms-lib/*' io.javacryptokit.cli.CryptoCli kms datakey --out 
 
 ```powershell
 # Windows PowerShell
-$CP = "java-crypto-kit-0.1.0-configured-2.jar;aws-kms-lib/*"
+$CP = "java-crypto-kit-0.2.0-cfg-2.jar;aws-kms-lib/*"
 # 새 데이터 키 만들기(새 키이므로 기존 암호문은 rekey 필요)
 java -cp "$CP" io.javacryptokit.cli.CryptoCli kms datakey --out C:/secure/prod.datakey --config C:/secure/kms.properties --reason "KMS 데이터 키 준비"
 # 이미 쓰는 키(keygen 형식)를 KMS로 감싸기(키·키 ID가 그대로라 기존 암호문을 계속 씀)
@@ -166,7 +168,7 @@ java -cp "$CP" io.javacryptokit.cli.CryptoCli kms datakey --from-file C:/secure/
 
 ```bash
 # Linux
-CP="java-crypto-kit-0.1.0-configured-2.jar:aws-kms-lib/*"
+CP="java-crypto-kit-0.2.0-cfg-2.jar:aws-kms-lib/*"
 java -cp "$CP" io.javacryptokit.cli.CryptoCli kms datakey --out /secure/prod.datakey --config /secure/kms.properties --reason "KMS 데이터 키 준비"
 java -cp "$CP" io.javacryptokit.cli.CryptoCli kms datakey --from-file /secure/example.key --out /secure/prod.datakey --config /secure/kms.properties --reason "기존 키를 KMS로 보호"
 ```
@@ -221,14 +223,14 @@ crypto.aws.kms.timeout.ms=10000
 
 ```bash
 # Linux: 배포 JAR와 aws-kms-lib 폴더가 현재 폴더에 있다고 가정(변수 CP: 2.17절)
-CP="java-crypto-kit-0.1.0-configured-2.jar:aws-kms-lib/*"
+CP="java-crypto-kit-0.2.0-cfg-2.jar:aws-kms-lib/*"
 # 새 데이터 키를 만드는 예입니다. 이미 쓰는 AES 키가 있으면 --from-file /secure/example.key를 붙여야 기존 ENC가 유지됩니다.
 java -cp "$CP" io.javacryptokit.cli.CryptoCli kms datakey --out /etc/java-crypto-kit/prod.datakey --config /etc/java-crypto-kit/kms.properties --reason "KMS 데이터 키 준비"
 java -cp "$CP" io.javacryptokit.cli.CryptoCli doctor --offline --config /etc/java-crypto-kit/kms.properties
 java -cp "$CP" io.javacryptokit.cli.CryptoCli doctor --config /etc/java-crypto-kit/kms.properties
 ```
 
-Windows PowerShell은 `$CP = "java-crypto-kit-0.1.0-configured-2.jar;aws-kms-lib/*"`처럼 세미콜론으로 만들고 같은 `java -cp "$CP" ...` 명령을 씁니다(셸별 방법: [2.17절](#topic-aws-kms--217-kms-datakey--aws-kms-데이터-키-파일-만들기)). AWS SDK가 필요한 실행에서는 `java -jar`와 `-cp`를 함께 쓰지 않습니다.
+Windows PowerShell은 `$CP = "java-crypto-kit-0.2.0-cfg-2.jar;aws-kms-lib/*"`처럼 세미콜론으로 만들고 같은 `java -cp "$CP" ...` 명령을 씁니다(셸별 방법: [2.17절](#topic-aws-kms--217-kms-datakey--aws-kms-데이터-키-파일-만들기)). AWS SDK가 필요한 실행에서는 `java -jar`와 `-cp`를 함께 쓰지 않습니다.
 
 필요한 권한은 새 키 생성 `kms:GenerateDataKey`+`kms:Decrypt`, 기존 키 감싸기 `kms:Encrypt`+`kms:Decrypt`, WAS 복원 `kms:Decrypt`입니다.
 

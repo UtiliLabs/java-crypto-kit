@@ -1,6 +1,6 @@
 # 보안 유틸리티 API
 
-[프로젝트 소개](../../README.md) · [전체 가이드](../user-guide.md)
+[프로젝트 소개](../../README.md) · [전체 가이드](../user-guide.md) · [CLI 명령·예제](#api-cli-guide)
 
 비밀번호의 단방향 저장, 난수·토큰·UUID 생성, 키 파생, 바이너리 인코딩과 안전 비교를 제공합니다. 각 기능은 독립 Java API로 사용하며 관리형 키 설정이나 CLI 관리자 인증에 의존하지 않습니다.
 
@@ -37,7 +37,7 @@
 | Passphrase에서 키 생성 | PBKDF2와 Salt·반복 횟수·알고리즘 보관 | SHA 해시 한번만으로 키 파생 |
 | 데이터 전송 표현 | Base64URL·Hex·Base32 등 합의한 형식 | 인코딩을 암호화로 오해 |
 
-모두 애플리케이션 내부에서 호출하는 Java API입니다. 관리형 `pass`는 내부에서 PBKDF2를 사용하지만 이 문서의 `Pbkdf2`는 호출자가 키 파생 조건을 직접 지정하는 독립 기능입니다. CLI 관리자 비밀번호와 사용자 로그인 비밀번호도 서로 다른 저장·검증 체계입니다.
+Java API와 독립 CLI는 암호 처리 구현을 공유합니다. [CLI 명령·옵션·예제](#api-cli-guide)에서 실행 방법을 확인할 수 있습니다. 관리형 `pass`는 내부에서 PBKDF2를 사용하지만 이 문서의 `Pbkdf2`는 호출자가 키 파생 조건을 직접 지정하는 독립 기능입니다. CLI 관리자 비밀번호와 사용자 로그인 비밀번호도 서로 다른 저장·검증 체계입니다.
 
 <a name="topic-password"></a>
 
@@ -330,6 +330,173 @@ public class EncodingExample {
 ```text
 c2FtcGxl
 true
+```
+
+<a name="api-cli-guide"></a>
+## 독립 보안 API의 CLI 사용
+
+[인증·비밀 입출력 규칙](cli.md#api-cli)과 아래 업무별 옵션을 확인하세요.
+
+<a name="api-encode"></a>
+### 인코딩
+
+인코딩은 데이터를 표시하는 형식입니다. `encode`는 UTF-8 한 줄이나 최대 1 MiB의 원본 파일을 변환하며 BOM·줄바꿈을 포함한 파일 바이트를 그대로 보존합니다. `decode`는 최대 2 MiB + 5바이트의 인코딩 파일에서 UTF-8 BOM 하나와 끝 LF 또는 CRLF 하나를 제거한 뒤 해석합니다. 원본이 바이너리이면 `--out`을 지정하세요.
+
+| 명령 | 관리자 인증 | 명령별 옵션 |
+|---|---|---|
+| `api encode` | 초기 설정 후 사용 | `--encoding`, `--in`, `--out` |
+
+<details>
+<summary>옵션과 기본값</summary>
+
+- `encode` — 기본 Base64. 입력 파일의 BOM과 줄바꿈도 그대로 변환합니다.
+- `--encoding` — hex, base64, base64url, base32.
+- `--in` — 입력 경로. 지원하는 경우 생략하면 한 줄 입력을 받습니다.
+- `--out` — 새 출력 경로. 비밀 결과에는 보호 폴더를 씁니다.
+
+</details>
+
+입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
+
+```sh
+java -jar java-crypto-kit-0.2.0-cfg.jar api encode --enc base64 --in sample.bin --out sample.b64
+```
+
+<a name="api-decode"></a>
+### 디코딩
+
+입력 형식을 추측하지 않습니다. 파일로 저장한 인코딩 결과는 끝 줄바꿈 한 개를 제거한 뒤 해석합니다. 디코딩 결과의 바이트를 보존하려면 `--out`을 지정합니다.
+
+| 명령 | 관리자 인증 | 명령별 옵션 |
+|---|---|---|
+| `api decode` | 초기 설정 후 사용 | `--encoding`, `--in`, `--out` |
+
+<details>
+<summary>옵션과 기본값</summary>
+
+- `decode` — 기본 Base64. UTF-8이 아닌 바이너리는 --out으로 저장합니다.
+- `--encoding` — hex, base64, base64url, base32.
+- `--in` — 입력 경로. 지원하는 경우 생략하면 한 줄 입력을 받습니다.
+- `--out` — 새 출력 경로. 비밀 결과에는 보호 폴더를 씁니다.
+
+</details>
+
+입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
+
+```sh
+java -jar java-crypto-kit-0.2.0-cfg.jar api decode --enc base64 --in sample.b64 --out restored.bin
+```
+
+<a name="api-random"></a>
+### 난수와 UUID
+
+바이트·토큰·문자열 결과는 보호 출력입니다. Nonce와 UUID는 공개 결과입니다. 접두어는 난수 길이에 포함되지 않으며 고유성을 보증하지 않습니다.
+
+| 명령 | 관리자 인증 | 명령별 옵션 |
+|---|---|---|
+| `api random bytes` | 매 실행 | `--length`, `--encoding`, `--out`, `--show` |
+| `api random token` | 매 실행 | `--length`, `--encoding`, `--out`, `--show` |
+| `api random string` | 매 실행 | `--length`, `--alphabet`, `--prefix`, `--out`, `--show` |
+| `api random nonce` | 초기 설정 후 사용 | `--out` |
+| `api random uuid` | 초기 설정 후 사용 | `--out` |
+
+<details>
+<summary>옵션과 기본값</summary>
+
+- `random bytes` — 기본 32바이트, 범위 1~65536. 기본 표현 Base64.
+- `random token` — 기본 32바이트(16~1024), 표현 Base64URL.
+- `random string` — 기본 영문·숫자 32자. 접두어 제외 1~1024자.
+- `random nonce` — Base64URL 결과. 재사용 여부는 호출자가 관리합니다.
+- `random uuid` — 표준 UUID 문자열을 반환합니다.
+- `--alphabet` — digits, upper, lower, letters, upper-digits, lower-digits, alphanumeric.
+- `--encoding` — hex, base64, base64url, base32.
+- `--length` — 난수 또는 파생키 길이. 명령별 단위·범위를 확인합니다.
+- `--out` — 새 출력 경로. 비밀 결과에는 보호 폴더를 씁니다.
+- `--prefix` — 접두어. 기본값은 빈 문자열.
+- `--show` — 실제 터미널에서 SHOW 확인 뒤 화면에만 표시합니다.
+
+</details>
+
+입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
+
+```sh
+java -jar java-crypto-kit-0.2.0-cfg.jar api rand bytes --len 16 --enc hex --out salt.hex
+java -jar java-crypto-kit-0.2.0-cfg.jar api rand token --len 32 --out random.txt
+java -jar java-crypto-kit-0.2.0-cfg.jar api rand string --len 12 --alphabet digits --prefix TEST- --out random.txt
+java -jar java-crypto-kit-0.2.0-cfg.jar api rand nonce --out nonce.txt
+java -jar java-crypto-kit-0.2.0-cfg.jar api rand uuid
+```
+
+<a name="api-password"></a>
+### 앱 비밀번호 해시
+
+`verify`는 저장 해시가 기록한 알고리즘과 횟수를 쓰며 `needs-rehash`는 선택한 정책과 비교합니다. 후자의 true/false는 모두 정상 종료입니다.
+
+| 명령 | 관리자 인증 | 명령별 옵션 |
+|---|---|---|
+| `api password hash` | 매 실행 | `--algorithm`, `--iterations`, `--password-file`, `--out`, `--show` |
+| `api password verify` | 매 실행 | `--password-file`, `--in` |
+| `api password needs-rehash` | 매 실행 | `--algorithm`, `--iterations`, `--in` |
+
+<details>
+<summary>옵션과 기본값</summary>
+
+- `password hash` — 기본 PBKDF2 SHA-256 600000회. SHA-512는 210000회.
+- `password verify` — 저장 해시에 알고리즘과 반복 횟수가 포함됩니다.
+- `password needs-rehash` — true/false를 출력합니다. 파일은 그대로입니다.
+- `--algorithm` — 이 명령의 알고리즘. 위 허용값을 확인합니다.
+- `--in` — 입력 경로. 지원하는 경우 생략하면 한 줄 입력을 받습니다.
+- `--iterations` — PBKDF2 반복 횟수. 알고리즘별 기본값 적용.
+- `--out` — 새 출력 경로. 비밀 결과에는 보호 폴더를 씁니다.
+- `--password-file` — 앱 비밀번호 UTF-8 보호 파일.
+- `--show` — 실제 터미널에서 SHOW 확인 뒤 화면에만 표시합니다.
+
+</details>
+
+입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
+
+```sh
+java -jar java-crypto-kit-0.2.0-cfg.jar api password hash --password-file app.pw --out app.hash
+java -jar java-crypto-kit-0.2.0-cfg.jar api password verify --password-file app.pw --in app.hash
+java -jar java-crypto-kit-0.2.0-cfg.jar api password needs-rehash --in app.hash
+```
+
+<a name="api-kdf"></a>
+### 키 파생
+
+PBKDF2에 쓸 Salt는 Hex로 지정합니다. HKDF의 `--key-file`에는 지정된 표현의 IKM이 들어갑니다. HKDF의 출력 길이 한도는 해시 길이의 255배입니다.
+
+| 명령 | 관리자 인증 | 명령별 옵션 |
+|---|---|---|
+| `api kdf pbkdf2` | 매 실행 | `--algorithm`, `--iterations`, `--salt`, `--salt-file`, `--length`, `--encoding`, `--pass-file`, `--out`, `--show` |
+| `api kdf hkdf` | 매 실행 | `--algorithm`, `--salt`, `--salt-file`, `--info`, `--info-file`, `--length`, `--encoding`, `--key-encoding`, `--key-file`, `--out`, `--show` |
+
+<details>
+<summary>옵션과 기본값</summary>
+
+- `kdf pbkdf2` — Salt 16~64바이트, 반복 100000~5000000회, 결과 16~64바이트.
+- `kdf hkdf` — 기본 SHA-256과 32바이트. Salt·Info 생략 가능.
+- `--algorithm` — 이 명령의 알고리즘. 위 허용값을 확인합니다.
+- `--encoding` — hex, base64, base64url, base32.
+- `--info` — 선택형 공개 HKDF Info(UTF-8).
+- `--info-file` — HKDF Info 바이트 파일. --info와 배타적.
+- `--iterations` — PBKDF2 반복 횟수. 알고리즘별 기본값 적용.
+- `--key-encoding` — 공유키 표현. 기본 base64.
+- `--key-file` — 인코딩한 비밀키 한 줄이 든 보호 파일.
+- `--length` — 난수 또는 파생키 길이. 명령별 단위·범위를 확인합니다.
+- `--out` — 새 출력 경로. 비밀 결과에는 보호 폴더를 씁니다.
+- `--pass-file` — UTF-8 Passphrase 보호 파일.
+- `--salt` — Hex Salt. --salt-file과 함께 쓸 수 없습니다.
+- `--salt-file` — Hex Salt 한 줄을 담은 파일.
+- `--show` — 실제 터미널에서 SHOW 확인 뒤 화면에만 표시합니다.
+
+</details>
+
+입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
+
+```sh
+java -jar java-crypto-kit-0.2.0-cfg.jar api kdf pbkdf2 --pass-file sample.pass --salt-file salt.hex --out pbkdf2.key
+java -jar java-crypto-kit-0.2.0-cfg.jar api kdf hkdf --key-file hmac.key --info trial --out hkdf.key
 ```
 
 ---

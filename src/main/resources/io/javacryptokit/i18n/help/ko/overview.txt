@@ -1,4 +1,4 @@
-java-crypto-kit CLI {version} - Java·Tomcat용 AES-256-GCM 암복호화
+java-crypto-kit CLI {version} - 범용 Java 보안 도구
 
 사용법: java [-D...] -jar {jar} <명령> [옵션]
 
@@ -29,11 +29,15 @@ java-crypto-kit CLI {version} - Java·Tomcat용 AES-256-GCM 암복호화
   info                     실제 적용 설정
   doctor                   설정·기능 점검
 
+독립 보안 API
+  api --help               독립 Java 보안 API 명령과 예제
+
 * 실행할 때마다 관리자 비밀번호 확인(비대화형: --admin-pass-file <파일>).
   Java API·Tomcat 자동 복호화에는 관리자 비밀번호가 필요 없습니다.
 키 유형: pass(Passphrase, 기본), key(AES 키). 암호화는 --type·--key-id로
 고르고, 복호화는 암호문의 키 ID로 키를 자동 선택합니다.
 상세: help <명령>   (예: help config set, decrypt --help)
+예제 조회: <명령> --examples (예: file --examples)
 설정: help config    키 목록: help config key
 연동: help tomcat / help vault / help aws-kms
 모든 명령: --lang en|ko(이번 실행 언어), --help(명령 도움말)

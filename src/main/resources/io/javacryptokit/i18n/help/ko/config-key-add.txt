@@ -34,7 +34,7 @@ config key add - 키 목록에 키 추가(새 JAR 생성)
   --reason <사유>     이력에 남길 사유(필수). 없으면 대화형 터미널에서 묻고,
                       비대화형이면 재료 입력·생성 전에 오류로 멈춥니다.
   --jar <jar>         바꿀 JAR(선택, 기본: 실행 중인 JAR)
-  --out <jar>         결과 JAR(선택, 기본 <이름>-configured.jar)
+  --out <jar>         결과 JAR(선택, 기본 <이름>-cfg.jar)
   --replace           원본 교체(백업 후)
   --yes               CHANGE 확인 생략(사유는 생략할 수 없음)
   --admin-pass-file <파일>

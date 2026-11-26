@@ -8,6 +8,8 @@
 <a name="topic-security-api--13-범용-보안-java-api"></a>
 ## 13. 범용 보안 Java API
 
+테스트용 입력을 명령줄에서 비교할 때는 [독립 API CLI](../guide/cli.md#api-cli)를 사용할 수 있습니다. 애플리케이션 코드는 아래 Java API를 직접 호출합니다.
+
 처음 기능을 선택할 때는 [업무별 API 선택표](api-selection.md#topic-api-selection--15-업무별-java-api-선택-가이드)를 사용하세요. 이 문서의 [타입별 호출 형식](#api-members)은 관리형 암복호화 공개 API, Tomcat JNDI Factory, `security`·`jwt`·`oauth`의 공개 타입과 중첩 타입을 다룹니다.
 
 업무 가이드에서 `// 예제:`로 시작하는 메서드는 [SecurityApiExample.java](../../src/test/java/example/SecurityApiExample.java)와 [TokenApiExample.java](../../src/test/java/example/TokenApiExample.java)의 시험 대상 메서드와 일치합니다.
@@ -73,15 +75,15 @@ CLI나 별도 관리자 설정을 추가할 필요는 없습니다.
 **Windows PowerShell**
 
 ```powershell
-javac -cp .\java-crypto-kit-0.1.0.jar .\AesExample.java
-java -cp '.;java-crypto-kit-0.1.0.jar' AesExample
+javac -cp .\java-crypto-kit-0.2.0.jar .\AesExample.java
+java -cp '.;java-crypto-kit-0.2.0.jar' AesExample
 ```
 
 **Linux / macOS**
 
 ```bash
-javac -cp ./java-crypto-kit-0.1.0.jar AesExample.java
-java -cp '.:java-crypto-kit-0.1.0.jar' AesExample
+javac -cp ./java-crypto-kit-0.2.0.jar AesExample.java
+java -cp '.:java-crypto-kit-0.2.0.jar' AesExample
 ```
 
 다른 예제는 파일명과 클래스명을 바꾸면 됩니다. 실제 배포 JAR의 파일명을 사용하세요. `// 예제:`로 시작하는 메서드 예제는 본인의 클래스 안에 넣고, 입력값을 전달하여 호출합니다.
@@ -271,7 +273,7 @@ java -cp '.:java-crypto-kit-0.1.0.jar' AesExample
 - `INVALID_INPUT`  
   빈 값, 너무 긴 값, UTF-8로 표현할 수 없는 문자, 텍스트로 해석할 수 없는 복호화 결과, 파일 입출력 문제.
 - `INVALID_TOKEN`  
-  ENC[v1:...]·B64[...] 또는 암호화 파일(JCKF v1) 형식이 아니거나 손상됨.
+  ENC[v1:...]·B64[...] 또는 암호화 파일(JCKF v1/v2) 형식이 아니거나 손상됨.
 - `KEY_ID_MISMATCH`  
   암호문(또는 암호화 파일)에 기록된 키 식별자와 현재 설정의 키 식별자가 다름.
 - `INTEGRITY`  

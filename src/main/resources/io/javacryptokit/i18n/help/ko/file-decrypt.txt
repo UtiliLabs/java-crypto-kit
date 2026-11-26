@@ -1,4 +1,4 @@
-file decrypt - file encrypt로 만든 파일(JCKF v1) 복호화
+file decrypt - file encrypt로 만든 파일(JCKF v1/v2) 복호화
 
 사용법
   java [-D...] -jar {jar} file decrypt --in <파일>
@@ -21,5 +21,5 @@ file decrypt - file encrypt로 만든 파일(JCKF v1) 복호화
   복호화 완료: data.jck -> data.csv (1048576바이트)
 
 예제
-  java -jar {jar} file decrypt --in a.jck --out a.pdf
-  java -jar {jar} file decrypt --in data.jck --out data.csv
+  java -jar {jar} file dec --in a.jck --out a.pdf
+  java -jar {jar} file dec --in data.jck --out data.csv

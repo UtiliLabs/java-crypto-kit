@@ -5,7 +5,7 @@ plugins {
 
 // 기본 Java 패키지(io.javacryptokit)와 같은 group을 쓴다.
 group = 'io.javacryptokit'
-version = '0.1.0'
+version = '0.2.0'
 
 java {
     // 빌드 실행 JDK: Gradle 8.14.8 공식 지원 범위인 JDK 8~24(JDK 25 이상은 Gradle 9.1 이상 필요, 이번 범위에서 업그레이드 안 함).

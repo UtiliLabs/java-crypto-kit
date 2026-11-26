@@ -13,7 +13,7 @@ Options
   For another JAR (--jar) that JAR's admin password is checked as well.
 
 Result (part)
-  JAR file     : java-crypto-kit-{version}-configured.jar (version {version})
+  JAR file     : java-crypto-kit-{version}-cfg.jar (version {version})
   State        : 2 change(s), last 2026-11-22T05:30:12Z by ops
   Admin        : password set (sensitive commands need it)
   Key type     : pass

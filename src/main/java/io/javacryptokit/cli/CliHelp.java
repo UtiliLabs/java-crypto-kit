@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+import java.util.jar.JarFile;
 
 /**
  * <b>내부 구현 클래스</b>: CLI 도움말. 실행 중에 명령을 빨리 찾고 바로 실행할 수 있게 짧게 보여 준다(명령 목록, 명령별 용도·실제
@@ -30,23 +31,166 @@ final class CliHelp {
     private CliHelp() { }
 
     /**
-     * {@code help [주제...]}. 주제가 없으면 전체 목차를 보여 준다.
-     *
-     * @param words 주제 단어(예: {@code config set} → config-set)
-     * @return 종료 코드
+     * A help request is resolved before language settings and execution authentication.
+     * No command handler or external configuration is consulted for this request.
      */
-    static int help(String[] words, PrintStream out) throws CryptoCli.CliException {
-        List<String> parts = new ArrayList<>();
-        for (String word : words) {
-            if (!word.startsWith("-")) parts.add(word);
+    static boolean isQuery(List<String> args) {
+        if (args.isEmpty()) return false;
+        for (String word : args) if (isQueryWord(word)) return true;
+        if ("help".equals(args.get(0))) return true;
+        if (args.size() > 1 && "help".equals(args.get(args.size() - 1))) {
+            return isGroup(String.join(" ", args.subList(0, args.size() - 1)));
         }
-        String topic = parts.isEmpty() ? "overview" : String.join("-", parts);
-        if ("help".equals(topic)) topic = "overview";
-        if (!CliCommands.topics().contains(topic)) {
+        return isGroup(String.join(" ", args));
+    }
+
+    private static boolean isQueryWord(String word) {
+        return "--help".equals(word) || "-h".equals(word) || "--examples".equals(word);
+    }
+
+    private static boolean isGroup(String name) {
+        name = CliCommands.canonicalPath(name);
+        return CliCommands.GROUPS.contains(name) || CliCommands.NESTED_GROUPS.containsKey(name)
+                || "api".equals(name) || (name.startsWith("api ") && ApiCommands.groups().contains(name.substring(4))
+                && CliCommands.find(name) == null);
+    }
+
+    static int query(String[] args, PrintStream out, Path runningJar) throws CryptoCli.CliException {
+        boolean examples = false;
+        List<String> parts = new ArrayList<>();
+        int requestAt = -1;
+        for (int i = 0; i < args.length; i++) {
+            String word = args[i];
+            if (isQueryWord(word) || "help".equals(word)) {
+                if (requestAt >= 0) throw ApiInput.problem("api.err.lookupOptions");
+                requestAt = i;
+                examples = "--examples".equals(word);
+            } else {
+                if (word.startsWith("-") || !word.matches("[a-z][a-z0-9-]*")) {
+                    throw ApiInput.problem("api.err.lookupOptions");
+                }
+                parts.add(word);
+            }
+        }
+        if (requestAt > 0 && requestAt != args.length - 1) throw ApiInput.problem("api.err.lookupOptions");
+        String path = CliCommands.canonicalPath(String.join(" ", parts));
+        CliCommands.Spec spec = CliCommands.find(path);
+        if ("api".equals(path) || path.startsWith("api ")) return ApiHelp.show(path, spec, examples, out, runningJar);
+        if (examples) return examples(path, spec, out, runningJar);
+        String jar = runningJar == null ? jarName() : SecretFiles.fileName(runningJar);
+        if (spec != null) {
+            topic(spec.topic, out, jar);
+            String alias = CliCommands.commandAlias(spec.name);
+            if (alias != null) out.println(Messages.get("api.help.alias", alias));
+        } else if (path.isEmpty()) {
+            topic("overview", out, jar);
+        } else if (CliCommands.NESTED_GROUPS.containsKey(path)) {
+            topic(CliCommands.NESTED_GROUPS.get(path), out, jar);
+        } else if (CliCommands.EXTRA_TOPICS.contains(path.replace(' ', '-'))) {
+            topic(path.replace(' ', '-'), out, jar);
+        } else if (CliCommands.GROUPS.contains(path)) {
+            group(path, out, jar);
+        } else {
             throw new CryptoCli.CliException(Messages.get("cli.err.unknownTopic", String.join(", ", CliCommands.topics())));
         }
-        topic(topic, out);
         return 0;
+    }
+
+    private static int examples(String path, CliCommands.Spec spec, PrintStream out, Path runningJar)
+            throws CryptoCli.CliException {
+        if (spec == null && !path.isEmpty() && !isGroup(path)) {
+            throw new CryptoCli.CliException(Messages.get("cli.err.unknownTopic", String.join(", ", CliCommands.topics())));
+        }
+        Boolean adminEntry = hasAdminEntry(runningJar);
+        boolean fresh = Boolean.FALSE.equals(adminEntry);
+        String commandName = exampleCommandName(runningJar, adminEntry);
+        String commandJar = exampleJarName(commandName);
+        String setupJar = fresh ? exampleJar(runningJar) : exampleJarName(distributionJarName());
+        String editedJar = fresh ? exampleJarName(ConfigCommand.defaultOutputName(commandName))
+                : ConfigCommand.defaultOutputName(distributionJarName());
+        if (spec == null || spec.access != CliCommands.Access.SETUP) examplePrelude(out, adminEntry, setupJar, commandJar);
+        if (path.isEmpty()) {
+            out.println(Messages.get("api.help.exampleIndex"));
+            for (String name : CliCommands.topLevelNames()) {
+                if (!"help".equals(name)) out.println("  " + name + " --examples");
+            }
+        } else if (spec != null) {
+            printExamples(spec, out, setupJar, commandJar, editedJar);
+        } else {
+            for (CliCommands.Spec child : CliCommands.ALL) {
+                if (child.name.startsWith(path + " ")) printExamples(child, out, setupJar, commandJar, editedJar);
+            }
+        }
+        return 0;
+    }
+
+    static String examplePrelude(PrintStream out, Path runningJar) {
+        Boolean adminEntry = hasAdminEntry(runningJar);
+        String commandJar = exampleJarName(exampleCommandName(runningJar, adminEntry));
+        examplePrelude(out, adminEntry, exampleJar(runningJar), commandJar);
+        return commandJar;
+    }
+
+    private static String exampleCommandName(Path runningJar, Boolean adminEntry) {
+        String name = safeJarName(runningJar == null ? jarName() : SecretFiles.fileName(runningJar));
+        return Boolean.FALSE.equals(adminEntry) ? ConfigCommand.defaultOutputName(name) : name;
+    }
+
+    private static void examplePrelude(PrintStream out, Boolean adminEntry, String setupJar, String commandJar) {
+        if (Boolean.FALSE.equals(adminEntry)) {
+            out.println(Messages.get("cli.examples.setup")
+                    .replace("{jar}", setupJar)
+                    .replace("{configured}", commandJar));
+        } else {
+            out.println(Messages.get(adminEntry == null ? "cli.examples.common" : "cli.examples.ready"));
+        }
+    }
+
+    /** Read only the entry name for an example hint; integrity and authentication stay in the execution path. */
+    private static Boolean hasAdminEntry(Path runningJar) {
+        if (runningJar == null) return null;
+        try (JarFile jar = new JarFile(runningJar.toFile(), false)) {
+            return jar.getJarEntry(AdminPassword.ENTRY) != null;
+        } catch (IOException | SecurityException e) {
+            return null;
+        }
+    }
+
+    private static void printExamples(CliCommands.Spec spec, PrintStream out, String setupJar, String commandJar, String editedJar) {
+        String text = Messages.text(Messages.current(), spec.topic);
+        if (text == null) text = Messages.text(Messages.Language.EN, spec.topic);
+        boolean setup = spec.access == CliCommands.Access.SETUP;
+        String jar = setup ? setupJar : commandJar;
+        if (setup) out.println(Messages.get("cli.examples.setupOnly"));
+        boolean section = false;
+        if (text == null) return;
+        for (String line : text.split("\\R")) {
+            if (line.startsWith("Examples") || line.startsWith("예제")) {
+                section = true;
+                out.println(line);
+            } else if (section && (line.isEmpty() || Character.isWhitespace(line.charAt(0)))) {
+                out.println(line.replace("{jar}", jar).replace("{editedJar}", editedJar).replace("{version}", version()));
+            } else {
+                section = false;
+            }
+        }
+    }
+
+    static String exampleJar(Path runningJar) {
+        return exampleJarName(runningJar == null ? jarName() : SecretFiles.fileName(runningJar));
+    }
+
+    static String exampleJarName(String name) {
+        return quoteJar(name, true);
+    }
+
+    private static String safeJarName(String jar) {
+        return jar.matches("[\\p{L}\\p{N}._ -]+\\.jar") ? jar : distributionJarName();
+    }
+
+    private static String quoteJar(String jar, boolean always) {
+        jar = safeJarName(jar);
+        return always || jar.indexOf(' ') >= 0 ? "\"" + jar + "\"" : jar;
     }
 
     /**
@@ -67,17 +211,18 @@ final class CliHelp {
         String text = Messages.text(Messages.current(), name);
         if (text == null) text = Messages.text(Messages.Language.EN, name);
         if (text == null) text = "!" + name + "!";
-        text = text.replace("{jar}", jar).replace("{version}", version())
+        text = text.replace("{jar}", quoteJar(jar, false)).replace("{version}", version())
+                .replace("{editedJar}", ConfigCommand.defaultOutputName(distributionJarName()))
                 .replace("{configured}", ConfigCommand.defaultOutputName(jar));
         if (text.contains("{settings}")) text = text.replace("{settings}", settingsSection());
         out.print(text.endsWith("\n") ? text : text + "\n");
     }
 
     /** 그룹 명령({@code file}, {@code kms})만 입력했을 때의 짧은 안내. */
-    static void group(String group, PrintStream out) {
+    private static void group(String group, PrintStream out, String jar) {
         out.println(Messages.get("help.group", group, CryptoCli.subNames(group)));
         for (CliCommands.Spec spec : CliCommands.ALL) {
-            if (spec.name.startsWith(group + " ")) out.println("  java -jar " + jarName() + " " + spec.name + " --help");
+            if (spec.name.startsWith(group + " ")) out.println("  java -jar " + quoteJar(jar, false) + " " + spec.name + " --help");
         }
     }
 
@@ -154,7 +299,7 @@ final class CliHelp {
     }
 
     /** @return 오른쪽을 공백으로 채워 표시 폭을 맞춘 문자열(이미 길면 공백 하나만 붙임) */
-    private static String pad(String text, int columns) {
+    static String pad(String text, int columns) {
         int fill = columns - width(text);
         return text + spaces(fill > 0 ? fill : 1);
     }
@@ -235,6 +380,10 @@ final class CliHelp {
     static String jarName() {
         Path running = ConfigCommand.runningJar();
         if (running != null && running.getFileName() != null) return SecretFiles.fileName(running);
+        return distributionJarName();
+    }
+
+    private static String distributionJarName() {
         return "java-crypto-kit-" + version() + ".jar";
     }
 

@@ -143,6 +143,13 @@ class OAuthTest {
         // Client Credentials token endpoint 모의 응답
         https.createContext("/token-ok", json(200, "application/json;charset=UTF-8",
                 "{\"access_token\":\"dummy-at-123\",\"token_type\":\"bearer\",\"expires_in\":300,\"scope\":\"orders.read\",\"refresh_token\":\"dummy-rt\"}"));
+        char[] tokenLimit = new char[16 * 1024];
+        Arrays.fill(tokenLimit, 'x');
+        String boundaryToken = new String(tokenLimit);
+        https.createContext("/token-limit", json(200, "application/json",
+                "{\"access_token\":\"" + boundaryToken + "\",\"token_type\":\"Bearer\"}"));
+        https.createContext("/token-over-limit", json(200, "application/json",
+                "{\"access_token\":\"" + boundaryToken + "x\",\"token_type\":\"Bearer\"}"));
         https.createContext("/token-noexpiry", json(200, "application/json", "{\"access_token\":\"dummy-at-456\",\"token_type\":\"Bearer\"}"));
         https.createContext("/token-invalid-client", json(401, "application/json",
                 "{\"error\":\"invalid_client\",\"error_description\":\"dummy-description-with-" + TOKEN + "\"}"));
@@ -466,4 +473,104 @@ class OAuthTest {
         }
         throw new AssertionError("거부해야 한다");
     }
+    @Test
+    void independentCliUsesTheExistingHttpsBoundaryAndProtectsTokenOutput() throws Exception {
+        Path fixture = Files.createTempDirectory(dir, "cli-");
+        Path jar = io.javacryptokit.cli.CliHarness.configure(
+                io.javacryptokit.TestJars.build(fixture.resolve("configured.jar")),
+                io.javacryptokit.cli.CliHarness.ADMIN_PASSWORD);
+        String adminFile = io.javacryptokit.cli.CliHarness.passFile(fixture, io.javacryptokit.cli.CliHarness.ADMIN_PASSWORD);
+        Path secret = Files.write(fixture.resolve("client.pw"), new String(SECRET).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if (secret.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+            Files.setPosixFilePermissions(secret, java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
+        }
+        Path trustFile = fixture.resolve("trust.jks");
+        KeyStore trust = KeyStore.getInstance("JKS");
+        trust.load(null, null);
+        trust.setCertificateEntry("root", Certificates.readFile(dir.resolve("good").resolve("ca.pem")));
+        try (java.io.OutputStream out = Files.newOutputStream(trustFile)) {
+            trust.store(out, TestKeytool.STORE_PASS.toCharArray());
+        }
+        java.util.List<String> tls = Arrays.asList("-Djavax.net.ssl.trustStore=" + trustFile,
+                "-Djavax.net.ssl.trustStorePassword=" + TestKeytool.STORE_PASS, "-Djavax.net.ssl.trustStoreType=JKS");
+        Path token = fixture.resolve("access.txt");
+        io.javacryptokit.TestJars.Run issued = apiHttps(jar, tls, "token", "/token-ok", secret, adminFile,
+                "--scope", "orders.read", "--out", token.toString());
+        assertEquals(0, issued.exit, issued.err);
+        assertEquals("dummy-at-123", new String(Files.readAllBytes(token), java.nio.charset.StandardCharsets.UTF_8).trim());
+        assertTrue(issued.err.contains("expires_in"));
+        assertFalse((issued.out + issued.err).contains("dummy-at-123"));
+        Path postToken = fixture.resolve("post.txt");
+        io.javacryptokit.TestJars.Run post = apiHttps(jar, tls, "token", "/token-ok", secret, adminFile,
+                "--auth-method", "post", "--out", postToken.toString());
+        assertEquals(0, post.exit, post.err);
+        assertEquals("null", lastRequest.get("authorization"));
+        assertTrue(lastRequest.get("body").contains("&client_secret="));
+        assertFalse((post.out + post.err).contains("dummy-at-123"));
+        Map<String, String> beforeRejectedOptions = new java.util.HashMap<>(lastRequest);
+        Path invalidIntrospection = fixture.resolve("invalid-introspection.json");
+        io.javacryptokit.TestJars.Run invalidOptions = apiHttps(jar, tls, "introspect", "/active", secret, adminFile,
+                "--auth-method", "post", "--in", token.toString(), "--out", invalidIntrospection.toString());
+        assertEquals(1, invalidOptions.exit, invalidOptions.err);
+        assertTrue(invalidOptions.err.contains("USAGE"), invalidOptions.err);
+        assertEquals(beforeRejectedOptions, lastRequest);
+        assertFalse(Files.exists(invalidIntrospection));
+        Path active = fixture.resolve("active.json");
+        io.javacryptokit.TestJars.Run viewed = apiHttps(jar, tls, "introspect", "/active", secret, adminFile,
+                "--in", token.toString(), "--token-type-hint", "access_token", "--out", active.toString());
+        assertEquals(0, viewed.exit, viewed.err);
+        assertTrue(new String(Files.readAllBytes(active), java.nio.charset.StandardCharsets.UTF_8).contains("\"active\":true"));
+        Path inactive = fixture.resolve("inactive.json");
+        assertEquals(0, apiHttps(jar, tls, "introspect", "/inactive", secret, adminFile,
+                "--in", token.toString(), "--out", inactive.toString()).exit);
+        assertEquals("{\"active\":false}", new String(Files.readAllBytes(inactive), java.nio.charset.StandardCharsets.UTF_8).trim());
+        Path boundary = fixture.resolve("boundary-token.txt");
+        io.javacryptokit.TestJars.Run atLimit = apiHttps(jar, tls, "token", "/token-limit", secret, adminFile,
+                "--out", boundary.toString());
+        assertEquals(0, atLimit.exit, atLimit.err);
+        assertFalse(atLimit.err.contains("16 KiB"), atLimit.err);
+        assertEquals(0, apiHttps(jar, tls, "introspect", "/active", secret, adminFile, "--in", boundary.toString(),
+                "--out", fixture.resolve("boundary-status.json").toString()).exit);
+        assertEquals("token=".length() + 16 * 1024, lastRequest.get("body").length());
+
+        Path oversized = fixture.resolve("oversized-token.txt");
+        io.javacryptokit.TestJars.Run issuedLarge = apiHttps(jar, tls, "token", "/token-over-limit", secret, adminFile,
+                "--out", oversized.toString());
+        assertEquals(0, issuedLarge.exit, issuedLarge.err);
+        assertTrue(issuedLarge.err.contains("16 KiB") && issuedLarge.out.isEmpty(), issuedLarge.err);
+        assertFalse(issuedLarge.err.contains("xxxxxxxx"));
+        assertEquals(16 * 1024 + 2, Files.size(oversized));
+        Map<String, String> beforeSizeCheck = new java.util.HashMap<>(lastRequest);
+        Path oversizedResult = fixture.resolve("oversized-status.json");
+        io.javacryptokit.TestJars.Run rejectedLarge = apiHttps(jar, tls, "introspect", "/active", secret, adminFile,
+                "--in", oversized.toString(), "--out", oversizedResult.toString());
+        assertEquals(1, rejectedLarge.exit);
+        assertTrue(rejectedLarge.err.contains("16 KiB") && rejectedLarge.err.contains("64 KiB"), rejectedLarge.err);
+        assertTrue(rejectedLarge.out.isEmpty());
+        assertEquals(beforeSizeCheck, lastRequest);
+        assertFalse(Files.exists(oversizedResult));
+        Path rejected = fixture.resolve("rejected");
+        io.javacryptokit.TestJars.Run denied = apiHttps(jar, tls, "token", "/token-invalid-client", secret, adminFile, "--out", rejected.toString());
+        assertEquals(1, denied.exit);
+        assertTrue(denied.err.contains("CLIENT_AUTH") && denied.err.contains("401"), denied.err);
+        assertFalse(denied.err.contains(new String(SECRET)));
+        assertFalse(Files.exists(rejected));
+        assertTrue(apiHttps(jar, tls, "token", "/token-duplicate", secret, adminFile, "--out", rejected.toString()).err
+                .contains("INVALID_RESPONSE"));
+        assertTrue(apiHttps(jar, java.util.Collections.<String>emptyList(), "token", "/token-ok", secret, adminFile,
+                "--out", rejected.toString()).err.contains("TLS"));
+        assertTrue(apiHttps(jar, tls, "introspect", "/slow", secret, adminFile, "--read-timeout", "1",
+                "--in", token.toString(), "--out", rejected.toString()).err.contains("TIMEOUT"));
+        assertFalse(Files.exists(rejected));
+    }
+
+    private static io.javacryptokit.TestJars.Run apiHttps(Path jar, java.util.List<String> tls, String action, String endpoint,
+                                                        Path secret, String adminFile, String... extra) throws Exception {
+        java.util.List<String> cli = new java.util.ArrayList<>(Arrays.asList("api", "oauth", action,
+                "--endpoint", "https://localhost:" + server.getAddress().getPort() + endpoint, "--client-id", "cli-test",
+                "--client-secret-file", secret.toString(), "--admin-pass-file", adminFile, "--lang", "en"));
+        cli.addAll(Arrays.asList(extra));
+        return io.javacryptokit.TestJars.run(jar, tls, cli.toArray(new String[0]));
+    }
+
 }

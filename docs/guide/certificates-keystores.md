@@ -1,6 +1,6 @@
 # 인증서 및 키 저장소
 
-[프로젝트 소개](../../README.md) · [전체 가이드](../user-guide.md)
+[프로젝트 소개](../../README.md) · [전체 가이드](../user-guide.md) · [CLI 명령·예제](#api-cli-guide)
 
 기존 X.509 인증서나 PKCS12·JKS 키 저장소를 Java 코드에서 읽고, 인증서 정보를 확인하거나 신뢰 체인을 검증하는 기능입니다. 전자서명과 공개키 암복호화에서 필요한 키를 준비할 때도 사용합니다.
 
@@ -21,7 +21,7 @@
 | 기존 `.p12`·`.pfx`·`.jks`의 키와 인증서 읽기 | `KeyStoreReader` |
 | 읽어 온 키로 서명·검증 또는 공개키 암복호화 | [전자서명](data-integrity.md#topic-signature) / [Java 암복호화](java-encryption.md#topic-rsa) |
 
-이 기능은 Java API 전용입니다. 키 저장소에 들어 있다고 신뢰가 자동으로 성립하지 않으며, 인증서 정보 확인과 TLS 호스트명 검증은 다른 작업입니다. 예제 실행은 [Java API 공통 규칙](../reference/java-api-reference.md)을 참조합니다.
+[`api cert info`](#api-certificate)는 X.509 정보를 보여 주고 [`api keyconv`](#api-keyconvert)는 RSA·EC 키를 변환합니다. PKIX 체인 검증과 PKCS12/JKS 읽기는 Java API에서 제공합니다. 인증서 정보 조회와 TLS 호스트명 검증은 별개의 작업입니다.
 
 <a name="guide-section-2"></a>
 ## 인증서와 키 저장소를 같이 사용하는 방법
@@ -162,6 +162,62 @@ public static boolean signWithKeyStore(Path p12, char[] storePassword, char[] ke
 | `certificate(alias)` / `publicKey(alias)` / `certificateChain(alias)` | 인증서·공개키·체인 |
 
 어떤 별칭을 써야 할지 모르면 `aliases()`와 엔트리 유형을 먼저 확인합니다. 키 저장소 비밀번호와 엔트리 비밀번호를 같은 값으로 추정하지 않습니다.
+
+<a name="api-cli-guide"></a>
+## 독립 보안 API의 CLI 사용
+
+[인증·비밀 입출력 규칙](cli.md#api-cli)과 아래 업무별 옵션을 확인하세요.
+
+<a name="api-certificate"></a>
+### 인증서 정보
+
+날짜의 유효 여부는 `--at` 또는 현재 시각 기준입니다. X.509 파싱과 날짜 검사는 PKIX 신뢰 체인·호스트 이름 검증과 구분합니다.
+
+| 명령 | 관리자 인증 | 명령별 옵션 |
+|---|---|---|
+| `api certificate info` | 초기 설정 후 사용 | `--in`, `--at`, `--out` |
+
+<details>
+<summary>옵션과 기본값</summary>
+
+- `certificate info` — PEM/DER 입력. 현재 UTC 또는 --at으로 날짜 유효성을 확인합니다.
+- `--at` — ISO-8601 UTC 시각. 기본 현재 시각.
+- `--in` — 입력 경로. 지원하는 경우 생략하면 한 줄 입력을 받습니다.
+- `--out` — 새 출력 경로. 비밀 결과에는 보호 폴더를 씁니다.
+
+</details>
+
+입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
+
+```sh
+java -jar java-crypto-kit-0.2.0-cfg.jar api cert info --in server.crt
+```
+
+<a name="api-keyconvert"></a>
+### PEM·DER 변환
+
+공개키는 SPKI, 개인키는 PKCS#8입니다. 입력은 PemKeys가 인식하는 PEM 또는 DER이고 출력 형식은 `--format`으로 지정합니다. 개인키 파일은 읽기 전에 권한을 확인합니다.
+
+| 명령 | 관리자 인증 | 명령별 옵션 |
+|---|---|---|
+| `api keyconvert` | 매 실행 | `--type`, `--format`, `--in`, `--out` |
+
+<details>
+<summary>옵션과 기본값</summary>
+
+- `keyconvert` — 유형·출력 형식·입력·출력 필수. 입력은 PEM 또는 DER입니다.
+- `--format` — 출력 키 형식 pem 또는 der.
+- `--in` — 입력 경로. 지원하는 경우 생략하면 한 줄 입력을 받습니다.
+- `--out` — 새 출력 경로. 비밀 결과에는 보호 폴더를 씁니다.
+- `--type` — 작업 방식 또는 키 유형.
+
+</details>
+
+입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
+
+```sh
+java -jar java-crypto-kit-0.2.0-cfg.jar api keyconv --type public --fmt der --in rsa-public.pem --out rsa.der
+```
 
 ---
 

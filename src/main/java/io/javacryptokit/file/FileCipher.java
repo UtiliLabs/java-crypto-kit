@@ -20,18 +20,20 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.GeneralSecurityException;
+import java.security.SecureRandom;
 import java.util.Arrays;
 import javax.crypto.AEADBadTagException;
 
 /**
  * <b>내부 구현 클래스(공개 API 아님)</b>: 일반 파일(텍스트·CSV·JSON·PDF·이미지 등 형식 무관)을 AES-256-GCM으로 암복호화하는
- * <b>JCKF v1</b> 바이너리 형식 엔진이다. 문자열 토큰 {@code ENC[v1:...]} 형식과는 별개이며 그 형식을 바꾸지 않는다.
+ * <b>JCKF</b> 바이너리 형식 엔진이다. 신규 파일은 v2로 쓰고 v1과 v2를 읽는다. 문자열 토큰은 {@code ENC[v1:...]}을 유지한다.
  * CLI {@code file encrypt/decrypt}와 공개 API {@code CredentialCrypto.encryptFile/decryptFile}이 {@code core.CryptoService}를
  * 거쳐 이 클래스를 쓴다(같은 구현).
  *
- * <p><b>형식(JCKF v1)</b></p>
+ * <p><b>형식</b></p>
  * <pre>
- * 헤더: "JCKF"(4) | 버전 0x01(1) | 청크 크기 65536(4, big-endian) | 키ID 길이 n(1, 1~64) | 키ID(n, ASCII)
+ * 헤더: "JCKF"(4) | 버전(1) | 청크 크기 65536(4, big-endian) | 키ID 길이 n(1, 1~64) | 키ID(n, ASCII)
+ *       v2(0x02)는 키ID 뒤에 파일별 난수 식별자(16바이트)를 쓴다. v1(0x01)은 키ID에서 헤더가 끝난다.
  * 청크: 표시(1: 0x00 중간, 0x01 마지막) | IV(12, 청크마다 SecureRandom) | 암호문+태그(평문 길이 + 16)
  *       중간 청크의 평문은 정확히 65536바이트, 마지막 청크는 0~65536바이트(빈 파일은 마지막 청크 하나)
  * AAD : 헤더 전체 | 청크 번호(8, big-endian, 0부터) | 표시(1)
@@ -41,8 +43,8 @@ import javax.crypto.AEADBadTagException;
  * <ul>
  *   <li>청크마다 새 난수 IV와 128비트 태그를 쓴다(문자열 엔진과 같은 IV·태그 규칙, 키 유도 없음). 같은 키에서 난수 IV를 쓰는
  *       GCM 호출 횟수 권장 상한(2^32)을 고려해 파일 하나의 청크 수를 2^32 미만(약 256TiB)으로 제한한다.</li>
- *   <li>헤더(버전·키ID·청크 크기)를 모든 청크의 AAD에 넣어 메타데이터 변조를 탐지한다. 청크 번호로 순서 바꾸기·중복을,
- *       마지막 표시로 잘라내기를, 마지막 청크 뒤 데이터 거부로 덧붙이기를 탐지한다.</li>
+ *   <li>헤더 전체를 모든 청크의 AAD에 넣는다. v2는 파일 식별자로 같은 키를 쓴 다른 파일의 청크도 구분한다.
+ *       청크 번호로 순서 바꾸기·중복을, 마지막 표시로 잘라내기를, 마지막 청크 뒤 데이터 거부로 덧붙이기를 탐지한다.</li>
  *   <li>스트리밍 처리: 한 번에 청크 하나(64KiB)만 메모리에 둔다. 큰 파일도 전체를 메모리에 올리지 않는다.</li>
  *   <li>복호화 결과는 출력 폴더의 접근 제한 임시 파일(POSIX 600)에만 쓴다. 각 청크는 GCM 태그 검증이 끝난 뒤에만 쓰이고,
  *       파일 끝까지 모든 검증(마지막 청크 확인 포함)이 끝난 경우에만 최종 이름으로 옮긴다. 실패하면 임시 파일을 지운다.</li>
@@ -55,9 +57,12 @@ import javax.crypto.AEADBadTagException;
 public final class FileCipher {
     /** 형식 표식. */
     private static final byte[] MAGIC = "JCKF".getBytes(StandardCharsets.US_ASCII);
-    /** 형식 버전. */
-    private static final int VERSION = 1;
-    /** 청크 평문 크기(v1 고정). */
+    private static final int VERSION_V1 = 1;
+    private static final int VERSION_V2 = 2;
+    private static final int FIXED_HEADER_LENGTH = MAGIC.length + 1 + Integer.BYTES + 1;
+    private static final int FILE_ID_LENGTH = 16;
+    private static final SecureRandom FILE_IDS = new SecureRandom();
+    /** 청크 평문 크기(v1·v2 고정). */
     static final int CHUNK = 64 * 1024;
     /** GCM IV 길이(공용 엔진 {@link Gcm}과 같다). */
     private static final int IV_LENGTH = Gcm.IV_BYTES;
@@ -210,7 +215,7 @@ public final class FileCipher {
     }
 
     /**
-     * 스트림을 JCKF v1로 암호화한다(테스트·파일 처리 공통).
+     * 스트림을 JCKF v2로 암호화한다(테스트·파일 처리 공통).
      *
      * @throws IOException 입출력 실패
      * @throws CredentialCryptoException CRYPTO_PROVIDER, INVALID_INPUT(너무 큰 입력)
@@ -251,7 +256,7 @@ public final class FileCipher {
     }
 
     /**
-     * JCKF v1 스트림을 복호화해 쓴다. 각 청크는 태그 검증이 끝난 뒤에만 쓴다. 호출자는 끝까지 성공한 경우에만 결과를 공개한다.
+     * JCKF v1 또는 v2 스트림을 복호화해 쓴다. 각 청크는 태그 검증이 끝난 뒤에만 쓴다. 호출자는 끝까지 성공한 경우에만 결과를 공개한다.
      *
      * @throws IOException 입출력 실패
      * @throws CredentialCryptoException INVALID_TOKEN, KEY_ID_MISMATCH, INTEGRITY, CRYPTO_PROVIDER
@@ -300,33 +305,37 @@ public final class FileCipher {
     /** 헤더를 만든다. */
     private static byte[] header(String keyId) {
         byte[] id = keyId.getBytes(StandardCharsets.US_ASCII);
-        ByteBuffer buffer = ByteBuffer.allocate(MAGIC.length + 1 + 4 + 1 + id.length);
-        buffer.put(MAGIC).put((byte) VERSION).putInt(CHUNK).put((byte) id.length).put(id);
+        byte[] fileId = new byte[FILE_ID_LENGTH];
+        FILE_IDS.nextBytes(fileId);
+        ByteBuffer buffer = ByteBuffer.allocate(FIXED_HEADER_LENGTH + id.length + fileId.length);
+        buffer.put(MAGIC).put((byte) VERSION_V2).putInt(CHUNK).put((byte) id.length).put(id).put(fileId);
         return buffer.array();
     }
 
     /** 헤더를 읽고 형식(표식·버전·청크 크기·키ID 형식)을 검증한다. */
     private static byte[] readHeader(InputStream input) throws IOException, CredentialCryptoException {
-        byte[] fixed = new byte[MAGIC.length + 1 + 4 + 1];
+        byte[] fixed = new byte[FIXED_HEADER_LENGTH];
         if (readFully(input, fixed, fixed.length) < fixed.length) throw notFormat();
         if (!Arrays.equals(Arrays.copyOf(fixed, MAGIC.length), MAGIC)) throw notFormat();
-        if ((fixed[4] & 0xff) != VERSION) {
+        int version = fixed[MAGIC.length] & 0xff;
+        if (version != VERSION_V1 && version != VERSION_V2) {
             throw new CredentialCryptoException(CredentialCryptoException.Reason.INVALID_TOKEN, Messages.get("file.err.version"));
         }
         if (ByteBuffer.wrap(fixed, 5, 4).getInt() != CHUNK) throw notFormat();
-        int idLength = fixed[9] & 0xff;
+        int idLength = fixed[FIXED_HEADER_LENGTH - 1] & 0xff;
         if (idLength < 1 || idLength > 64) throw notFormat();
-        byte[] id = new byte[idLength];
-        if (readFully(input, id, idLength) < idLength) throw notFormat();
-        String keyId = new String(id, StandardCharsets.US_ASCII);
-        if (!keyId.matches("[A-Za-z0-9_-]{1,64}")) throw notFormat();
-        byte[] header = Arrays.copyOf(fixed, fixed.length + idLength);
-        System.arraycopy(id, 0, header, fixed.length, idLength);
+        int variableLength = idLength + (version == VERSION_V2 ? FILE_ID_LENGTH : 0);
+        byte[] fields = new byte[variableLength];
+        if (readFully(input, fields, variableLength) < variableLength) throw notFormat();
+        byte[] header = Arrays.copyOf(fixed, fixed.length + variableLength);
+        System.arraycopy(fields, 0, header, fixed.length, variableLength);
+        if (!keyIdOf(header).matches("[A-Za-z0-9_-]{1,64}")) throw notFormat();
         return header;
     }
 
     private static String keyIdOf(byte[] header) {
-        return new String(header, 10, header.length - 10, StandardCharsets.US_ASCII);
+        int idLength = header[FIXED_HEADER_LENGTH - 1] & 0xff;
+        return new String(header, FIXED_HEADER_LENGTH, idLength, StandardCharsets.US_ASCII);
     }
 
     /** AAD = 헤더 | 청크 번호(8) | 표시(1). */

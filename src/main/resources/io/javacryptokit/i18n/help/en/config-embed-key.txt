@@ -18,7 +18,7 @@ Options
   --reason <text>          Reason for the history (required, asked
                            interactively)
   --jar <jar>              JAR to change (optional, default: the running JAR)
-  --out <jar>              Result JAR (optional, default <name>-configured.jar)
+  --out <jar>              Result JAR (optional, default <name>-cfg.jar)
                            An existing file is never overwritten.
   --replace                Replace the original (backup first)
   --yes                    Skip the CHANGE confirmation (not the reason)
@@ -31,7 +31,7 @@ Options
   Adding and rotating keys: help config key
 
 Result
-  Created JAR : C:\work\java-crypto-kit-{version}-configured.jar
+  Created JAR : C:\work\java-crypto-kit-{version}-cfg.jar
   Changes     : crypto.key.embedded (secret)
                 crypto.key.id (default -> key01)
                 crypto.keys.default.type ((none) -> key)
@@ -40,4 +40,4 @@ Result
 
 Examples
   java -jar {jar} config embed-key --from-file example.key --key-id key01 --operator ops
-  java -jar java-crypto-kit-{version}-configured.jar fingerprint --type key
+  java -jar {editedJar} fingerprint --type key

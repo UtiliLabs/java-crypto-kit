@@ -8,7 +8,7 @@ import javax.crypto.spec.SecretKeySpec;
 
 /**
  * <b>내부 구현 클래스(공개 API 아님)</b>: AES-GCM 한 번 처리를 맡는 공용 엔진이다. 문자열 토큰(ENC v1,
- * {@link CredentialCipher}), 암호화 파일(JCKF v1, {@code file.FileCipher})과 원시 AES-GCM 공개 API
+ * {@link CredentialCipher}), 암호화 파일(JCKF, {@code file.FileCipher})과 원시 AES-GCM 공개 API
  * ({@code security.AesGcm})가 모두 이 클래스를 쓴다. 형식(봉투·청크·결과 배치)과 AAD 구성은 각 호출자가 정하고, 이 클래스는
  * 알고리즘·IV·태그 규칙만 한 곳에 둔다.
  *

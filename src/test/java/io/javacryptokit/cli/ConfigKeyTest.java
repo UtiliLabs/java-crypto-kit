@@ -496,7 +496,7 @@ class ConfigKeyTest {
             assertTrue(terminal.prompts.isEmpty(), "사유·입력을 받기 전에 거부: " + String.join(" ", options));
             assertTrue(cli.err().startsWith("[java-crypto-kit] [사유: "), cli.err());
         }
-        assertFalse(Files.exists(dir.resolve("java-crypto-kit-0.1.0-configured.jar")), "거부하면 아무것도 만들지 않는다");
+        assertFalse(Files.exists(dir.resolve("java-crypto-kit-0.1.0-cfg.jar")), "거부하면 아무것도 만들지 않는다");
         // 그룹 안내·모르는 하위 명령
         assertEquals(0, cli.run("config", "key"));
         assertTrue(cli.out().contains("config key add") && cli.out().contains("config key remove"), cli.out());

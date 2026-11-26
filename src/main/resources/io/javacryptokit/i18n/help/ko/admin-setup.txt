@@ -9,7 +9,7 @@ admin setup - CLI 관리자 비밀번호 최초 설정(새 JAR)
   --admin-pass-file <파일>
                     비대화형(CI 등): 새 비밀번호 한 줄이 든 파일
                     (권한 600 임시 파일, 쓰고 나서 삭제)
-  --out <jar>       결과 JAR(선택, 기본 <이름>-configured.jar)
+  --out <jar>       결과 JAR(선택, 기본 <이름>-cfg.jar)
   --lang en|ko      이번 실행의 메시지 언어(선택)
   관리자 비밀번호가 없는 JAR에서만 실행합니다(설정된 JAR은 덮어쓰지 않음).
   대화형: 작업자 ID → 새 비밀번호 → 비밀번호 확인(2회, 화면 비표시).
@@ -23,7 +23,7 @@ admin setup - CLI 관리자 비밀번호 최초 설정(새 JAR)
 
 결과
   관리자    : 비밀번호 설정 완료
-  생성 JAR  : C:\work\java-crypto-kit-{version}-configured.jar
+  생성 JAR  : C:\work\java-crypto-kit-{version}-cfg.jar
   원본 JAR  : java-crypto-kit-{version}.jar (그대로, 관리자 비밀번호 미설정)
   작업자    : ops
   안내      : 이후에는 생성 JAR로 CLI를 실행하세요.

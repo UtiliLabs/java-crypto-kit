@@ -336,7 +336,7 @@ final class AdminPassword {
      * 권한만 있는 파일(600·400·640·440 등)은 허용한다. 심볼릭 링크는 최종 대상의 권한을 본다(Kubernetes Secret 볼륨 등 링크로
      * 마운트하는 환경). Windows(NTFS)는 POSIX 권한이 없어 검사하지 않으며, 파일을 둘 폴더의 ACL로 보호한다(사용자 가이드 1.4).
      */
-    static void checkPermissions(Path path, String code) throws CryptoCli.CliException {
+    static void checkPermissions(Path path, String code, String option) throws CryptoCli.CliException {
         if (!JarConfigEditor.posix()) return;
         java.util.Set<java.nio.file.attribute.PosixFilePermission> permissions;
         try {
@@ -346,10 +346,10 @@ final class AdminPassword {
         } catch (UnsupportedOperationException e) {
             return; // POSIX 권한이 없는 파일 시스템(마운트)
         } catch (IOException e) {
-            throw new CryptoCli.CliException(code, Messages.get("admin.err.fileRead", FILE_OPTION, e.getClass().getSimpleName()));
+            throw new CryptoCli.CliException(code, Messages.get("admin.err.fileRead", option, e.getClass().getSimpleName()));
         }
         if (othersCanAccess(permissions)) {
-            throw new CryptoCli.CliException(code, Messages.get("admin.err.filePerm", FILE_OPTION,
+            throw new CryptoCli.CliException(code, Messages.get("admin.err.filePerm", option,
                     java.nio.file.attribute.PosixFilePermissions.toString(permissions)));
         }
     }
@@ -367,7 +367,7 @@ final class AdminPassword {
         } catch (InvalidPathException e) {
             throw new CryptoCli.CliException(Messages.get("cli.err.path", FILE_OPTION));
         }
-        checkPermissions(path, code);
+        checkPermissions(path, code, FILE_OPTION);
         byte[] raw;
         try {
             raw = SecretFiles.readBytes(path, MAX_FILE_BYTES, FILE_OPTION);

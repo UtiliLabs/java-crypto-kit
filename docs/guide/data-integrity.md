@@ -1,8 +1,8 @@
 # 데이터 무결성 및 서버 간 요청 인증
 
-[프로젝트 소개](../../README.md) · [전체 가이드](../user-guide.md)
+[프로젝트 소개](../../README.md) · [전체 가이드](../user-guide.md) · [CLI 명령·예제](#api-cli-guide)
 
-데이터를 숨기는 대신 위변조나 메시지 인증, 공개키 기반 서명 검증을 처리하는 Java API입니다. 공유 키를 가진 양측에는 HMAC, 공개키 검증에는 전자서명, 신뢰하는 체크섬 비교에는 SHA 해시를 선택합니다.
+Java API와 독립 CLI로 위변조 확인, 메시지 인증, 공개키 기반 서명 검증을 수행합니다. [명령·옵션·예제](#api-cli-guide) 공유 키를 가진 양측에는 HMAC, 공개키 검증에는 전자서명, 신뢰하는 체크섬 비교에는 SHA 해시를 선택합니다.
 
 <a name="guide-contents"></a>
 **이 문서에서 찾을 수 있는 내용**
@@ -21,7 +21,7 @@
 | 공지된 체크섬과 비교 | [`Digests`](#topic-hash) | 원본 데이터 해시 일치 |
 | 공개키로 서명 검증 | [`Signatures`, `PemKeys`](#topic-signature) | 서명한 쪽의 개인키에 대응하는 공개키 |
 
-이 기능은 Java API 전용입니다. CLI `verify`는 JCK 암호문의 복호화 가능 여부를 점검하는 명령으로, HMAC·해시·전자서명 검증 명령이 아닙니다. 예제 실행 환경은 [Java API 공통 규칙](../reference/java-api-reference.md)을 참고합니다.
+관리형 `verify`는 JCK 암호문을 점검합니다. 원본 파일·메시지의 검증은 [`api hmac verify`](#api-hmac), [`api hash verify`](#api-hash), [`api sig verify`](#api-signature), [`api req-auth verify`](#api-request-auth) 또는 해당 Java API를 사용합니다.
 
 <a name="guide-section-2"></a>
 ## 실제 업무에 적용할 때의 기준
@@ -313,6 +313,145 @@ true
 ```
 
 예제는 실행할 때 시험용 키를 생성합니다. 실제 서비스에서는 업무 키를 별도로 준비하고 재사용하세요.
+
+<a name="api-cli-guide"></a>
+## 독립 보안 API의 CLI 사용
+
+[인증·비밀 입출력 규칙](cli.md#api-cli)과 아래 업무별 옵션을 확인하세요.
+
+<a name="api-hmac"></a>
+### HMAC
+
+기본 키 표현은 Base64입니다. 외부 시스템의 짧은 키를 비교할 때만 `--external-key`를 명시합니다. 실제 요청 원본이 파일이면 바이트 단위로 읽습니다.
+
+| 명령 | 관리자 인증 | 명령별 옵션 |
+|---|---|---|
+| `api hmac sign` | 매 실행 | `--algorithm`, `--key-file`, `--key-encoding`, `--in`, `--encoding`, `--out`, `--external-key` |
+| `api hmac verify` | 매 실행 | `--algorithm`, `--key-file`, `--key-encoding`, `--in`, `--encoding`, `--expected-file`, `--external-key` |
+
+<details>
+<summary>옵션과 기본값</summary>
+
+- `hmac sign` — 기본 SHA-256과 Hex. 최대 1 MiB의 입력 바이트를 그대로 씁니다.
+- `hmac verify` — 동일한 키·전문·표현을 사용합니다. 불일치는 FAIL(1)입니다.
+- `--algorithm` — 이 명령의 알고리즘. 위 허용값을 확인합니다.
+- `--encoding` — hex, base64, base64url, base32.
+- `--expected-file` — 예상값 한 줄의 파일. 생략하면 입력합니다.
+- `--external-key` — 외부 HMAC 키 호환 모드를 명시합니다.
+- `--in` — 입력 경로. 지원하는 경우 생략하면 한 줄 입력을 받습니다.
+- `--key-encoding` — 공유키 표현. 기본 base64.
+- `--key-file` — 인코딩한 비밀키 한 줄이 든 보호 파일.
+- `--out` — 새 출력 경로. 비밀 결과에는 보호 폴더를 씁니다.
+
+</details>
+
+입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
+
+```sh
+java -jar java-crypto-kit-0.2.0-cfg.jar api keygen --type hmac --out hmac.key --reason 'HMAC interop'
+java -jar java-crypto-kit-0.2.0-cfg.jar api hmac sign --key-file hmac.key --in request.json --out request.mac
+java -jar java-crypto-kit-0.2.0-cfg.jar api hmac verify --key-file hmac.key --in request.json --expected-file request.mac
+```
+
+<a name="api-hash"></a>
+### 해시 생성과 비교
+
+같은 입력을 다른 구현에서 비교할 때는 알고리즘과 표현을 맞춥니다. 해시 일치는 발신자의 신원을 보증하지 않습니다.
+
+| 명령 | 관리자 인증 | 명령별 옵션 |
+|---|---|---|
+| `api hash generate` | 초기 설정 후 사용 | `--algorithm`, `--in`, `--encoding`, `--out` |
+| `api hash verify` | 초기 설정 후 사용 | `--algorithm`, `--in`, `--encoding`, `--expected-file` |
+
+<details>
+<summary>옵션과 기본값</summary>
+
+- `hash generate` — 기본 SHA-256과 Hex. 파일을 스트리밍으로 읽습니다.
+- `hash verify` — 같은 해시 알고리즘과 예상값 표현을 사용합니다.
+- `--algorithm` — 이 명령의 알고리즘. 위 허용값을 확인합니다.
+- `--encoding` — hex, base64, base64url, base32.
+- `--expected-file` — 예상값 한 줄의 파일. 생략하면 입력합니다.
+- `--in` — 입력 경로. 지원하는 경우 생략하면 한 줄 입력을 받습니다.
+- `--out` — 새 출력 경로. 비밀 결과에는 보호 폴더를 씁니다.
+
+</details>
+
+입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
+
+```sh
+java -jar java-crypto-kit-0.2.0-cfg.jar api hash gen --in application.jar --out application.sha
+java -jar java-crypto-kit-0.2.0-cfg.jar api hash verify --in application.jar --expected-file application.sha
+```
+
+<a name="api-signature"></a>
+### 전자서명
+
+RSA 서명의 기본 표현은 Base64입니다. ECDSA의 일반 서명은 DER로, JWT의 ES256 표현과 구분합니다. 서명 불일치는 FAIL과 종료 코드 1로 확인합니다.
+
+| 명령 | 관리자 인증 | 명령별 옵션 |
+|---|---|---|
+| `api signature sign` | 매 실행 | `--algorithm`, `--private-key`, `--encoding`, `--in`, `--out` |
+| `api signature verify` | 초기 설정 후 사용 | `--algorithm`, `--public-key`, `--encoding`, `--in`, `--signature-file` |
+
+<details>
+<summary>옵션과 기본값</summary>
+
+- `signature sign` — 기본 RSA-SHA256과 Base64. 파일은 스트리밍합니다.
+- `signature verify` — ECDSA-P256 서명은 DER 형식이며 ecdsa-sha256을 지정합니다.
+- `--algorithm` — 이 명령의 알고리즘. 위 허용값을 확인합니다.
+- `--encoding` — hex, base64, base64url, base32.
+- `--in` — 입력 경로. 지원하는 경우 생략하면 한 줄 입력을 받습니다.
+- `--out` — 새 출력 경로. 비밀 결과에는 보호 폴더를 씁니다.
+- `--private-key` — PKCS#8 개인키 PEM/DER 보호 파일.
+- `--public-key` — 신뢰한 SPKI 공개키 PEM/DER 파일.
+- `--signature-file` — 분리 서명 파일.
+
+</details>
+
+입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
+
+```sh
+java -jar java-crypto-kit-0.2.0-cfg.jar api keygen --type ec --out ec --reason 'signature test'
+java -jar java-crypto-kit-0.2.0-cfg.jar api sig sign --alg ecdsa-sha256 --priv-key ec-private.pem --in sample.txt --out sample.sig
+java -jar java-crypto-kit-0.2.0-cfg.jar api sig verify --alg ecdsa-sha256 --pub-key ec-public.pem --in sample.txt --sig-file sample.sig
+```
+
+<a name="api-request-auth"></a>
+### RequestAuth
+
+서명 결과의 JSON은 timestamp(Unix 초 문자열), nonce(Base64URL), mac(Base64URL)입니다. 그대로 `--auth-file`로 전달하거나 세 필드를 각각 지정합니다. `--at`은 시계를 고정하고 Nonce는 API가 생성합니다. 결과 파일과 리다이렉션에서는 JSON 한 줄, 실제 터미널에서는 필드별로 정렬한 JSON을 출력합니다. 별도 요청 정규화와 재사용 상태 저장은 호출자가 관리합니다.
+
+| 명령 | 관리자 인증 | 명령별 옵션 |
+|---|---|---|
+| `api request-auth sign` | 매 실행 | `--algorithm`, `--key-file`, `--key-encoding`, `--in`, `--at`, `--out` |
+| `api request-auth verify` | 매 실행 | `--algorithm`, `--key-file`, `--key-encoding`, `--in`, `--at`, `--clock-skew`, `--auth-file`, `--timestamp`, `--nonce`, `--mac` |
+
+<details>
+<summary>옵션과 기본값</summary>
+
+- `request-auth sign` — API가 Nonce를 생성합니다. 결과는 시각·Nonce·MAC을 담습니다.
+- `request-auth verify` — 기본 허용 오차 300초, 최대 900초. 재사용 검사는 호출자 몫입니다.
+- `--algorithm` — 이 명령의 알고리즘. 위 허용값을 확인합니다.
+- `--at` — 시계를 고정할 0~999999999999 범위의 Unix 초 정수. 생략하면 현재 시각을 사용합니다.
+- `--clock-skew` — 허용 오차(초). 명령별 범위를 확인합니다.
+- `--in` — 입력 경로. 지원하는 경우 생략하면 한 줄 입력을 받습니다.
+- `--key-encoding` — 공유키 표현. 기본 base64.
+- `--key-file` — 인코딩한 비밀키 한 줄이 든 보호 파일.
+- `--mac` — sign 결과 Base64URL MAC.
+- `--nonce` — sign 결과 Base64URL Nonce.
+- `--out` — 새 출력 경로. 비밀 결과에는 보호 폴더를 씁니다.
+- `--auth-file` — 서명 결과의 JSON 파일입니다. 세 문자열 `timestamp`, `nonce`, `mac`만 허용하며 개별 필드 옵션과 함께 지정할 수 없습니다.
+- `--timestamp` — RequestAuth sign이 반환한 Unix 초.
+
+</details>
+
+입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
+
+```sh
+java -jar java-crypto-kit-0.2.0-cfg.jar api keygen --type hmac --out hmac.key --reason 'request test'
+java -jar java-crypto-kit-0.2.0-cfg.jar api req-auth sign --key-file hmac.key --in request.json --out request.sig.json
+java -jar java-crypto-kit-0.2.0-cfg.jar api req-auth verify --key-file hmac.key --in request.json --auth-file request.sig.json
+```
 
 ---
 

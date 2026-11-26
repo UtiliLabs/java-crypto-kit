@@ -11,7 +11,7 @@ Options
   --operator <ID>   Operator ID for the history (required)
   --reason <text>   Reason for the history (required, asked interactively)
   --jar <jar>       JAR to change (optional, default: the running JAR)
-  --out <jar>       Result JAR (optional, default <name>-configured.jar)
+  --out <jar>       Result JAR (optional, default <name>-cfg.jar)
   --replace         Replace the original (backup first)
   --yes             Skip the CHANGE confirmation (not the reason)
   --admin-pass-file <file>
@@ -23,7 +23,7 @@ Options
   A removed key ID can be used again only to restore the same key.
 
 Result
-  Created JAR : /opt/app/java-crypto-kit-{version}-configured.jar
+  Created JAR : /opt/app/java-crypto-kit-{version}-cfg.jar
   Changes     : crypto.keys.p1.type (pass -> (none))
                 ...
   Removed key : p1

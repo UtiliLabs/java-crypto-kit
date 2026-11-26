@@ -31,7 +31,7 @@ import java.util.jar.Manifest;
  */
 public final class TestJars {
     /** 시험용 JAR의 버전(build.gradle의 version과 같게 유지). 배포 JAR 이름은 java-crypto-kit-&lt;버전&gt;.jar다. */
-    public static final String VERSION = "0.1.0";
+    public static final String VERSION = "0.2.0";
 
     /** 프로세스 실행 결과. */
     public static final class Run {

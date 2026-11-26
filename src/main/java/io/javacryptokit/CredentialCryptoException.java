@@ -33,7 +33,7 @@ public final class CredentialCryptoException extends GeneralSecurityException {
         KEY_SOURCE,
         /** 빈 값, 너무 긴 값, UTF-8로 표현할 수 없는 문자, 텍스트로 해석할 수 없는 복호화 결과, 파일 입출력 문제. */
         INVALID_INPUT,
-        /** {@code ENC[v1:...]}·{@code B64[...]} 또는 암호화 파일(JCKF v1) 형식이 아니거나 손상됨. */
+        /** {@code ENC[v1:...]}·{@code B64[...]} 또는 암호화 파일(JCKF v1/v2) 형식이 아니거나 손상됨. */
         INVALID_TOKEN,
         /** 암호문(또는 암호화 파일)에 기록된 키 식별자와 현재 설정의 키 식별자가 다름. */
         KEY_ID_MISMATCH,

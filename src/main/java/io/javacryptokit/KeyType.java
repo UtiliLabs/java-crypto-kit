@@ -2,7 +2,7 @@ package io.javacryptokit;
 
 /**
  * <b>공개 API</b>: 암호화 키를 준비하는 방식(유형)이다. 두 유형 모두 같은 AES-256-GCM 엔진과 같은 암호문 형식
- * ({@code ENC[v1:...]}, 파일은 JCKF v1)을 쓰며, 유형은 "AES 키를 어떻게 준비하느냐"만 다르다.
+ * ({@code ENC[v1:...]}, 파일은 JCKF v2, 읽기는 v1/v2)을 쓰며, 유형은 "AES 키를 어떻게 준비하느냐"만 다르다.
  *
  * <ul>
  *   <li>{@link #PASS} (설정·CLI 이름 {@code pass}): Passphrase(문자열)를 PBKDF2-HMAC-SHA256과 키마다 다른 Salt로 32바이트

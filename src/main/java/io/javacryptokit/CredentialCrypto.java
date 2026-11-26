@@ -46,7 +46,7 @@ import java.util.List;
  * </ul>
  * <p>복호화({@code decryptText}·{@code decryptBytes}·{@code verify}·{@code decryptFile})에는 유형이 필요 없다. 암호문(파일은
  * 헤더)에 기록된 Key ID로 등록된 키를 고르며, 등록되지 않은 Key ID는 다른 키로 시도하지 않고 KEY_ID_MISMATCH로 끝난다.
- * 두 유형 모두 같은 {@code ENC[v1:...]}·JCKF v1 형식이며 유형은 "AES 키를 어떻게 준비하느냐"만 다르다.</p>
+ * 두 유형 모두 같은 {@code ENC[v1:...]}·JCKF 형식이며 유형은 "AES 키를 어떻게 준비하느냐"만 다르다.</p>
  *
  * <p><b>설정과 수명</b></p>
  * <ul>
@@ -178,7 +178,7 @@ public final class CredentialCrypto {
 
     /**
      * {@link #fromPassphrase(String, char[], byte[], int)}와 같지만 PBKDF2의 HMAC 해시를 고른다. 결과 키는 언제나 AES-256(32바이트)이고
-     * 출력은 {@code ENC[v1:...]}·JCKF v1 그대로다. 암호문에는 KDF 정보가 들어 있지 않으므로 알고리즘도 Salt·반복 횟수와 함께 호출자가
+     * 출력은 {@code ENC[v1:...]} 또는 JCKF v2다. 암호문에는 KDF 정보가 들어 있지 않으므로 알고리즘도 Salt·반복 횟수와 함께 호출자가
      * 보관해야 한다(SHA512로 만든 암호문은 같은 Passphrase·Salt라도 SHA256 객체로는 INTEGRITY로 실패한다). 관리형 pass 키(JAR·설정)는
      * 이 선택과 무관하게 PBKDF2-HMAC-SHA256을 쓴다. AES-128이나 업무용 AAD가 필요하면 {@code security.AesGcm}을 쓴다.
      *
@@ -438,7 +438,7 @@ public final class CredentialCrypto {
     }
 
     /**
-     * 파일을 기본 키로 암호화한다(텍스트·CSV·JSON·PDF·이미지 등 형식 무관). 결과는 독립된 버전 관리 바이너리 형식(JCKF v1,
+     * 파일을 기본 키로 암호화한다(텍스트·CSV·JSON·PDF·이미지 등 형식 무관). 결과는 독립된 버전 관리 바이너리 형식(JCKF v2,
      * AES-256-GCM, 64KiB 청크 스트리밍)이며 {@code ENC[v1:...]} 문자열 형식과는 별개다.
      *
      * <ul>

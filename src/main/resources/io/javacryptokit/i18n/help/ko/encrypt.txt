@@ -21,6 +21,6 @@ encrypt - 문자열(DB 비밀번호·사용자명 등) 암호화
   Tomcat Resource의 password="..."에 그대로 넣습니다(help tomcat).
 
 예제
-  java -jar {jar} encrypt
-  java -jar {jar} encrypt --type key
-  java -jar {jar} encrypt --key-id app-pass
+  java -jar {jar} enc
+  java -jar {jar} enc --type key
+  java -jar {jar} enc --key-id app-pass

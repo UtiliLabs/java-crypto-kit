@@ -21,5 +21,5 @@ Result
   and no plaintext (KEY_ID_MISMATCH: key ID not registered, INTEGRITY, ...).
 
 Examples
-  java -jar {jar} decrypt
-  java -jar {jar} decrypt --config app.properties
+  java -jar {jar} dec
+  java -jar {jar} dec --config app.properties

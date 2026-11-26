@@ -15,6 +15,8 @@
 
 ## 10. 설정 사전
 
+독립 `api` 명령의 키·토큰·검증값은 각 명령에서 입력합니다. 아래 설정은 관리형 키를 사용하며 JVM 언어 표시와 별도로 동작합니다. [독립 CLI 입출력](../guide/cli.md#api-cli)
+
 설정 이름·기본값·허용값을 정확히 확인하거나 설정 오류를 고칠 때 봅니다. 두는 곳과 우선순위는 [5.2절](../guide/key-management.md#topic-key-management--52-설정을-두는-곳과-우선순위)에 있고, 실행 중에는 `config help`로 같은 목록을 볼 수 있습니다.
 
 **JVM 옵션을 쓸 때** `-Dcrypto.config.file=<경로>`는 읽을 외부 Properties를 지정합니다. 고정 설정에서 `crypto.key.embedded`의 JVM 전달은 거부되며 `crypto.jvm.override.enabled` 정책 자체를 JVM 옵션으로 바꿀 수 없습니다. 나머지 고정 설정은 정책이 켜져 있을 때 허용된 값으로 덮어쓸 수 있습니다. 키별 프로필은 [위치 항목](#105-키-목록-항목)만 덮어쓸 수 있습니다. `crypto.key.env`와 `crypto.vault.token.env`에 지정하는 것은 환경변수 **이름**입니다.

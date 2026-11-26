@@ -1,4 +1,4 @@
-file encrypt - encrypt a file (any content, JCKF v1, streaming for large files)
+file encrypt - encrypt a file (any content, JCKF v2, streaming for large files)
 
 Usage
   java [-D...] -jar {jar} file encrypt --in <file>
@@ -16,8 +16,8 @@ Options
   The original is not changed. Each run gives a different result.
 
 Result
-  Encrypted: data.csv -> data.jck (key ID key01, 1048650 bytes)
+  Encrypted: data.csv -> data.jck (key ID key01, 1049071 bytes)
 
 Examples
-  java -jar {jar} file encrypt --in a.pdf --out a.jck
-  java -jar {jar} file encrypt --in a --out b --type key
+  java -jar {jar} file enc --in a.pdf --out a.jck
+  java -jar {jar} file enc --in a --out b --type key

@@ -21,5 +21,5 @@ decrypt - 암호문 복호화(평문 표시, 대화형 터미널 전용)
   (KEY_ID_MISMATCH: 등록되지 않은 키 ID, INTEGRITY 등).
 
 예제
-  java -jar {jar} decrypt
-  java -jar {jar} decrypt --config app.properties
+  java -jar {jar} dec
+  java -jar {jar} dec --config app.properties

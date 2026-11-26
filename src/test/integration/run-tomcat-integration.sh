@@ -224,16 +224,16 @@ un=$(wb sh -c 'cd /w && java -jar jars/public.jar keygen --out /w/out/unset.key 
 [ "$(grep -c 'ADMIN_SETUP' <<< "$un")" = 2 ] && [ "$(grep -c '^rc=1$' <<< "$un")" = 2 ] && [[ "$un" != *"unset.key"* && "$un" != *"configured"* ]]
 check $? "미설정 빌드 JAR: keygen·doctor 거부(ADMIN_SETUP, 종료 코드 1), 키 파일·새 JAR 생성 없음"
 quiet wb sh -c "cd /w && java -jar jars/public.jar admin setup --operator qa $ADM"
-check $? "admin setup(비대화형, --admin-pass-file): 빌드 JAR → 새 JAR public-configured.jar"
+check $? "admin setup(비대화형, --admin-pass-file): 빌드 JAR → 새 JAR public-cfg.jar"
 ad=$(wb sh -c 'cd /w && sha256sum jars/public.jar | cut -c1-64; rm -rf /tmp/ja && mkdir /tmp/ja && cd /tmp/ja \
-  && jar xf /w/jars/public-configured.jar META-INF/java-crypto-kit/admin.properties \
+  && jar xf /w/jars/public-cfg.jar META-INF/java-crypto-kit/admin.properties \
   && echo "kdf=$(grep -c "^kdf=PBKDF2WithHmacSHA256$" META-INF/java-crypto-kit/admin.properties)" \
   && echo "plain=$(grep -cF "$(cat /w/admin/admin.pw)" META-INF/java-crypto-kit/admin.properties)"' 2>&1)
 [ "$(head -1 <<< "$ad")" = "$(sha256 "$JAR")" ] && grep -qx 'kdf=1' <<< "$ad" && grep -qx 'plain=0' <<< "$ad"
 check $? "admin setup: 원본 빌드 JAR 그대로(SHA-256 같음), 새 JAR에는 PBKDF2 검증값만(비밀번호 원문 없음)"
-quiet wb sh -c "cd /w && java -jar jars/public-configured.jar keygen --out /opt/java-crypto-kit/company.key --reason 'integration test' $ADM"
+quiet wb sh -c "cd /w && java -jar jars/public-cfg.jar keygen --out /opt/java-crypto-kit/company.key --reason 'integration test' $ADM"
 check $? "keygen(사용자 지정 AES 키, 관리자 인증·사유 필수)"
-quiet wb sh -c "cd /w && java -jar jars/public-configured.jar config embed-key --from-file /opt/java-crypto-kit/company.key --key-id corp01 --operator qa --reason 'integration test' --yes --out jars/company-aes.jar $ADM"
+quiet wb sh -c "cd /w && java -jar jars/public-cfg.jar config embed-key --from-file /opt/java-crypto-kit/company.key --key-id corp01 --operator qa --reason 'integration test' --yes --out jars/company-aes.jar $ADM"
 check $? "config embed-key: 사용자 지정 AES 키 + 키ID corp01(이전 공개 키 default는 키 목록에 남음)"
 quiet wb sh -c "cd /w && java -jar jars/company-aes.jar config key add --key-id corp-pass --from-file /opt/java-crypto-kit/corp.pass --active --operator qa --reason 'integration test' --yes --out jars/company.jar $ADM"
 check $? "config key add: pass 키 corp-pass(Passphrase 파일, JAR에는 파생 키만) + pass 기본 키로 지정"
@@ -243,10 +243,10 @@ quiet wb sh -c "cd /w && java -jar jars/company.jar config key remove --key-id d
 check $? "config key remove: 공개 기본 키 default·pass-default를 뺀 JAR"
 quiet wb sh -c "cd /w && java -jar jars/company.jar config key add --key-id corp-pfile --source file --location /opt/java-crypto-kit/corp-pfile.pass --operator qa --reason 'integration test' --yes --out jars/company-pfile.jar $ADM"
 check $? "config key add --source file: pass 파일 키 corp-pfile(지금 한 번 읽어 지문 고정, JAR에는 위치·Salt·지문만)"
-for k in ext01 env01 shared01 infra biz; do quiet wb java -jar /w/jars/public-configured.jar keygen --out "/opt/java-crypto-kit/$k.key" --reason "integration test" $ADM || fail "keygen($k)"; done
+for k in ext01 env01 shared01 infra biz; do quiet wb java -jar /w/jars/public-cfg.jar keygen --out "/opt/java-crypto-kit/$k.key" --reason "integration test" $ADM || fail "keygen($k)"; done
 # 이중 배포용: JAR A(인프라, Tomcat lib)와 JAR B(업무, 웹앱 WEB-INF/lib). 키 ID·키·Pool 설정이 모두 다르다.
 for side in infra biz; do
-  quiet wb sh -c "cd /w && java -jar jars/public-configured.jar config embed-key --from-file /opt/java-crypto-kit/$side.key --key-id $side-key --operator qa --reason 'dual deploy' --yes --out jars/$side-aes.jar $ADM \
+  quiet wb sh -c "cd /w && java -jar jars/public-cfg.jar config embed-key --from-file /opt/java-crypto-kit/$side.key --key-id $side-key --operator qa --reason 'dual deploy' --yes --out jars/$side-aes.jar $ADM \
     && java -jar jars/$side-aes.jar config key add --key-id $side-pass --generate --export /opt/java-crypto-kit/$side-pass.backup --active --operator qa --reason 'dual deploy' --yes --out jars/$side.jar $ADM \
     && java -jar jars/$side.jar config set crypto.pool.factory=$TJF --operator qa --yes --out jars/$side-tj.jar $ADM"
   check $? "이중 배포용 JAR($side): AES 키 $side-key + pass 키 $side-pass(비대화형 생성 → --export 복원 백업, 기본 키), DBCP2·Tomcat JDBC Pool"
@@ -279,14 +279,14 @@ jx=$(wb sh -c 'rm -rf /tmp/jo && mkdir /tmp/jo && cd /tmp/jo && jar xf /w/jars/c
 [[ "$jx" == *"crypto.key.embedded=obf1:"* && "$jx" == *$'\nobf1:\n'* && "$jx" == *"plain-key=0"* && "$jx" == *"plain-reason=0"* ]]
 check $? "JAR 압축 해제: 내장 키·이력 본문이 obf1(키 원문·사유 문구가 글자 그대로 보이지 않음)"
 fp_jar=$(fpw /w/jars/company.jar fingerprint --type key)
-fp_key=$(fpw /w/jars/public-configured.jar fingerprint --key-file /opt/java-crypto-kit/company.key)
+fp_key=$(fpw /w/jars/public-cfg.jar fingerprint --key-file /opt/java-crypto-kit/company.key)
 [ -n "$fp_jar" ] && [ "$fp_jar" = "$fp_key" ]; check $? "fingerprint --type key: 키 내장 JAR의 AES 키 = 키 파일(64자 지문)"
 fp_pass=$(fpw /w/jars/company.jar fingerprint); fp_pass_id=$(fpw /w/jars/company.jar fingerprint --key-id corp-pass)
 [ -n "$fp_pass" ] && [ "$fp_pass" = "$fp_pass_id" ] && [ "$fp_pass" != "$fp_jar" ]
 check $? "fingerprint(유형 미지정) = 기본 pass 키 corp-pass(--key-id와 같음), AES 키와 다름"
 FP_INFRA_KEY=$(fpw /w/jars/infra.jar fingerprint --type key); FP_INFRA_PASS=$(fpw /w/jars/infra.jar fingerprint)
 FP_BIZ_KEY=$(fpw /w/jars/biz.jar fingerprint --type key); FP_BIZ_PASS=$(fpw /w/jars/biz.jar fingerprint)
-FP_SHARED=$(fpw /w/jars/public-configured.jar fingerprint --key-file /opt/java-crypto-kit/shared01.key)
+FP_SHARED=$(fpw /w/jars/public-cfg.jar fingerprint --key-file /opt/java-crypto-kit/shared01.key)
 [ -n "$FP_INFRA_KEY" ] && [ -n "$FP_INFRA_PASS" ] && [ -n "$FP_BIZ_KEY" ] && [ -n "$FP_BIZ_PASS" ] && [ -n "$FP_SHARED" ] \
   && [ "$FP_INFRA_KEY" != "$FP_BIZ_KEY" ] && [ "$FP_INFRA_PASS" != "$FP_BIZ_PASS" ] \
   && [ "$(fpw /w/jars/infra-tj.jar fingerprint --type key)" = "$FP_INFRA_KEY" ] && [ "$(fpw /w/jars/biz-tj.jar fingerprint)" = "$FP_BIZ_PASS" ]
@@ -296,7 +296,7 @@ doc=$(wb java -jar /w/jars/company.jar doctor 2>&1); rc=$?
    && "$doc" == *"키 로딩 정상: default, 공개 기본 키"* && "$doc" == *"키 로딩 정상: pass-default, 공개 기본 키"* \
    && "$doc" == *"결과: PASS"* && "$doc" != *"[WARN]"* ]]
 check $? "doctor(키 내장 JAR): 종료 코드 0, 등록된 키 4개 확인(corp01·corp-pass 사용자 지정, 공개 키는 사실 표시), WARN 없음"
-doc=$(wb java -jar /w/jars/public-configured.jar doctor 2>&1); rc=$?
+doc=$(wb java -jar /w/jars/public-cfg.jar doctor 2>&1); rc=$?
 [ $rc = 0 ] && [[ "$doc" == *"키 로딩 정상: default, 공개 기본 키"* && "$doc" == *"키 로딩 정상: pass-default, 공개 기본 키"* && "$doc" != *"[WARN]"* ]]
 check $? "doctor(공개 키만 있는 JAR, 관리자 인증 불필요): 공개 키 2개(pass-default·default) 사실 표시, 정책 WARN·자동 경고 없음, 종료 코드 0"
 doc=$(wb java -jar /w/jars/company-pfile.jar doctor 2>&1); rc=$?
@@ -315,7 +315,7 @@ dm=$(wb sh -c 'rm -rf /tmp/jd && mkdir -p /tmp/jd/META-INF/java-crypto-kit && cd
   java -jar jars/company-admin-damaged.jar decrypt --admin-pass-file /w/admin/admin.pw; echo "rc=$?"' 2>&1)
 [ "$(grep -c 'INTEGRITY' <<< "$dm")" = 2 ] && [ "$(grep -c '^rc=1$' <<< "$dm")" = 2 ] && [[ "$dm" != *"결과: PASS"* ]]
 check $? "관리자 검증값 손상 JAR: CLI doctor·decrypt 모두 INTEGRITY(종료 코드 1), 비밀번호 파일로도 진행 안 됨"
-hd=$(wb sh -c 'rm -rf /tmp/jh /tmp/jh.mf && mkdir /tmp/jh && cd /tmp/jh && jar xf /w/jars/public-configured.jar \
+hd=$(wb sh -c 'rm -rf /tmp/jh /tmp/jh.mf && mkdir /tmp/jh && cd /tmp/jh && jar xf /w/jars/public-cfg.jar \
   && mv META-INF/MANIFEST.MF /tmp/jh.mf && rm META-INF/java-crypto-kit/config-history.properties \
   && jar cfm /w/jars/public-history-deleted.jar /tmp/jh.mf . && cd /w && sha256sum jars/public-history-deleted.jar | cut -c1-64
   java -jar jars/public-history-deleted.jar config history --all --admin-pass-file /w/admin/admin.pw; echo "rc=$?"
@@ -333,8 +333,8 @@ export QA_ENV_KEY; QA_ENV_KEY=$(docker exec "$WB" cat /opt/java-crypto-kit/env01
 cat > "$WORK/gen-tokens.sh" << 'GEN'
 #!/bin/sh
 # 안내 문구가 나온 뒤(입력 숨김 상태) 값을 입력한다. 평문·암호문은 화면에 출력하지 않는다.
-# PUB: 공개 키만 있는 CLI JAR(빌드 JAR에 관리자 비밀번호만 설정한 public-configured.jar). ADM: 비대화형 관리자 인증
-J=/w/jars; PUB=$J/public-configured.jar; COMP=$J/company.jar; ADM="--admin-pass-file /w/admin/admin.pw"
+# PUB: 공개 키만 있는 CLI JAR(빌드 JAR에 관리자 비밀번호만 설정한 public-cfg.jar). ADM: 비대화형 관리자 인증
+J=/w/jars; PUB=$J/public-cfg.jar; COMP=$J/company.jar; ADM="--admin-pass-file /w/admin/admin.pw"
 # enc <이름> <값> "<java 옵션 -jar JAR>" [encrypt 옵션...]
 enc() {
   name="$1"; value="$2"; java_args="$3"; shift 3
@@ -961,8 +961,8 @@ if [ -n "$LEGACY_JAR" ]; then
   # 실제 이전 형식 바이너리: 새 CLI는 실행 중인 JAR의 관리자 인증으로 편집하고 이전 형식(표준 Base64 내장 키·평문 이력)으로 쓴다.
   CASE=legacy
   docker cp "$(hostpath "$LEGACY_JAR")" "$WB:/w/jars/legacy.jar" > /dev/null
-  quiet wb sh -c "cd /w && java -jar jars/public-configured.jar keygen --out /w/out/legacy.key --reason 'legacy test' $ADM \
-    && java -jar jars/public-configured.jar config embed-key --jar jars/legacy.jar --from-file /w/out/legacy.key --key-id old01 \
+  quiet wb sh -c "cd /w && java -jar jars/public-cfg.jar keygen --out /w/out/legacy.key --reason 'legacy test' $ADM \
+    && java -jar jars/public-cfg.jar config embed-key --jar jars/legacy.jar --from-file /w/out/legacy.key --key-id old01 \
        --operator qa --reason 'legacy test' --yes --out jars/legacy-edited.jar $ADM"
   check $? "실제 이전 버전 JAR: 새 CLI(실행 중인 JAR 인증)로 AES 키 old01 내장"
   docker cp "$WB:/w/out/legacy.key" "$WORKH/secure/legacy.key" > /dev/null; secret "$(tr -d '\r\n' < "$WORK/secure/legacy.key")"
@@ -1233,7 +1233,7 @@ if [ "$WITH_VAULT" = 1 ]; then
   up=1; for i in $(seq 1 60); do vx status > /dev/null 2>&1 && { up=0; break; }; sleep 1; done
   check $up "Vault 기동(TLS)"
   docker exec "$VAULT" cat /vault/tls/vault-ca.pem > "$WORK/secure/vault-ca.pem"
-  for k in v1 v2; do wb java -jar /w/jars/public-configured.jar keygen --out "/w/out/vault-$k.key" --reason "vault test" $ADM > /dev/null; done
+  for k in v1 v2; do wb java -jar /w/jars/public-cfg.jar keygen --out "/w/out/vault-$k.key" --reason "vault test" $ADM > /dev/null; done
   docker cp "$WB:/w/out/." "$WORKH/secure/" > /dev/null
   for k in v1 v2; do secret "$(tr -d '\r\n' < "$WORK/secure/vault-$k.key")"; tr -d '\r\n' < "$WORK/secure/vault-$k.key" | vx kv put -mount=secret java-crypto-kit/qa key=- > /dev/null; done
   check $? "KV v2 버전 1·2 저장"

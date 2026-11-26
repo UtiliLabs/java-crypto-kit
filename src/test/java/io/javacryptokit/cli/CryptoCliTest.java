@@ -536,7 +536,7 @@ class CryptoCliTest {
             assertFalse(message.contains(dir.toString()) || message.contains("\u2029") || message.contains("12KB"));
         }
         Path originalJar = dir.resolve("한글\u2028.jar");
-        assertEquals(dir.resolve("한글\u2028-configured.jar"), ConfigCommand.defaultOutputJar(originalJar));
+        assertEquals(dir.resolve("한글\u2028-cfg.jar"), ConfigCommand.defaultOutputJar(originalJar));
     }
 
     @Test

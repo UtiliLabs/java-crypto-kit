@@ -22,6 +22,6 @@ Result
   Put it as is into password="..." of the Tomcat Resource (help tomcat).
 
 Examples
-  java -jar {jar} encrypt
-  java -jar {jar} encrypt --type key
-  java -jar {jar} encrypt --key-id app-pass
+  java -jar {jar} enc
+  java -jar {jar} enc --type key
+  java -jar {jar} enc --key-id app-pass

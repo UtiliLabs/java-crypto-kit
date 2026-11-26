@@ -13,7 +13,7 @@ import java.nio.file.Paths;
 
 /**
  * <b>내부 구현 클래스</b>: {@code file encrypt / file decrypt}. 공개 API {@code CredentialCrypto.encryptFile/decryptFile}과 같은
- * 구현({@code core.CryptoService} → {@code file.FileCipher}, JCKF v1)을 호출한다.
+ * 구현({@code core.CryptoService} → {@code file.FileCipher}, JCKF v2 쓰기·v1/v2 읽기)을 호출한다.
  *
  * <p>입력과 출력 경로를 모두 지정한다. 원본과 기존 출력 파일은 보존한다. 암호화 키는 {@code --type}·{@code --key-id}로
  * 고르고, 복호화는 파일 헤더의 Key ID로 키를 고른다. 복호화는 {@link CryptoCli}의 관리자 인증 뒤에만 진행한다(암호화는 인증 없음).</p>

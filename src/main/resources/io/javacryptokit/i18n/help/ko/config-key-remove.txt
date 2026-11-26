@@ -11,7 +11,7 @@ config key remove - 키 목록에서 키 제거(새 JAR 생성)
   --operator <ID>   이력에 남길 수정자 ID(필수)
   --reason <사유>   이력에 남길 사유(필수, 없으면 대화형 터미널에서 질문)
   --jar <jar>       바꿀 JAR(선택, 기본: 실행 중인 JAR)
-  --out <jar>       결과 JAR(선택, 기본 <이름>-configured.jar)
+  --out <jar>       결과 JAR(선택, 기본 <이름>-cfg.jar)
   --replace         원본 교체(백업 후)
   --yes             CHANGE 확인 생략(사유는 생략할 수 없음)
   --admin-pass-file <파일>
@@ -23,7 +23,7 @@ config key remove - 키 목록에서 키 제거(새 JAR 생성)
   제거한 키 ID는 같은 키를 되살릴 때만 다시 쓸 수 있습니다.
 
 결과
-  생성 JAR  : /opt/app/java-crypto-kit-{version}-configured.jar
+  생성 JAR  : /opt/app/java-crypto-kit-{version}-cfg.jar
   변경 항목 : crypto.keys.p1.type (pass -> (없음))
               ...
   제거 키   : p1

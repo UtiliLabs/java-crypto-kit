@@ -1,8 +1,8 @@
 # OTP·JWT·OAuth 인증 및 토큰 처리
 
-[프로젝트 소개](../../README.md) · [전체 가이드](../user-guide.md)
+[프로젝트 소개](../../README.md) · [전체 가이드](../user-guide.md) · [CLI 명령·예제](#api-cli-guide)
 
-사용자 일회용 코드와 서비스 토큰을 생성·검증하거나 외부 인증 서버와 연계할 때 사용하는 Java API입니다. 토큰 검증과 애플리케이션의 권한·세션 관리는 구분합니다.
+Java API와 독립 CLI로 사용자 일회용 코드와 서비스 토큰을 생성·검증하고 외부 인증 서버와 연계합니다. [명령·옵션·예제](#api-cli-guide) 토큰 검증과 애플리케이션의 권한·세션 관리는 구분합니다.
 
 <a name="guide-contents"></a>
 **이 문서에서 찾을 수 있는 내용**
@@ -26,7 +26,7 @@
 
 호출 서비스는 `ClientCredentials`로 토큰을 받고, 대상 API는 토큰 종류에 맞춰 `AccessTokenVerifier` 또는 `TokenIntrospector`로 검증합니다. 검증된 scope·role로 최종 업무 권한을 판단합니다. 토큰 보관·캐시·재발급 정책, OTP 재사용 방지, 세션 관리, 인증 서버 구현은 애플리케이션 책임입니다.
 
-이 기능은 Java API 전용이며 CLI 관리자 인증과는 별개입니다. 예제 실행은 [Java API 공통 규칙](../reference/java-api-reference.md)을 참조합니다.
+앱은 Java API로 인증을 연동하고, 독립 CLI는 [OTP](#api-otp)·[JWT](#api-jwt)·[OAuth](#api-oauth)의 발급·검증을 실행합니다. CLI에서 실행하려면 관리자 인증이 필요합니다. [Java 예제 실행 규칙](../reference/java-api-reference.md)
 
 <a name="guide-section-2"></a>
 ## 사용자 인증과 API 인증의 적용 단계
@@ -490,6 +490,194 @@ public static String partnerAuthorization(URI tokenEndpoint, char[] clientSecret
 - `clientSecretBasic`은 HTTP 인증 헤더, `clientSecretPost`는 폼 본문을 사용합니다. 인증 서버가 지원하는 한 가지를 한 번만 지정하세요. 같은 Builder에서 인증 방식을 두 번 지정하면 입력 오류입니다.
 
 실제 HTTP 요청에 넣는 값은 `token.authorizationHeader()`입니다. 응답을 화면에 출력하거나 로그에 남기지 않습니다. 만료값이 없다면 수명을 임의로 만들지 말고 인증 서버 정책을 확인합니다.
+
+<a name="api-cli-guide"></a>
+## 독립 보안 API의 CLI 사용
+
+[인증·비밀 입출력 규칙](cli.md#api-cli)과 아래 업무별 옵션을 확인하세요.
+
+<a name="api-jwt"></a>
+### JWT 및 JWKS
+
+생성은 HS256·RS256·ES256 중 하나를 명시합니다. 검증은 지정 알고리즘으로만 수행하며 만료(exp)를 요구합니다. 로컬 JWKS를 호출자가 신뢰해야 합니다. `--claims-file`의 업무 클레임과 표준 클레임 전용 옵션을 나눕니다. 분석 결과는 미검증 안내와 헤더·페이로드 라벨이 있는 보호 텍스트 파일(`.txt`)입니다. Compact JWT의 한도는 64 KiB이고 신뢰한 로컬 JWKS 파일은 1 MiB입니다. 입력을 읽고 검증한 토큰이 거부되면 stdout에는 `FAIL`, stderr에는 사유가 표시됩니다.
+
+| 명령 | 관리자 인증 | 명령별 옵션 |
+|---|---|---|
+| `api jwt create` | 매 실행 | `--algorithm`, `--key-file`, `--key-encoding`, `--private-key`, `--issuer`, `--subject`, `--audience`, `--expires-in`, `--jwt-id`, `--kid`, `--claims-file`, `--out`, `--issued-at`, `--not-before`, `--show` |
+| `api jwt inspect` | 매 실행 | `--in`, `--out`, `--show` |
+| `api jwt verify` | 매 실행 | `--algorithm`, `--key-file`, `--key-encoding`, `--public-key`, `--jwks-file`, `--issuer`, `--subject`, `--audience`, `--any-audience`, `--kid`, `--clock-skew`, `--require-claims`, `--require-claim-values-file`, `--in`, `--at`, `--typ` |
+
+<details>
+<summary>옵션과 기본값</summary>
+
+- `jwt create` — HS256·RS256·ES256을 명시합니다. 유효기간 기본 300초.
+- `jwt inspect` — 미검증 Header와 Payload입니다. 출력 파일의 접근을 제한합니다.
+- `jwt verify` — exp는 필수이며 시각 허용 오차는 기본 0초입니다.
+- `--algorithm` — 이 명령의 알고리즘. 위 허용값을 확인합니다.
+- `--any-audience` — JWT에서 대상 값 일치를 명시적으로 생략합니다. `--audience`와 둘 중 하나를 지정합니다. HS256은 공유키 파일, RS256·ES256은 공개키 파일 또는 신뢰한 로컬 JWKS를 사용합니다.
+- `--at` — ISO-8601 UTC 시각. 기본 현재 시각.
+- `--audience` — 생성 시 공백 구분 값, 검증 시 대상 하나.
+- `--claims-file` — 최대 64 KiB의 보호 JSON 객체. JWT 업무 값에 문자열·정수·불리언·문자열 배열·객체를 사용합니다. OAuth 로컬 생성은 문자열·정수·불리언만 지원합니다.
+- `--clock-skew` — 0~300초. 기본 0초.
+- `--expires-in` — 토큰 유효기간(초). 기본 300.
+- `--in` — 입력 경로. 지원하는 경우 생략하면 한 줄 입력을 받습니다.
+- `--issued-at` — ISO-8601 발급 시각. 기본 현재 시각.
+- `--issuer` — 발급자. 검증 시 정확히 일치해야 합니다.
+- `--jwks-file` — 신뢰한 로컬 JWKS 파일. 원격 키를 조회하지 않습니다.
+- `--jwt-id` — 사용자 지정 토큰 ID(jti).
+- `--key-encoding` — 공유키 표현. 기본 base64.
+- `--key-file` — 인코딩한 비밀키 한 줄이 든 보호 파일.
+- `--kid` — 서명 키 ID 또는 기대 키 ID(kid).
+- `--not-before` — 선택형 ISO-8601 토큰 사용 시작 시각.
+- `--out` — 새 출력 경로. 비밀 결과에는 보호 폴더를 씁니다.
+- `--private-key` — PKCS#8 개인키 PEM/DER 보호 파일.
+- `--public-key` — 신뢰한 SPKI 공개키 PEM/DER 파일.
+- `--require-claims` — 필수 클레임 이름 목록을 하나의 공백 구분 인자로 지정합니다. 예 `--require-claims "sub department"`.
+- `--require-claim-values-file` — 정확히 일치해야 할 문자열 클레임 맵을 담은 보호 JSON 파일입니다. 예 `{"department":"dev"}`.
+- `--show` — 실제 터미널에서 SHOW 확인 뒤 화면에만 표시합니다.
+- `--subject` — 주체 또는 검증 시 기대하는 주체.
+- `--typ` — 허용할 typ 값을 공백으로 구분합니다.
+
+</details>
+
+입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
+
+```sh
+java -jar java-crypto-kit-0.2.0-cfg.jar api keygen --type hmac --out jwt.key --reason 'local JWT example'
+java -jar java-crypto-kit-0.2.0-cfg.jar api jwt create --alg hs256 --key-file jwt.key --iss test-app --sub user01 --aud test-api --out jwt.txt
+java -jar java-crypto-kit-0.2.0-cfg.jar api jwt inspect --in jwt.txt --out jwt-inspection.txt
+java -jar java-crypto-kit-0.2.0-cfg.jar api jwt verify --alg hs256 --key-file jwt.key --iss test-app --aud test-api --in jwt.txt
+```
+
+**RSA·EC·JWKS 예제**는 `api jwt --examples`에서 함께 확인할 수 있습니다. RSA 예제의 `claims.json`과 `expected.json`에는 각각 `{"department":"dev"}` 같은 업무 값과 기대 값을 넣습니다. `trusted-jwks.json`에는 같은 RSA 공개키를 서명에 쓴 `kid`로 등록합니다. 실제 서비스에서는 신뢰한 발급자의 키 목록으로 검증하세요.
+
+<a name="api-oauth"></a>
+### OAuth 2.0
+
+| 작업 | 입력과 지원 범위 |
+|---|---|
+| `token` | HTTPS 발급. Basic 기본 또는 서버가 지원하는 `post`. 출력에는 발급한 토큰을 저장합니다. |
+| `introspect` | HTTPS 상태 조회. Basic 전용. 입력은 최대 16,384자(ASCII 16 KiB). `active:false`는 정상 응답입니다. |
+| `create` | 로컬 RFC 9068 생성. 발급자·주체·대상·클라이언트 ID·알고리즘·키 필수. |
+| `verify` | 최대 64 KiB Compact JWT 로컬 검증. 발급자·대상·알고리즘·신뢰 키 필수. RFC 9068 또는 설정형 프로파일을 선택합니다. |
+
+발급 서버가 16,384자를 넘는 토큰을 반환해도 발급 자체가 성공하면 토큰은 저장되며 한도 안내가 stderr에 표시됩니다. 같은 토큰을 이 CLI로 인트로스펙션하려면 공급자에서 한도 이내로 발급받으세요. 64 KiB는 로컬 JWT 한도입니다. 로컬 `create`·`verify`에는 HTTPS 시간 제한 옵션이 적용되지 않습니다. TLS·HTTP·시간 초과는 실행 오류로 구분합니다.
+
+| 명령 | 관리자 인증 | 명령별 옵션 |
+|---|---|---|
+| `api oauth token` | 매 실행 | `--endpoint`, `--client-id`, `--client-secret-file`, `--auth-method`, `--connect-timeout`, `--read-timeout`, `--max-response-bytes`, `--scope`, `--out`, `--show` |
+| `api oauth introspect` | 매 실행 | `--endpoint`, `--client-id`, `--client-secret-file`, `--connect-timeout`, `--read-timeout`, `--max-response-bytes`, `--in`, `--token-type-hint`, `--out`, `--show` |
+| `api oauth create` | 매 실행 | `--algorithm`, `--key-file`, `--key-encoding`, `--private-key`, `--issuer`, `--subject`, `--audience`, `--expires-in`, `--jwt-id`, `--kid`, `--claims-file`, `--out`, `--profile`, `--client-id`, `--scope`, `--roles`, `--issued-at`, `--show` |
+| `api oauth verify` | 매 실행 | `--algorithm`, `--key-file`, `--key-encoding`, `--public-key`, `--jwks-file`, `--issuer`, `--subject`, `--audience`, `--kid`, `--clock-skew`, `--require-claims`, `--require-claim-values-file`, `--in`, `--at`, `--profile`, `--typ`, `--scope`, `--roles`, `--client-id`, `--client-id-claim`, `--scope-claim`, `--roles-claim`, `--forbid-claim`, `--require-permission` |
+
+<details>
+<summary>옵션과 기본값</summary>
+
+- `oauth token` — HTTPS. 기본 Basic이며 발급 서버가 지원하면 post를 지정합니다.
+- `oauth introspect` — Basic 인증. 비활성 상태와 통신 오류는 구분합니다.
+- `oauth create` — 발급자·주체·대상·클라이언트 ID 필수. 유효기간 기본 300초.
+- `oauth verify` — rfc9068(기본) 또는 profile 선택. 업무 권한은 API가 판단합니다.
+- `--algorithm` — 이 명령의 알고리즘. 위 허용값을 확인합니다.
+- `--at` — ISO-8601 UTC 시각. 기본 현재 시각.
+- `--audience` — 생성 시 공백 구분 값, 검증 시 대상 하나.
+- `--auth-method` — `oauth token` 전용입니다. `basic`(기본) 또는 `post`를 지정합니다. 인트로스펙션은 Basic을 사용합니다.
+- `--claims-file` — 최대 64 KiB의 보호 JSON 객체. JWT 업무 값에 문자열·정수·불리언·문자열 배열·객체를 사용합니다. OAuth 로컬 생성은 문자열·정수·불리언만 지원합니다.
+- `--client-id` — OAuth 클라이언트 ID 또는 검증 기대 ID.
+- `--client-id-claim` — 설정형 검증의 클라이언트 ID 클레임 이름.
+- `--client-secret-file` — UTF-8 클라이언트 비밀값 보호 파일.
+- `--clock-skew` — 0~300초. 기본 0초.
+- `--connect-timeout` — 연결 제한(초). 기본 5.
+- `--endpoint` — HTTPS 엔드포인트 URL.
+- `--expires-in` — 토큰 유효기간(초). 기본 300.
+- `--forbid-claim` — 존재하면 거부할 클레임 이름.
+- `--in` — 입력 경로. 지원하는 경우 생략하면 한 줄 입력을 받습니다.
+- `--issued-at` — ISO-8601 발급 시각. 기본 현재 시각.
+- `--issuer` — 발급자. 검증 시 정확히 일치해야 합니다.
+- `--jwks-file` — 신뢰한 로컬 JWKS 파일. 원격 키를 조회하지 않습니다.
+- `--jwt-id` — 사용자 지정 토큰 ID(jti).
+- `--key-encoding` — 공유키 표현. 기본 base64.
+- `--key-file` — 인코딩한 비밀키 한 줄이 든 보호 파일.
+- `--kid` — 서명 키 ID 또는 기대 키 ID(kid).
+- `--max-response-bytes` — 응답 제한(바이트). 기본 65536.
+- `--out` — 새 출력 경로. 비밀 결과에는 보호 폴더를 씁니다.
+- `--private-key` — PKCS#8 개인키 PEM/DER 보호 파일.
+- `--profile` — 생성은 `rfc9068`만 지원합니다. 검증은 `rfc9068`(기본) 또는 `profile`을 지정합니다. 설정형 검증에는 발급 정책에 맞는 `--typ`, 기대 문자열 클레임, 요구 스코프·역할 등 토큰을 구분하는 조건이 필요합니다.
+- `--public-key` — 신뢰한 SPKI 공개키 PEM/DER 파일.
+- `--read-timeout` — 읽기 제한(초). 기본 10.
+- `--require-claims` — 필수 클레임 이름 목록을 하나의 공백 구분 인자로 지정합니다. 예 `--require-claims "sub department"`.
+- `--require-claim-values-file` — 정확히 일치해야 할 문자열 클레임 맵을 담은 보호 JSON 파일입니다. 예 `{"department":"dev"}`.
+- `--require-permission` — 설정형 검증에서 권한 클레임을 요구합니다.
+- `--roles` — 역할 이름을 공백으로 구분합니다.
+- `--roles-claim` — 역할 클레임 이름. 기본 roles.
+- `--scope` — scope 이름을 공백으로 구분합니다.
+- `--scope-claim` — scope 클레임 이름. 기본 scope.
+- `--show` — 실제 터미널에서 SHOW 확인 뒤 화면에만 표시합니다.
+- `--subject` — 주체 또는 검증 시 기대하는 주체.
+- `--token-type-hint` — 선택형 상태 조회 token_type_hint.
+- `--typ` — 허용할 typ 값을 공백으로 구분합니다.
+
+</details>
+
+입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
+
+```sh
+java -jar java-crypto-kit-0.2.0-cfg.jar api oauth token --endpoint https://auth.example.com/token --client-id test-app --client-secret-file client.pw --auth-method basic --out access.txt
+java -jar java-crypto-kit-0.2.0-cfg.jar api oauth token --endpoint https://auth.example.com/token --client-id test-app --client-secret-file client.pw --auth-method post --out access-post.txt
+java -jar java-crypto-kit-0.2.0-cfg.jar api oauth introspect --endpoint https://auth.example.com/introspect --client-id test-app --client-secret-file client.pw --in access.txt --out status.json
+```
+
+다음 예제는 로컬에서 RFC 9068 토큰을 생성·검증합니다. RSA 시험용 키쌍을 준비하고, 위 발급 파일과 구분해 새 `access-local.txt`에 저장합니다.
+
+```sh
+java -jar java-crypto-kit-0.2.0-cfg.jar api oauth create --alg rs256 --priv-key rsa-private.pem --iss test-app --sub user01 --aud test-api --client-id demo --scope read --out access-local.txt
+java -jar java-crypto-kit-0.2.0-cfg.jar api oauth verify --profile rfc9068 --alg rs256 --pub-key rsa-public.pem --iss test-app --aud test-api --scope read --in access-local.txt
+```
+
+JWKS 검증과 설정형 프로파일의 복사 명령은 `api oauth verify --examples`에서 확인하세요. JWKS는 신뢰한 발급자가 배포한 JSON을 별도 경로로 받아 로컬에서 사용합니다. Java 연동은 `Jwks.parse`로 같은 목록을 파싱할 수 있습니다. 설정형 프로파일에는 실제 발급자·대상과 함께 전용 `typ`, 예상 업무 클레임 또는 요구 스코프·역할처럼 토큰을 구분할 조건을 지정합니다.
+
+<a name="api-otp"></a>
+### 일회용 코드
+
+HOTP는 SHA1과 호출자가 제공한 카운터를 사용합니다. TOTP는 ISO-8601 시각 기준으로 SHA1/256/512를 선택합니다. 등록 URI는 TOTP API에서 제공하며 보호 출력입니다. 앞자리 0을 보존합니다. `api keygen --type otp`의 출력은 Base32로 고정되며 생성 파일을 `--key-file`로 그대로 전달합니다.
+
+| 명령 | 관리자 인증 | 명령별 옵션 |
+|---|---|---|
+| `api otp generate` | 매 실행 | `--type`, `--algorithm`, `--digits`, `--period`, `--key-file`, `--counter`, `--at`, `--out`, `--show` |
+| `api otp verify` | 매 실행 | `--type`, `--algorithm`, `--digits`, `--period`, `--key-file`, `--counter`, `--at`, `--window`, `--in` |
+| `api otp uri` | 매 실행 | `--type`, `--algorithm`, `--digits`, `--period`, `--key-file`, `--issuer`, `--account`, `--out`, `--show` |
+
+<details>
+<summary>옵션과 기본값</summary>
+
+- `otp generate` — 기본 TOTP SHA1, 6자리, 30초. HOTP는 counter가 필요합니다.
+- `otp verify` — 검증 창 기본 0. 코드 재사용은 호출자가 관리합니다.
+- `otp uri` — TOTP 전용. 등록 URI에 비밀값이 들어 있습니다.
+- `--account` — 등록 URI의 계정 표지.
+- `--algorithm` — 이 명령의 알고리즘. 위 허용값을 확인합니다.
+- `--at` — 재현 시험에 사용할 ISO-8601 UTC 시각. 운영에서는 생략하여 현재 시각으로 생성·검증합니다.
+- `--counter` — HOTP 카운터(0 이상). 호출자가 관리합니다.
+- `--digits` — OTP 6~8자리. 기본 6.
+- `--in` — 입력 경로. 지원하는 경우 생략하면 한 줄 입력을 받습니다.
+- `--issuer` — TOTP 등록 URI의 발급자 표지.
+- `--key-file` — Base32 비밀 키 한 줄이 든 보호 파일. 디코딩한 키는 16바이트 이상.
+- `--out` — 새 출력 경로. 비밀 결과에는 보호 폴더를 씁니다.
+- `--period` — TOTP 주기 15~300초. 기본 30.
+- `--show` — 실제 터미널에서 SHOW 확인 뒤 화면에만 표시합니다.
+- `--type` — 작업 방식 또는 키 유형.
+- `--window` — HOTP 0~100, TOTP 0~10. 기본 0.
+
+</details>
+
+입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
+
+그룹 예제와 개별 생성·검증 예제는 같은 UTC 시각을 사용하는 재현 시험입니다. 생성한 `otp-code.txt`를 검증에 전달합니다. 운영에서는 `--at`을 생략하세요.
+
+```sh
+java -jar java-crypto-kit-0.2.0-cfg.jar api keygen --type otp --enc base32 --out otp.key --reason 'OTP test'
+java -jar java-crypto-kit-0.2.0-cfg.jar api otp uri --type totp --key-file otp.key --issuer TestApp --account user01 --out otp-uri.txt
+java -jar java-crypto-kit-0.2.0-cfg.jar api otp gen --key-file otp.key --at 2026-11-26T00:00:00Z --out otp-code.txt
+java -jar java-crypto-kit-0.2.0-cfg.jar api otp verify --key-file otp.key --at 2026-11-26T00:00:00Z --in otp-code.txt
+```
 
 ---
 

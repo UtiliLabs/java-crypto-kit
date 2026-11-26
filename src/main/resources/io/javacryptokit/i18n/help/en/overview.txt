@@ -1,4 +1,4 @@
-java-crypto-kit CLI {version} - AES-256-GCM encryption for Java and Tomcat
+java-crypto-kit CLI {version} - Java security toolkit
 
 Usage: java [-D...] -jar {jar} <command> [options]
 
@@ -29,11 +29,15 @@ Settings and checks
   info                     Settings in effect
   doctor                   Check settings and functions
 
+Independent API
+  api --help               Independent Java security API commands
+
 * Asks the admin password on every run (unattended: --admin-pass-file <file>).
   The Java API and Tomcat decrypt without the admin password.
 Key types: pass (passphrase, default), key (AES key). Encryption picks a key
 with --type or --key-id; decryption finds it by the key ID in the ciphertext.
 Details: help <command>   (e.g. help config set, decrypt --help)
+Examples: <command> --examples (e.g. file --examples)
 Settings: help config    Key list: help config key
 Integration: help tomcat / help vault / help aws-kms
 Every command: --lang en|ko (language of this run), --help (command help)

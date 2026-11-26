@@ -293,13 +293,13 @@ public final class CryptoService {
         }
     }
 
-    /** 파일을 기본 키로 JCKF v1 형식으로 암호화한다. */
+    /** 파일을 기본 키로 JCKF v2 형식으로 암호화한다. */
     public void encryptFile(Path in, Path out) throws CredentialCryptoException {
         encryptFile(in, out, null, null);
     }
 
     /**
-     * 파일을 JCKF v1 형식으로 암호화한다. 원본을 바꾸지 않고, 출력 파일이 있으면 덮어쓰지 않는다.
+     * 파일을 JCKF v2 형식으로 암호화한다. 원본을 바꾸지 않고, 출력 파일이 있으면 덮어쓰지 않는다.
      *
      * @param in    입력 파일
      * @param out   출력 파일(없어야 한다)
@@ -324,7 +324,7 @@ public final class CryptoService {
     }
 
     /**
-     * JCKF v1 파일을 복호화한다. 헤더의 Key ID로 키를 고르며, 인증이 끝까지 성공한 경우에만 출력 파일이 생긴다.
+     * JCKF v1 또는 v2 파일을 복호화한다. 헤더의 Key ID로 키를 고르며, 인증이 끝까지 성공한 경우에만 출력 파일이 생긴다.
      *
      * @param in  암호화 파일
      * @param out 출력 파일(없어야 한다)

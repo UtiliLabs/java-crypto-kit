@@ -58,7 +58,7 @@ class DocsConsistencyTest {
     private static final Pattern SETTING = Pattern.compile("crypto\\.[a-z0-9.-]*[a-z0-9](?![A-Za-z0-9(])");
     /** 예제 명령 줄: "-jar <jar 파일>" 또는 "... io.javacryptokit.cli.CryptoCli" 다음의 명령과 나머지 인자. */
     private static final Pattern EXAMPLE = Pattern.compile(
-            "java .*?(?:-jar \\S*\\.jar|io\\.javacryptokit\\.cli\\.CryptoCli) ((?:config key|config|file|kms|admin password|admin) \\S+|\\S+)(.*)");
+            "java .*?(?:-jar \\S*\\.jar|io\\.javacryptokit\\.cli\\.CryptoCli) (api(?: [a-z][a-z0-9-]*){1,2}|(?:config key|config|file|kms|admin password|admin) \\S+|\\S+)(.*)");
 
     @TempDir
     Path dir;
@@ -105,21 +105,43 @@ class DocsConsistencyTest {
                 Matcher m = EXAMPLE.matcher(code);
                 if (!m.find()) continue;
                 String name = m.group(1).trim();
-                // help·config help는 명령이 아니라 도움말 주제다(DoctorAndHelpTest가 따로 검사).
+                Set<String> options = tokens(OPTION, m.group(2));
                 if (name.startsWith("<") || name.equals("help") || name.equals("config help")) continue;
-                CliCommands.Spec spec = CliCommands.find(name);
-                assertNotNull(spec, document + " 예제의 없는 명령: " + line);
-                for (String option : tokens(OPTION, m.group(2))) {
-                    if (option.equals("--help") || option.equals("--lang")) continue;
-                    assertTrue(spec.options().contains(option), document + " 예제의 잘못된 옵션 " + option + ": " + line);
+                if (name.equals("--help") || name.equals("-h") || name.equals("--examples")) {
+                    assertTrue(options.isEmpty() || options.equals(java.util.Collections.singleton("--lang")), line);
+                    continue;
                 }
-                if (name.equals("file encrypt") || name.equals("file decrypt")) {
+                CliCommands.Spec spec = CliCommands.find(name);
+                if (spec == null && CliHelp.isQuery(Arrays.asList(name.split(" ")))) {
+                    assertTrue(options.contains("--help") || options.contains("--examples"), line);
+                    assertTrue(options.stream().allMatch(o -> o.equals("--help") || o.equals("--examples") || o.equals("--lang")), line);
+                    continue;
+                }
+                assertNotNull(spec, document + " 예제의 없는 명령: " + line);
+                for (String option : options) {
+                    if (option.equals("--help") || option.equals("--lang") || option.equals("--examples")) continue;
+                    assertTrue(spec.options().contains(CliCommands.canonicalOption(spec, option)), document + " 예제의 잘못된 옵션 " + option + ": " + line);
+                }
+                if (spec.name.equals("file encrypt") || spec.name.equals("file decrypt")) {
                     assertTrue(tokens(OPTION, m.group(2)).contains("--out"), document + ": " + line);
                 }
                 checked++;
             }
         }
         return checked;
+    }
+
+    @Test
+    void independentApiGuideListsEveryExecutionPathAndItsOptions() throws IOException {
+        String guides = guideText();
+        for (CliCommands.Spec spec : ApiCommands.ALL) {
+            Matcher row = Pattern.compile("(?m)^\\| `" + Pattern.quote(spec.name) + "` [|] (?:매 실행|초기 설정 후 사용) [|] [^\\r\\n]+").matcher(guides);
+            assertTrue(row.find(), spec.name);
+            for (String option : spec.options()) {
+                if (!option.equals(CliCommands.ADMIN_FILE)) assertTrue(row.group().contains("`" + option + "`"), spec.name + " " + option);
+            }
+            assertTrue(row.group().contains(spec.access == CliCommands.Access.ADMIN ? "매 실행" : "초기 설정 후 사용"), spec.name);
+        }
     }
 
     @Test

@@ -8,7 +8,8 @@ bin/
 *.iml
 .classpath
 .project
-.settings/
+.settings/*
+!.settings/org.eclipse.core.resources.prefs
 .vscode/*.log
 .tools/
 dist/
@@ -32,7 +33,7 @@ dist/
 docs/config/*.properties
 !docs/config/java-crypto-kit.example.properties
 
-# 사용자 지정 키가 들어갈 수 있는 JAR(config set·embed-key 결과 <이름>-configured*.jar, --out으로 지정한 이름 포함)와
+# 사용자 지정 키가 들어갈 수 있는 JAR(config set·embed-key 결과 <이름>-cfg*.jar·이전 -configured*.jar, --out으로 지정한 이름 포함)와
 # --replace 백업(<이름>.jar.bak-<UTC>)은 저장소에 넣지 않는다. 저장소가 추적하는 JAR는 Gradle Wrapper 하나뿐이다.
 # (이미 추적 중인 파일은 무시 규칙과 무관하므로 CI가 git ls-files로 따로 검사한다)
 *.jar

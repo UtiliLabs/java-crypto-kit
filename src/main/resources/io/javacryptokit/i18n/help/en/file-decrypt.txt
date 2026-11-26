@@ -1,4 +1,4 @@
-file decrypt - decrypt a file made by file encrypt (JCKF v1)
+file decrypt - decrypt a file made by file encrypt (JCKF v1/v2)
 
 Usage
   java [-D...] -jar {jar} file decrypt --in <file>
@@ -21,5 +21,5 @@ Result
   Decrypted: data.jck -> data.csv (1048576 bytes)
 
 Examples
-  java -jar {jar} file decrypt --in a.jck --out a.pdf
-  java -jar {jar} file decrypt --in data.jck --out data.csv
+  java -jar {jar} file dec --in a.jck --out a.pdf
+  java -jar {jar} file dec --in data.jck --out data.csv

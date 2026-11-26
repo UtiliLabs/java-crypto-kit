@@ -36,7 +36,7 @@ Other
   --reason <text>     Reason for the history (required). Asked in an
                       interactive terminal; otherwise an error before input.
   --jar <jar>         JAR to change (optional, default: the running JAR)
-  --out <jar>         Result JAR (optional, default <name>-configured.jar)
+  --out <jar>         Result JAR (optional, default <name>-cfg.jar)
   --replace           Replace the original (backup first)
   --yes               Skip the CHANGE confirmation (not the reason)
   --admin-pass-file <file>

@@ -25,6 +25,7 @@ import java.nio.file.attribute.PosixFilePermission;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -37,7 +38,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/** 파일 암복호화(JCKF v1): 왕복·변조·잘림·키 오류·경로 보호·임시 파일 정리·공개 API. */
+/** 파일 암복호화: JCKF v2 쓰기, v1 읽기, 변조·잘림·경로 보호·임시 파일 정리. */
 class FileCipherTest {
     private static final SecureRandom RANDOM = new SecureRandom();
     @TempDir
@@ -69,15 +70,23 @@ class FileCipherTest {
         byte[] key = key();
         byte[] sealed = encrypt(plain, "prod01", key);
         assertArrayEquals(plain, decrypt(sealed, "prod01", key));
-        int chunks = Math.max(1, (size + FileCipher.CHUNK - 1) / FileCipher.CHUNK + (size % FileCipher.CHUNK == 0 && size > 0 ? 0 : 0));
-        assertTrue(sealed.length >= size + chunks * 29, "청크마다 표시·IV·태그가 붙는다");
+        int chunks = Math.max(1, (size + FileCipher.CHUNK - 1) / FileCipher.CHUNK);
+        assertEquals(2, sealed[4], "새 파일은 JCKF v2");
+        assertEquals(10 + "prod01".length() + 16 + size + chunks * 29, sealed.length);
     }
 
     @Test
     void sameFileEncryptsDifferentlyEveryTime() throws Exception {
         byte[] plain = "같은 내용".getBytes(StandardCharsets.UTF_8);
         byte[] key = key();
-        assertFalse(Arrays.equals(encrypt(plain, "k1", key), encrypt(plain, "k1", key)), "청크마다 새 IV");
+        byte[] first = encrypt(plain, "k1", key);
+        byte[] second = encrypt(plain, "k1", key);
+        int fileId = 10 + "k1".length();
+        assertFalse(Arrays.equals(Arrays.copyOfRange(first, fileId, fileId + 16),
+                Arrays.copyOfRange(second, fileId, fileId + 16)), "암호화마다 다른 파일 식별자");
+        int iv = fileId + 16 + 1;
+        assertFalse(Arrays.equals(Arrays.copyOfRange(first, iv, iv + 12),
+                Arrays.copyOfRange(second, iv, iv + 12)), "청크마다 새 IV");
     }
 
     @Test
@@ -86,11 +95,11 @@ class FileCipherTest {
         RANDOM.nextBytes(plain);
         byte[] key = key();
         byte[] sealed = encrypt(plain, "prod01", key);
-        int header = 4 + 1 + 4 + 1 + "prod01".length();
+        int header = 10 + "prod01".length() + 16;
         int record = 1 + 12 + FileCipher.CHUNK + 16;
         // 1) 헤더의 키ID 글자 바꾸기(같은 길이) -> 키ID 불일치 또는 인증 실패
         byte[] badId = sealed.clone();
-        badId[header - 1] = (byte) '2';
+        badId[10 + "prod01".length() - 1] = (byte) '2';
         assertThrows(CredentialCryptoException.class, () -> decrypt(badId, "prod01", key));
         // 2) 청크 본문 1비트 변조
         byte[] flipped = sealed.clone();
@@ -120,8 +129,81 @@ class FileCipherTest {
                 () -> decrypt("plain text".getBytes(StandardCharsets.US_ASCII), "prod01", key));
         // 10) 지원하지 않는 버전
         byte[] version = sealed.clone();
-        version[4] = 2;
+        version[4] = 3;
         assertReason(CredentialCryptoException.Reason.INVALID_TOKEN, () -> decrypt(version, "prod01", key));
+    }
+
+    @Test
+    void readsLegacyV1FilesFromPreviousReleaseArtifact() throws Exception {
+        // 이전 배포 JAR의 공개 API와 테스트 전용 0 키로 생성한 고정 벡터. 신규 writer로 다시 만들지 않는다.
+        String[] samples = {
+            "SkNLRgEAAQAAB2ZpeHR1cmUBdfpidisDSkbKJZYAIXdN9eHPSLS7M9RWBzzQShtS0cS+PAp1EVJy0FI/IzY15Xo=",
+            "SkNLRgEAAQAAB2ZpeHR1cmUBUCR2GKCP+2GWUw5tj32N4jPMCRIFBz6ZPls2mQ=="
+        };
+        byte[][] expected = {"JCKF legacy fixture".getBytes(StandardCharsets.US_ASCII), new byte[0]};
+        CredentialCrypto crypto = CredentialCrypto.fromRawKey("fixture", new byte[32]);
+        for (int i = 0; i < samples.length; i++) {
+            Path input = Files.write(dir.resolve("legacy-" + i + ".jck"), Base64.getDecoder().decode(samples[i]));
+            Path result = dir.resolve("legacy-" + i + ".bin");
+            assertEquals("fixture", FileCipher.readKeyId(input));
+            crypto.decryptFile(input, result);
+            assertArrayEquals(expected[i], Files.readAllBytes(result));
+        }
+    }
+
+    @Test
+    void v2RejectsMixedAndRepeatedRecordsWithoutPublishingPlaintext() throws Exception {
+        String keyId = "shared";
+        byte[] key = key();
+        byte[] first = encrypt(new byte[3 * FileCipher.CHUNK], keyId, key);
+        byte[] otherPlain = new byte[3 * FileCipher.CHUNK];
+        Arrays.fill(otherPlain, (byte) 7);
+        byte[] second = encrypt(otherPlain, keyId, key);
+        assertEquals(2, first[4]);
+        assertEquals(2, second[4]);
+        int header = 10 + keyId.length() + 16;
+        int record = 1 + 12 + FileCipher.CHUNK + 16;
+        CredentialCrypto crypto = CredentialCrypto.fromRawKey(keyId, key);
+
+        byte[] mixed = first.clone();
+        System.arraycopy(second, header + record, mixed, header + record, record);
+        assertUnpublished(crypto, mixed, "mixed-middle", CredentialCryptoException.Reason.INTEGRITY);
+
+        byte[] foreignLast = first.clone();
+        System.arraycopy(second, header + 2 * record, foreignLast, header + 2 * record, record);
+        assertUnpublished(crypto, foreignLast, "foreign-last", CredentialCryptoException.Reason.INTEGRITY);
+
+        byte[] repeated = first.clone();
+        System.arraycopy(first, header, repeated, header + record, record);
+        assertUnpublished(crypto, repeated, "repeated", CredentialCryptoException.Reason.INTEGRITY);
+
+        byte[] reordered = first.clone();
+        System.arraycopy(first, header + record, reordered, header, record);
+        System.arraycopy(first, header, reordered, header + record, record);
+        assertUnpublished(crypto, reordered, "reordered", CredentialCryptoException.Reason.INTEGRITY);
+        assertUnpublished(crypto, Arrays.copyOf(first, first.length - 1), "truncated", CredentialCryptoException.Reason.INTEGRITY);
+
+        byte[] changedFileId = first.clone();
+        changedFileId[header - 1] ^= 1;
+        assertUnpublished(crypto, changedFileId, "file-id", CredentialCryptoException.Reason.INTEGRITY);
+
+        byte[] changedVersion = first.clone();
+        changedVersion[4] = 1;
+        assertUnpublished(crypto, changedVersion, "changed-version", CredentialCryptoException.Reason.INTEGRITY);
+
+        byte[] missingFileId = Arrays.copyOf(first, header - 1);
+        assertUnpublished(crypto, missingFileId, "incomplete-header", CredentialCryptoException.Reason.INVALID_TOKEN);
+    }
+
+    private void assertUnpublished(CredentialCrypto crypto, byte[] damaged, String name,
+                                   CredentialCryptoException.Reason reason) throws Exception {
+        Path input = Files.write(dir.resolve(name + ".jck"), damaged);
+        Path output = dir.resolve(name + ".bin");
+        assertReason(reason, () -> crypto.decryptFile(input, output));
+        assertFalse(Files.exists(output), "인증 실패 후 최종 평문 파일이 없어야 한다");
+        try (Stream<Path> files = Files.list(dir)) {
+            assertFalse(files.anyMatch(path -> path.getFileName().toString().endsWith(FileCipher.TEMP_SUFFIX)));
+        }
     }
 
     private interface Action {

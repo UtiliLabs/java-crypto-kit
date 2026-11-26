@@ -81,7 +81,6 @@ final class CliCommands {
         final Set<String> flags = new LinkedHashSet<>();
         /** config set의 이름=값(입력 순서). */
         final Map<String, String> settings = new LinkedHashMap<>();
-        boolean help;
         /** 이번 실행의 관리자 비밀번호 확인 창구({@link CryptoCli}가 명령 실행 전에 채운다). */
         AdminGate admin;
 
@@ -164,6 +163,80 @@ final class CliCommands {
         NESTED_GROUPS = Collections.unmodifiableMap(nested);
     }
 
+    // Keys are the exact short spellings. Only command segments and option names are normalized.
+    private static final Map<String, String> GROUP_ALIASES = aliasMap(
+            "sig", "signature", "cert", "certificate", "rand", "random", "req-auth", "request-auth");
+    private static final Map<String, String> PATH_ALIASES = pathAliases();
+    private static final Map<String, String> OPTION_ALIASES = aliasMap(
+            "--alg", "--algorithm", "--enc", "--encoding", "--in-enc", "--input-encoding",
+            "--key-enc", "--key-encoding", "--fmt", "--format", "--pub-key", "--public-key",
+            "--priv-key", "--private-key", "--len", "--length", "--iter", "--iterations",
+            "--sig-file", "--signature-file", "--iss", "--issuer", "--sub", "--subject",
+            "--aud", "--audience", "--jti", "--jwt-id", "--iat", "--issued-at",
+            "--nbf", "--not-before", "--ttl", "--expires-in");
+
+    private static Map<String, String> aliasMap(String... pairs) {
+        Map<String, String> result = new LinkedHashMap<>();
+        for (int i = 0; i < pairs.length; i += 2) {
+            if (result.put(pairs[i], pairs[i + 1]) != null) throw new IllegalStateException("duplicate CLI alias");
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
+    private static Map<String, String> pathAliases() {
+        Map<String, String> result = new LinkedHashMap<>();
+        for (String prefix : Arrays.asList("", "file ", "api aes ", "api rsa ", "api hybrid ")) {
+            result.put(prefix + "enc", prefix + "encrypt");
+            result.put(prefix + "dec", prefix + "decrypt");
+        }
+        result.put("api keyconv", "api keyconvert");
+        result.put("api hash gen", "api hash generate");
+        result.put("api otp gen", "api otp generate");
+        return Collections.unmodifiableMap(result);
+    }
+
+    static String canonicalPath(String path) {
+        if (path.startsWith("api ")) {
+            int end = path.indexOf(' ', 4);
+            if (end < 0) end = path.length();
+            String group = path.substring(4, end);
+            String resolved = GROUP_ALIASES.get(group);
+            if (resolved != null) path = "api " + resolved + path.substring(end);
+        }
+        return PATH_ALIASES.getOrDefault(path, path);
+    }
+
+    static String commandAlias(String path) {
+        for (Map.Entry<String, String> alias : PATH_ALIASES.entrySet()) {
+            if (alias.getValue().equals(path)) return alias.getKey();
+        }
+        for (Map.Entry<String, String> alias : GROUP_ALIASES.entrySet()) {
+            String group = "api " + alias.getValue();
+            if (path.equals(group) || path.startsWith(group + " ")) {
+                return "api " + alias.getKey() + path.substring(group.length());
+            }
+        }
+        return null;
+    }
+
+    private static boolean apiAliasesAllowed(Spec spec, String option) {
+        return spec.name.startsWith("api ") && (!"--issuer".equals(option)
+                || spec.name.startsWith("api jwt ") || spec.name.startsWith("api oauth "));
+    }
+
+    static String canonicalOption(Spec spec, String name) {
+        String target = OPTION_ALIASES.get(name);
+        return target != null && apiAliasesAllowed(spec, target) && spec.values.contains(target) ? target : name;
+    }
+
+    static String optionAlias(Spec spec, String canonical) {
+        if (!apiAliasesAllowed(spec, canonical) || !spec.values.contains(canonical)) return null;
+        for (Map.Entry<String, String> alias : OPTION_ALIASES.entrySet()) {
+            if (alias.getValue().equals(canonical)) return alias.getKey();
+        }
+        return null;
+    }
+
     /** @return 실행할 때마다 관리자 비밀번호를 확인하는 명령이면 true */
     static boolean needsAdmin(Spec spec) {
         return spec.access == Access.ADMIN;
@@ -184,8 +257,12 @@ final class CliCommands {
      * @return 정의(없으면 null)
      */
     static Spec find(String name) {
+        name = canonicalPath(name);
         for (Spec spec : ALL) {
             if (spec.name.equals(name)) return spec;
+        }
+        if (name.startsWith("api ")) {
+            for (Spec spec : ApiCommands.ALL) if (spec.name.equals(name)) return spec;
         }
         return null;
     }
@@ -194,6 +271,7 @@ final class CliCommands {
     static Set<String> topLevelNames() {
         Set<String> names = new LinkedHashSet<>();
         names.add("help");
+        names.add("api");
         for (Spec spec : ALL) names.add(spec.name.split(" ")[0]);
         return names;
     }
@@ -221,10 +299,6 @@ final class CliCommands {
         Parsed parsed = new Parsed(spec);
         for (int i = start; i < args.length; i++) {
             String arg = args[i];
-            if ("--help".equals(arg) || "-h".equals(arg)) {
-                parsed.help = true;
-                return parsed;
-            }
             if (arg.startsWith("-D")) {
                 throw new CryptoCli.CliException(Messages.get("cli.err.jvmAfterJar", spec.name));
             }
@@ -236,11 +310,14 @@ final class CliCommands {
                     name = arg.substring(0, eq);
                     value = arg.substring(eq + 1);
                 }
+                name = canonicalOption(spec, name);
                 if (spec.flags.contains(name) && value == null) {
-                    parsed.flags.add(name);
+                    if (!parsed.flags.add(name) && spec.name.startsWith("api ")) {
+                        throw new CryptoCli.CliException(Messages.get("cli.err.duplicate", name, spec.name));
+                    }
                 } else if (spec.values.contains(name)) {
                     if (value == null) {
-                        if (++i >= args.length) {
+                        if (++i >= args.length || (spec.name.startsWith("api ") && args[i].startsWith("--"))) {
                             throw new CryptoCli.CliException(Messages.get("cli.err.missingValue", name, spec.name));
                         }
                         value = args[i];

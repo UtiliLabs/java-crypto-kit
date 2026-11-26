@@ -16,7 +16,7 @@ config embed-key - crypto.key.* AES 키와 새 키 ID를 내장한 새 JAR 생�
                           필요(embedded로 전환). embedded면 생략합니다.
   --reason <사유>         이력에 남길 사유(필수, 없으면 대화형 터미널에서 질문)
   --jar <jar>             바꿀 JAR(선택, 기본: 실행 중인 JAR)
-  --out <jar>             결과 JAR(선택, 기본 <이름>-configured.jar).
+  --out <jar>             결과 JAR(선택, 기본 <이름>-cfg.jar).
                           기존 파일은 덮어쓰지 않습니다.
   --replace               원본 교체(백업 후)
   --yes                   CHANGE 확인 생략(사유는 생략할 수 없음)
@@ -29,7 +29,7 @@ config embed-key - crypto.key.* AES 키와 새 키 ID를 내장한 새 JAR 생�
   pass 키와 다른 키는 바꾸지 않습니다. 키 추가·회전: help config key
 
 결과
-  생성 JAR  : C:\work\java-crypto-kit-{version}-configured.jar
+  생성 JAR  : C:\work\java-crypto-kit-{version}-cfg.jar
   변경 항목 : crypto.key.embedded (비공개)
               crypto.key.id (default -> key01)
               crypto.keys.default.type ((없음) -> key)
@@ -38,4 +38,4 @@ config embed-key - crypto.key.* AES 키와 새 키 ID를 내장한 새 JAR 생�
 
 예제
   java -jar {jar} config embed-key --from-file example.key --key-id key01 --operator ops
-  java -jar java-crypto-kit-{version}-configured.jar fingerprint --type key
+  java -jar {editedJar} fingerprint --type key

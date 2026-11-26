@@ -14,8 +14,8 @@ Options
   --reason <text>     Reason for the history (one line, max 200). Required for
                       key-related settings (asked interactively), else optional
   --jar <jar>         JAR to change (optional, default: the running JAR)
-  --out <jar>         Result JAR (optional, default <name>-configured.jar, then
-                      -configured-2.jar). Existing files are never overwritten.
+  --out <jar>         Result JAR (optional, default <name>-cfg.jar, then
+                      -cfg-2.jar). Existing files are never overwritten.
   --replace           Replace the original instead (backup <name>.bak-<UTC>,
                       atomic move). Not together with --out.
   --yes               Skip the CHANGE confirmation for key-related settings
@@ -26,7 +26,7 @@ Options
   --lang en|ko        Message language for this run (optional)
 
 Result
-  Created JAR : /opt/app/java-crypto-kit-{version}-configured.jar
+  Created JAR : /opt/app/java-crypto-kit-{version}-cfg.jar
   Changes     : crypto.lang (ko -> en)
                 (one line per setting when there are several)
 

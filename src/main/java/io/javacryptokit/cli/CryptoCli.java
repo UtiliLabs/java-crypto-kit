@@ -219,10 +219,12 @@ public final class CryptoCli {
         List<String> rest = new ArrayList<>();
         String requested = null;
         boolean langGiven = false;
+        boolean duplicateLang = false;
         String configPath = null;
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
             if (CliCommands.LANG_OPTION.equals(arg) || arg.startsWith(CliCommands.LANG_OPTION + "=")) {
+                duplicateLang |= langGiven;
                 langGiven = true;
                 if (arg.contains("=")) {
                     requested = arg.substring(arg.indexOf('=') + 1);
@@ -235,7 +237,8 @@ public final class CryptoCli {
             if (arg.startsWith("--config=")) configPath = arg.substring("--config=".length());
             rest.add(arg);
         }
-        Messages.Language fromSettings = settingsLanguage(configPath);
+        Messages.Language fromSettings = rest.isEmpty() || CliHelp.isQuery(rest) || "api".equals(rest.get(0))
+                ? CryptoSettings.bootstrapLanguage() : settingsLanguage(configPath);
         Messages.setProcessLanguage(fromSettings);
         Messages.Language chosen = fromSettings;
         if (langGiven) {
@@ -248,6 +251,9 @@ public final class CryptoCli {
             chosen = Messages.Language.EN;
         }
         Messages.setProcessLanguage(chosen);
+        if (duplicateLang && !rest.isEmpty() && "api".equals(rest.get(0))) {
+            throw new CliException(Messages.get("cli.err.duplicate", "--lang", "api"));
+        }
         return rest.toArray(new String[0]);
     }
 
@@ -276,49 +282,27 @@ public final class CryptoCli {
         }
     }
 
-    /** @return 도움말 요청 단어(help, --help, -h)이면 true */
-    private static boolean isHelpWord(String word) {
-        return "help".equals(word) || "--help".equals(word) || "-h".equals(word);
-    }
-
-    /**
-     * 인자를 해석하고 명령별 처리를 수행한다. 모르는 명령·옵션은 설정을 읽기 전에 거부한다. 관리자 비밀번호를 설정하지 않은 JAR는
-     * 도움말 대신 초기 설정 안내만 보여 주고, 명령은 최초 설정부터 진행한다({@link AdminCommand#enter}).
-     */
+    /** Route public queries before execution setup and administrator authentication. */
     private static int run(String[] args, TerminalProvider terminals, PrintStream out, PrintStream err, AdminGate admin)
             throws Exception {
-        // 도움말은 설정·키 파일·외부 Properties·네트워크를 쓰지 않는다(잘못된 외부 설정이 있어도 동작).
-        if (args.length == 0 || isHelpWord(args[0])) {
-            Integer gated = AdminCommand.helpGate(admin, out);
-            if (gated != null) return gated;
-            return CliHelp.help(Arrays.copyOfRange(args, Math.min(1, args.length), args.length), out);
-        }
+        if (args.length == 0) return AdminCommand.startScreen(admin, out);
+        if (CliHelp.isQuery(Arrays.asList(args))) return CliHelp.query(args, out, admin.cliJar());
         String command = args[0];
         CliCommands.Spec spec;
         int start;
-        if (CliCommands.GROUPS.contains(command)) {
+        if ("api".equals(command)) {
+            int options = 1;
+            while (options < args.length && !args[options].startsWith("-")) options++;
+            String path = String.join(" ", Arrays.copyOfRange(args, 0, options));
+            spec = CliCommands.find(path);
+            if (spec == null) throw ApiInput.problem("api.err.command");
+            start = options;
+        } else if (CliCommands.GROUPS.contains(command)) {
             String sub = args.length > 1 ? args[1] : null;
-            if (sub == null || isHelpWord(sub)) {
-                Integer gated = AdminCommand.helpGate(admin, out);
-                if (gated != null) return gated;
-                if ("config".equals(command)) {
-                    CliHelp.topic("config", out);
-                } else {
-                    CliHelp.group(command, out);
-                }
-                return 0;
-            }
             start = 2;
             String nestedTopic = CliCommands.NESTED_GROUPS.get(command + " " + sub);
             if (nestedTopic != null) {
-                // config key add|use|remove|show, admin password change(3단계 명령). 묶음만 쓰거나 도움말을 요청하면 묶음 안내를 보여 준다.
-                String third = args.length > 2 ? args[2] : null;
-                if (third == null || isHelpWord(third)) {
-                    Integer gated = AdminCommand.helpGate(admin, out);
-                    if (gated != null) return gated;
-                    CliHelp.topic(nestedTopic, out);
-                    return 0;
-                }
+                String third = args[2];
                 sub = sub + " " + third;
                 start = 3;
             }
@@ -338,24 +322,31 @@ public final class CryptoCli {
             start = 1;
         }
         CliCommands.Parsed parsed = CliCommands.parse(spec, args, start);
-        if (parsed.help) {
-            // 최초 설정 명령의 도움말은 미설정 JAR에서도 보여 준다(설정 방법 안내).
-            if (!ConfigHistory.ADMIN_SETUP.equals(spec.name)) {
-                Integer gated = AdminCommand.helpGate(admin, out);
-                if (gated != null) return gated;
-            }
-            CliHelp.topic(spec.topic, out);
-            return 0;
-        }
         parsed.admin = admin;
         Integer entered = AdminCommand.enter(spec, terminals, out, err, admin);
         if (entered != null) return entered;
+        if (spec.name.startsWith("api ")) ApiInput.precheck(parsed);
         if (spec.access == CliCommands.Access.ADMIN) {
             // 민감 명령: 입력·비밀 자료 없이 하는 사전 검사 → 관리자 인증(여기 한 곳) → 본 처리. 대상 JAR의 키·설정·이력은 인증 뒤에만 읽는다.
             precheck(spec, parsed, terminals);
             authenticate(parsed, terminals, admin);
         }
-        int code = dispatch(spec, parsed, terminals, out, err);
+        int code;
+        if (spec.name.startsWith("api ")) {
+            try {
+                code = ApiCommands.run(parsed, terminals, out, err);
+            } catch (io.javacryptokit.jwt.JwtException e) {
+                throw new CliException(e.getReason().name(), Messages.get("api.err.jwt." + e.getReason().name()));
+            } catch (io.javacryptokit.oauth.OAuthClientException e) {
+                String status = e.getStatusCode() < 0 ? "-" : Integer.toString(e.getStatusCode());
+                throw new CliException(e.getReason().name(), Messages.get("api.err.oauth." + e.getReason().name(), status,
+                        e.getOAuthError() == null ? "-" : e.getOAuthError()));
+            } catch (IllegalArgumentException e) {
+                throw new CliException("INVALID_INPUT", Messages.get("api.err.commandInput", spec.name));
+            }
+        } else {
+            code = dispatch(spec, parsed, terminals, out, err);
+        }
         // 방어적 단언: 민감 명령의 본 처리는 위 인증 뒤에만 실행된다(정책·흐름을 잘못 바꾸면 시험이 이 예외로 잡는다).
         if (code == 0 && CliCommands.needsAdmin(spec) && !admin.authenticated()) {
             throw new IllegalStateException("admin authentication missing");

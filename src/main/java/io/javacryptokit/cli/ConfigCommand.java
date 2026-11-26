@@ -46,7 +46,7 @@ final class ConfigCommand {
     /** 확인 질문에서 바뀌는 설정 한 줄의 들여쓰기. */
     private static final String CONFIRM_INDENT = "  ";
     /** 결과 JAR 기본 이름에 붙이는 표시(원본과 쉽게 구분). */
-    static final String DEFAULT_SUFFIX = "-configured.jar";
+    static final String DEFAULT_SUFFIX = "-cfg.jar";
 
     private ConfigCommand() { }
 
@@ -594,19 +594,21 @@ final class ConfigCommand {
         Path parent = source.toAbsolutePath().getParent();
         Path target = parent.resolve(defaultOutputName(source.getFileName().toString()));
         if (java.nio.file.Files.exists(target, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
-            throw new CryptoCli.CliException(Messages.get("cfg.err.defaultOutExists",
-                    JarConfigEditor.name(target), JarConfigEditor.name(parent.resolve(nextFreeName(parent, target.getFileName().toString())))));
+            String available = nextFreeName(parent, target.getFileName().toString());
+            if (available == null) throw new CryptoCli.CliException(Messages.get("cfg.err.defaultOutExhausted", JarConfigEditor.name(target)));
+            throw new CryptoCli.CliException(Messages.get("cfg.err.defaultOutExists", JarConfigEditor.name(target),
+                    JarConfigEditor.name(parent.resolve(available))));
         }
         return target;
     }
 
-    /** "-configured" 또는 "-configured-숫자"로 끝나는 이름(대소문자 무시). 그룹 1: 앞부분, 그룹 2: 순번. */
+    /** 기존 configured와 현재 cfg를 같은 이름 계열로 인식한다. */
     private static final java.util.regex.Pattern CONFIGURED_STEM =
-            java.util.regex.Pattern.compile("(?i)(.+)-configured(?:-(\\d{1,6}))?");
+            java.util.regex.Pattern.compile("(?i)(.+)-(?:configured|cfg)(?:-([0-9]+))?");
 
     /**
-     * 기본 결과 JAR 이름. 처음 바꾸는 JAR는 {@code <이름>-configured.jar}, 이미 바꾼 JAR는 접미사를 겹치지 않고 순번을 올린다
-     * ({@code x-configured.jar → x-configured-2.jar → x-configured-3.jar}).
+     * 기본 결과 JAR 이름. 처음 바꾸는 JAR는 {@code <이름>-cfg.jar}, 이미 바꾼 JAR는 접미사를 겹치지 않고 순번을 올린다
+     * ({@code x-configured.jar → x-cfg-2.jar → x-cfg-3.jar}).
      *
      * @param fileName 원본 JAR 파일 이름
      * @return 원본 옆에 만들 결과 파일 이름
@@ -616,18 +618,19 @@ final class ConfigCommand {
                 ? fileName.substring(0, fileName.length() - 4) : fileName;
         java.util.regex.Matcher m = CONFIGURED_STEM.matcher(stem);
         if (!m.matches()) return stem + DEFAULT_SUFFIX;
-        long next = m.group(2) == null ? 2 : Long.parseLong(m.group(2)) + 1;
-        return m.group(1) + "-configured-" + next + ".jar";
+        java.math.BigInteger next = m.group(2) == null ? java.math.BigInteger.valueOf(2)
+                : new java.math.BigInteger(m.group(2)).add(java.math.BigInteger.ONE);
+        return m.group(1) + "-cfg-" + next + ".jar";
     }
 
-    /** 안내용: 같은 폴더에서 아직 없는 다음 순번 이름(찾지 못하면 기본 형식의 예). */
+    /** 안내용: 같은 폴더에서 아직 없는 다음 순번 이름(100개 안에 없으면 null). */
     private static String nextFreeName(Path parent, String taken) {
         String candidate = taken;
         for (int i = 0; i < 100; i++) {
             candidate = defaultOutputName(candidate);
             if (!java.nio.file.Files.exists(parent.resolve(candidate), java.nio.file.LinkOption.NOFOLLOW_LINKS)) return candidate;
         }
-        return candidate;
+        return null;
     }
 
     /** @return 지금 실행 중인 JAR 파일(클래스 폴더에서 실행 중이면 null) */

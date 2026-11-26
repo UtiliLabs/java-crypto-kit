@@ -12,28 +12,17 @@ Java Crypto Kit는 Java 애플리케이션에서 데이터 암복호화, 요청 
 
 ## 제공 기능과 업무 적용
 
-필요한 작업에서 바로 상세 사용법으로 이동할 수 있습니다. 가이드에는 기능 선택, 입력·옵션·출력, 예제 및 오류 처리 방법을 설명합니다.
-
-| 기능 | 언제 활용하나요? | 사용 가이드 |
+| 업무 | Java API | CLI |
 |---|---|---|
-| 문자열·바이트 암복호화 | DB 컬럼의 개인정보, 설정 비밀값 등 나중에 원문이 필요한 데이터. 문자열은 CLI·Java, 바이트 배열은 Java API로 처리 | [관리형 암복호화](docs/guide/java-encryption.md#topic-java-api) |
-| 직접 키 주입 | 서비스가 키 또는 Passphrase를 별도로 관리하며 JCK 설정과 독립적으로 암복호화 | [직접 키 API](docs/guide/java-encryption.md#topic-direct-key) |
-| AES-GCM 및 AAD | AES-128/256 원시 형식, 레코드 ID 같은 업무 값과 암호문을 함께 인증 | [AES-GCM](docs/guide/java-encryption.md#topic-aes) |
-| RSA-OAEP·Hybrid | 상대 공개키로 짧은 비밀값 또는 더 긴 업무 메시지를 보호 | [RSA](docs/guide/java-encryption.md#topic-rsa) · [Hybrid](docs/guide/java-encryption.md#topic-hybrid) |
-| 파일 암복호화 | CSV·PDF·이미지 등 정산/전송 파일을 스트리밍으로 보호·복원(CLI 또는 Java API) | [파일 처리](docs/guide/file-encryption.md) |
-| Tomcat JDBC | 기존 JNDI DataSource의 DB 비밀번호(필수)·계정(선택)을 암호화하고 DBCP2/JDBC Pool 연결 | [Tomcat 연동](docs/guide/tomcat-jdbc.md) |
-| CLI 및 키 관리 | 코드 없이 암복호화, 키 생성·등록·선택·조회·백업·복구·교체, 설정·진단·변경 이력 | [CLI](docs/guide/cli.md) · [키 관리](docs/guide/key-management.md) |
-| Vault·AWS KMS | 기존 외부 키 관리 체계를 관리형 암복호화와 연결 | [외부 키 관리](docs/guide/external-key-providers.md) |
-| HMAC·요청 인증 | 공유 비밀키로 API 전문 또는 웹훅 인증, 시각·서명 확인과 애플리케이션의 nonce 재사용 검사 | [HMAC](docs/guide/data-integrity.md#topic-hmac) · [요청 인증](docs/guide/data-integrity.md#topic-request-auth) |
-| SHA 해시·전자서명·PEM | 파일 체크섬 비교, 개인키 서명 및 공개키 검증, 키 읽기·변환 | [SHA](docs/guide/data-integrity.md#topic-hash) · [전자서명·PEM](docs/guide/data-integrity.md#topic-signature) |
-| 비밀번호 해시 | 회원 비밀번호를 원문 복원 없이 저장·확인하고 기존 해시 갱신 | [비밀번호 해시](docs/guide/security-utilities.md#topic-password) |
-| 난수·UUID·키 파생·인코딩 | 랜덤 문자열·보안 토큰·Nonce, 키 분리 및 파생, Base64·Hex 등 변환과 안전 비교 | [난수](docs/guide/security-utilities.md#topic-random) · [키 파생](docs/guide/security-utilities.md#topic-key-derivation) · [인코딩](docs/guide/security-utilities.md#topic-encoding) |
-| HOTP·TOTP | 인증 앱의 일회용 코드 생성·검증 | [OTP](docs/guide/authentication.md#topic-otp) |
-| JWT·JWKS | 서명 토큰 발급·검증, 신뢰하는 공개키 목록 해석 | [JWT·JWKS](docs/guide/authentication.md#topic-jwt) |
-| OAuth 2.0 | JWT 접근 토큰 검증, opaque 토큰 상태 조회, 서버 간 접근 토큰 발급 요청 | [OAuth 검증](docs/guide/authentication.md#topic-oauth) · [Introspection](docs/guide/authentication.md#topic-oauth-introspection) · [Client Credentials](docs/guide/authentication.md#topic-oauth-client-credentials) |
-| 인증서·키 저장소 | X.509 정보 및 신뢰 체인 검증, PKCS12/JKS에서 키·인증서 읽기 | [인증서와 키 저장소](docs/guide/certificates-keystores.md) |
-
-위 기능 중 관리형 문자열·파일 암복호화, 키·설정 관리는 CLI를 제공합니다. 나머지 범용 보안 API는 Java 코드에서 사용합니다. [전체 가이드 목차](docs/user-guide.md)
+| 관리형 문자열·파일 암복호화 | [CredentialCrypto](docs/guide/java-encryption.md#topic-java-api) | [문자열](docs/guide/cli.md#topic-cli) · [파일](docs/guide/file-encryption.md) |
+| 직접 키·Passphrase, AES-GCM·RSA-OAEP·Hybrid | [암복호화 API](docs/guide/java-encryption.md) | [`api aes`, `api rsa`, `api hybrid`](docs/guide/java-encryption.md#api-cli-guide) |
+| 체크섬·전자서명·HMAC·요청 서명 | [데이터 무결성 API](docs/guide/data-integrity.md) | [해시·서명·요청 검증 명령](docs/guide/data-integrity.md#api-cli-guide) |
+| 비밀번호 해시·난수·키 파생·인코딩 | [보안 유틸리티 API](docs/guide/security-utilities.md) | [유틸리티 명령](docs/guide/security-utilities.md#api-cli-guide) |
+| OTP·JWT·JWKS·OAuth 2.0 | [인증 API](docs/guide/authentication.md) | [토큰·OTP 명령](docs/guide/authentication.md#api-cli-guide) |
+| 키 생성·변환, X.509 인증서 정보 | [PEM 키와 인증서 API](docs/guide/certificates-keystores.md) | [시험용 키 생성](docs/guide/key-management.md#api-keygen) · [키 변환·인증서](docs/guide/certificates-keystores.md#api-cli-guide) |
+| PKCS12/JKS 읽기·PKIX 검증·안전 비교 | [키 저장소·인증서](docs/guide/certificates-keystores.md) · [안전 비교](docs/guide/security-utilities.md#topic-encoding) | — |
+| 키 등록·백업·회전, Vault·KMS | [관리형 키 공급원 설정](docs/guide/external-key-providers.md) | [키·설정 관리](docs/guide/key-management.md) |
+| Tomcat JDBC | [JNDI Factory 연동](docs/guide/tomcat-jdbc.md) | [배포용 암호문 준비](docs/guide/cli.md#topic-cli-encryption--첫-실행-예제) |
 
 ## 암호화 방식과 키 선택
 
@@ -46,7 +35,7 @@ JCK의 관리형 암복호화는 `pass`와 `key` 두 가지 키 준비 방식을
 
 공개 JAR는 두 유형의 체험용 키(`pass-default`, `default`)를 기본 제공하므로 별도 키 생성 없이 시험할 수 있습니다. 공개 키는 누구나 알 수 있으므로 실제 데이터에는 사용자 지정 키가 필요합니다. 키를 JAR에 내장하거나 파일·환경변수·Vault·AWS KMS에서 공급할 수 있습니다. 암호문에 기록된 키 ID로 복호화할 키를 선택합니다.
 
-[키 유형·공급원 선택 및 관리](docs/guide/key-management.md#choose-key-material) · [직접 키 주입과 독립 AES·RSA API](docs/guide/java-encryption.md)
+[키 유형·공급원 선택 및 관리](docs/guide/key-management.md#choose-key-material) · [직접 키 주입과 독립 AES·RSA 사용법](docs/guide/java-encryption.md)
 
 ## CLI — 코드 없이 암호화 및 키 관리
 
@@ -66,13 +55,27 @@ JAR를 직접 실행해 DB 계정·비밀번호나 설정값을 암복호화하�
 
 [Java API 선택 기준](docs/reference/api-selection.md) · [Java 암복호화 예제](docs/guide/java-encryption.md) · [메서드·Builder·반환값](docs/reference/java-api-reference.md#api-members)
 
+## API CLI 빠른 시작
+
+CLI를 처음 사용할 때 한 번 관리자 비밀번호를 설정합니다. 설정 결과는 별도의 `-cfg.jar`입니다. 전체 도움말 첫 줄에서 버전을 확인하고, 개별 기능의 옵션과 예제는 설정 전에도 찾아볼 수 있습니다.
+
+```sh
+java -jar java-crypto-kit-0.2.0.jar --help
+java -jar java-crypto-kit-0.2.0.jar api --help
+java -jar java-crypto-kit-0.2.0.jar api jwt --examples
+java -jar java-crypto-kit-0.2.0.jar admin setup --operator example
+java -jar java-crypto-kit-0.2.0-cfg.jar api rand uuid
+```
+
+AES·RSA·Hybrid, HMAC·SHA·서명, 난수·비밀번호·KDF, 인증서·키 변환, JWT·OAuth·OTP·RequestAuth를 CLI에서 직접 실행할 수 있습니다. [18개 기능군과 입출력·인증](docs/guide/cli.md#api-cli) · [단축어](docs/guide/cli.md#cli-aliases)
+
 ## 다운로드
 
 [**GitHub Releases에서 JAR 다운로드**](https://github.com/UtiliLabs/java-crypto-kit/releases) · [배포 파일과 사용 준비](docs/reference/getting-started.md)
 
 일반 기능은 JAR 하나면 됩니다. 실제 업무에서는 공개 예제 키 대신 [사용자 지정 키](docs/guide/key-management.md#topic-key-selection)를 사용하세요. CLI 사용 시 최초 관리자 인증 설정이 필요하지만 Java API와 Tomcat 기동에는 필요하지 않습니다.
 
-> 이 문서는 현재 소스 버전 0.1.0을 기준으로 작성되었습니다. 공개 릴리스에 필요한 기능이나 파일이 없으면 이 소스에서 Gradle Wrapper로 빌드한 JAR를 사용하세요. 파일명이 같아도 빌드가 다를 수 있습니다.
+> 이 문서는 현재 소스 버전 0.2.0을 기준으로 작성되었습니다. 공개 릴리스보다 앞선 기능은 이 소스에서 Gradle Wrapper로 빌드해 확인할 수 있습니다.
 
 ## 지원 환경
 
@@ -92,4 +95,4 @@ JAR를 직접 실행해 DB 계정·비밀번호나 설정값을 암복호화하�
 
 [설정 사전](docs/reference/configuration.md) · [오류 해결](docs/reference/troubleshooting.md) · [Java API 공통 규칙](docs/reference/java-api-reference.md) · [보안 및 운영 참고](docs/reference/security.md)
 
-[개발·QA 규칙](AGENTS.md) · [소스 빌드 안내](docs/reference/getting-started.md#topic-getting-started--12-준비물과-내려받기) · [Apache License 2.0](LICENSE)
+[기술 명세](docs/reference/technical-specification.md) · [변경 이력](CHANGELOG.md) · [개발·QA 규칙](AGENTS.md) · [소스 빌드 안내](docs/reference/getting-started.md#topic-getting-started--12-준비물과-내려받기) · [Apache License 2.0](LICENSE)

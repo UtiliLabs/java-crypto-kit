@@ -8,6 +8,8 @@
 <a name="topic-api-selection--15-업무별-java-api-선택-가이드"></a>
 ## 1.5 업무별 Java API 선택 가이드
 
+외부 시스템과 키·형식·알고리즘을 교차 검증할 때는 [독립 보안 API CLI](../guide/cli.md#api-cli)를 사용할 수 있습니다. PKIX 체인·키 저장소 조회와 안전 비교는 Java에서 호출합니다.
+
 업무 목적에 맞는 API를 선택하세요. 관리형 키 기능은 2~12장, 범용 보안 API는 [13장](java-api-reference.md#topic-security-api--13-범용-보안-java-api)에 자세히 있습니다.
 
 범용 API는 관리형 키·설정·History·CLI 인증과 독립적입니다. 키와 정책은 호출자가 지정합니다.

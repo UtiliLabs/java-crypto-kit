@@ -9,7 +9,7 @@ Options
   --admin-pass-file <file>
                     Non-interactive (CI): a file with the new password on one
                     line (a temporary file with mode 600, delete it)
-  --out <jar>       Result JAR (optional, default <name>-configured.jar)
+  --out <jar>       Result JAR (optional, default <name>-cfg.jar)
   --lang en|ko      Message language for this run (optional)
   Runs only on a JAR without an admin password (a set one is never replaced).
   Interactive: operator ID -> new password -> confirmation (hidden, twice).
@@ -24,7 +24,7 @@ Rules
 
 Result
   Admin       : password set
-  Created JAR : C:\work\java-crypto-kit-{version}-configured.jar
+  Created JAR : C:\work\java-crypto-kit-{version}-cfg.jar
   Original JAR: java-crypto-kit-{version}.jar (unchanged, no admin password)
   Operator    : ops
   Note        : run the CLI with the created JAR from now on.

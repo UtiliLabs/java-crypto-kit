@@ -13,7 +13,7 @@ config show - JAR 파일 안의 설정과 키 목록(관리자 인증, 외부 �
   다른 JAR(--jar)을 보면 그 JAR의 관리자 비밀번호도 확인합니다.
 
 결과(일부)
-  JAR 파일  : java-crypto-kit-{version}-configured.jar (버전 {version})
+  JAR 파일  : java-crypto-kit-{version}-cfg.jar (버전 {version})
   상태      : 변경 2회 - 마지막 2026-11-22T05:30:12Z, 수정자 ops
   관리자    : 비밀번호 설정됨(민감 명령은 관리자 인증 필요)
   기본 유형 : pass

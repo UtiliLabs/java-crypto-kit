@@ -51,15 +51,16 @@ final class AdminCommand {
         }
     }
 
-    /**
-     * 도움말 요청을 처리할 수 있는지 확인한다: 설정된 JAR면 null(일반 도움말), 미설정이면 초기 설정 안내만 보여 주고 0, 손상·확인
-     * 불가면 예외.
-     */
-    static Integer helpGate(AdminGate admin, PrintStream out) throws CryptoCli.CliException {
+    /** Only the no-argument startup screen consults setup status. */
+    static int startScreen(AdminGate admin, PrintStream out) throws CryptoCli.CliException {
         AdminPassword.Status status = admin.status();
-        if (status.state == AdminPassword.State.INITIALIZED) return null;
-        if (status.state != AdminPassword.State.UNINITIALIZED) throw failure(status, admin);
-        CliHelp.topic("admin-required", out, jarName(admin));
+        if (status.state == AdminPassword.State.INITIALIZED) {
+            CliHelp.topic("overview", out);
+        } else if (status.state == AdminPassword.State.UNINITIALIZED) {
+            CliHelp.topic("admin-required", out, jarName(admin));
+        } else {
+            throw failure(status, admin);
+        }
         return 0;
     }
 

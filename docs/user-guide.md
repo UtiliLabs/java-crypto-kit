@@ -2,23 +2,38 @@
 
 [프로젝트 소개](../README.md) · [JAR 다운로드](https://github.com/UtiliLabs/java-crypto-kit/releases)
 
-소스 버전 0.1.0 기준입니다. 처음 적용할 때는 아래에서 사용 방식을 고르세요. 이미 구현 중이라면 [CLI 옵션](guide/cli.md#topic-cli--22-명령-목록), [Java 메서드·Builder](reference/java-api-reference.md#api-members), [설정 기본값](reference/configuration.md), [오류 코드](reference/troubleshooting.md#93-오류-코드별-조치)로 바로 이동할 수 있습니다.
+소스 버전 0.2.0 기준입니다. 처음 적용할 때는 아래에서 사용 방식을 고르세요. 이미 구현 중이라면 [CLI 옵션](guide/cli.md#topic-cli--22-명령-목록), [Java 메서드·Builder](reference/java-api-reference.md#api-members), [설정 기본값](reference/configuration.md), [오류 코드](reference/troubleshooting.md#93-오류-코드별-조치)로 바로 이동할 수 있습니다.
+
+[독립 CLI 전체 명령·옵션·인증](guide/cli.md#api-cli) · [CLI 단축어](guide/cli.md#cli-aliases) · [버전별 변경 이력](../CHANGELOG.md)
 
 ## 먼저 사용할 방식 선택
 
 | 방식 | 시작할 곳 | 특징 |
 |---|---|---|
 | Java API | [업무별 Java API 선택표](reference/api-selection.md) | 업무 코드에서 직접 호출, CLI 관리자 인증 불필요 |
-| CLI | [명령줄 사용 가이드](guide/cli.md) | 관리자 비밀번호 최초 설정, 키·문자열·파일·설정 관리 |
+| 관리형 CLI | [명령줄 사용 가이드](guide/cli.md) | 초기 관리자 설정, 문자열·파일 암복호화, 키·JAR 설정 관리 |
+| 독립 CLI | [업무별 `api` 명령](guide/cli.md#api-cli) | 호출자가 공급한 키로 암복호화·서명·토큰 처리, 결과 파일을 자동화에 연결 |
 | Tomcat JDBC | [DB 접속정보 암호화 연동](guide/tomcat-jdbc.md) | CLI로 암호문 준비, Factory로 JNDI 연동 |
 
 [다운로드와 사용 준비](reference/getting-started.md) · [Java 예제 실행과 공통 규칙](reference/java-api-reference.md)
 
 ## 키를 선택하는 기준
 
-관리형 암복호화는 `pass`(비밀 문자열에서 AES 키 파생)와 `key`(32바이트 AES 키 직접 사용)를 제공합니다. 둘 다 AES-256-GCM이며 공급원은 별도로 선택합니다. JAR의 공개 기본 키는 실습용이고 운영에는 사용자 지정 키가 필요합니다. Java 독립 API의 키는 호출자가 관리합니다.
+관리형 암복호화는 `pass`(비밀 문자열에서 AES 키 파생)와 `key`(32바이트 AES 키 직접 사용)를 제공합니다. 둘 다 AES-256-GCM이며 공급원은 별도로 선택합니다. JAR의 공개 기본 키는 실습용이고 운영에는 사용자 지정 키가 필요합니다. 독립 CLI와 Java API에 사용하는 키는 호출자가 관리합니다.
 
 [키 유형·공급원 선택](guide/key-management.md#choose-key-material) · [Tomcat 연동 전 키 선택](guide/tomcat-jdbc.md#tomcat-key-choice)
+
+## 업무별 Java API와 독립 CLI
+
+| 업무 | Java 예제와 API | CLI 옵션과 연결 예제 |
+|---|---|---|
+| 직접 키·Passphrase 암복호화 | [AES·RSA·Hybrid](guide/java-encryption.md) | [`api aes`, `api rsa`, `api hybrid`](guide/java-encryption.md#api-cli-guide) |
+| 데이터 무결성·서명 | [HMAC·SHA·서명·RequestAuth](guide/data-integrity.md) | [무결성 명령](guide/data-integrity.md#api-cli-guide) |
+| 토큰 및 일회용 코드 | [JWT·OAuth·OTP](guide/authentication.md) | [JWT](guide/authentication.md#api-jwt) · [OAuth](guide/authentication.md#api-oauth) · [OTP](guide/authentication.md#api-otp) |
+| 비밀번호·난수·KDF·인코딩 | [보안 유틸리티](guide/security-utilities.md) | [유틸리티 명령](guide/security-utilities.md#api-cli-guide) |
+| 키와 인증서 | [PEM·X.509·키 저장소](guide/certificates-keystores.md) | [시험 키 생성](guide/key-management.md#api-keygen) · [변환·인증서 정보](guide/certificates-keystores.md#api-cli-guide) |
+
+PKCS12/JKS 읽기·PKIX 체인 검증·안전 비교는 Java API에서 제공합니다.
 
 ## 업무별 상세 가이드
 
@@ -72,7 +87,7 @@ CSV, PDF, JSON, 이미지 등 파일을 내용 형식에 관계없이 보호합�
 
 ### [데이터 무결성 및 서버 간 요청 인증](guide/data-integrity.md)
 
-데이터를 숨기는 대신 위변조나 메시지 인증, 공개키 기반 서명 검증을 처리하는 Java API입니다. 공유 키를 가진 양측에는 HMAC, 공개키 검증에는 전자서명, 신뢰하는 체크섬 비교에는 SHA 해시를 선택합니다.
+Java API와 독립 CLI로 위변조 확인, 메시지 인증과 공개키 기반 서명 검증을 수행합니다. 공유 키를 가진 양측에는 HMAC, 공개키 검증에는 전자서명, 신뢰하는 체크섬 비교에는 SHA 해시를 선택합니다.
 
 <a name="133-hmac--hmac"></a><a name="hmac-호출-선택표"></a><a name="134-api-요청-인증--requestauth"></a><a name="요청-인증에서-교환하는-값"></a><a name="136-해시파일-지문--digests"></a><a name="1310-전자서명과-키-파일--signatures-pemkeys"></a>
 
@@ -80,15 +95,15 @@ CSV, PDF, JSON, 이미지 등 파일을 내용 형식에 관계없이 보호합�
 
 ### [OTP·JWT·OAuth 인증 및 토큰 처리](guide/authentication.md)
 
-사용자 일회용 코드와 서비스 토큰을 생성·검증하거나 외부 인증 서버와 연계할 때 사용하는 Java API입니다. 토큰 검증과 애플리케이션의 권한·세션 관리는 구분합니다.
+Java API와 독립 CLI로 일회용 코드·서비스 토큰을 생성하고 검증하거나 외부 인증 서버와 연계합니다. 토큰 검증과 애플리케이션의 권한·세션 관리는 구분합니다.
 
 <a name="1312-hotptotp--hotp-totp"></a><a name="인증-앱-등록과-검증-순서"></a><a name="1316-jwt--jwt-jwtkey-jwtverifier-jwks"></a><a name="1317-oauth-access-token--accesstokenverifier-accesstokens"></a><a name="1318-token-introspection--tokenintrospector"></a><a name="1319-client-credentials-토큰-발급-요청--clientcredentials"></a>
 
 **바로가기:** [HOTP·TOTP 일회용 코드](guide/authentication.md#topic-otp) · [JWT 발급·검증 및 JWKS](guide/authentication.md#topic-jwt) · [OAuth JWT 접근 토큰 검증](guide/authentication.md#topic-oauth) · [OAuth Token Introspection](guide/authentication.md#topic-oauth-introspection) · [OAuth Client Credentials](guide/authentication.md#topic-oauth-client-credentials)
 
-### [보안 유틸리티 API](guide/security-utilities.md)
+### [보안 유틸리티](guide/security-utilities.md)
 
-비밀번호의 단방향 저장, 난수·토큰·UUID 생성, 키 파생, 바이너리 인코딩과 안전 비교를 제공합니다. 각 기능은 독립 Java API로 사용하며 관리형 키 설정이나 CLI 관리자 인증에 의존하지 않습니다.
+비밀번호의 단방향 저장, 난수·토큰·UUID 생성, 키 파생, 바이너리 인코딩과 안전 비교를 제공합니다. 동일한 기능을 Java API 또는 해당 CLI 명령으로 실행할 수 있습니다. CLI의 인증 요건은 명령별로 적용됩니다.
 
 <a name="137-비밀번호-해시--passwords"></a><a name="135-보안-난수uuid--securerandoms"></a><a name="138-키-파생-hkdfpbkdf2--hkdf-pbkdf2"></a><a name="139-인코딩안전-비교--encoding-bytes"></a>
 
@@ -96,7 +111,7 @@ CSV, PDF, JSON, 이미지 등 파일을 내용 형식에 관계없이 보호합�
 
 ### [인증서 및 키 저장소](guide/certificates-keystores.md)
 
-기존 X.509 인증서나 PKCS12·JKS 키 저장소를 Java 코드에서 읽고, 인증서 정보를 확인하거나 신뢰 체인을 검증하는 기능입니다. 전자서명과 공개키 암복호화에서 필요한 키를 준비할 때도 사용합니다.
+기존 X.509 인증서나 PKCS12·JKS 키 저장소를 Java 코드에서 읽고, 인증서 정보를 확인하거나 신뢰 체인을 검증하는 기능입니다. 독립 CLI에서는 X.509 정보 조회와 RSA·EC 키 변환을 제공합니다.
 
 <a name="1311-x509-인증서--certificates"></a><a name="1315-pkcs12jks-키-저장소--keystorereader"></a>
 
@@ -113,6 +128,7 @@ CSV, PDF, JSON, 이미지 등 파일을 내용 형식에 관계없이 보호합�
 | [지원 환경 및 배포 점검](reference/compatibility.md) | JDK·Tomcat·외부 서비스 호환성 |
 | [오류 해결](reference/troubleshooting.md) | CLI·Java·Tomcat 오류와 조치 |
 | [보안 및 운영 참고](reference/security.md) | 키 보관, 공개 기본 키, CLI 인증의 범위 |
+| [기술 명세](reference/technical-specification.md) | 구현 계약, 데이터 호환 규격, 요구사항 추적 |
 
 CLI 도움말의 기존 장·절 번호는 상세 가이드의 괄호 안 번호와 연결됩니다. 각 문서의 상세 목차에서도 바로 해당 절로 이동할 수 있습니다.
 

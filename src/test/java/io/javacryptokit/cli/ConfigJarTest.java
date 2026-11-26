@@ -1,5 +1,6 @@
 package io.javacryptokit.cli;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -94,11 +95,14 @@ class ConfigJarTest {
     @Test
     void repeatedChangesGetNumberedResultNamesAndNeverTouchEarlierJars() throws Exception {
         // 기본 결과 이름 규칙: 접미사를 겹치지 않고 순번을 올린다(대소문자 무시, 다른 이름은 그대로 뒤에 붙임).
-        assertEquals("a-configured.jar", ConfigCommand.defaultOutputName("a.jar"));
-        assertEquals("a-configured-2.jar", ConfigCommand.defaultOutputName("a-configured.jar"));
-        assertEquals("a-configured-3.jar", ConfigCommand.defaultOutputName("a-configured-2.jar"));
-        assertEquals("A-configured-2.jar", ConfigCommand.defaultOutputName("A-CONFIGURED.jar"));
-        assertEquals("app-configured-old-configured.jar", ConfigCommand.defaultOutputName("app-configured-old.jar"));
+        assertEquals("a-cfg.jar", ConfigCommand.defaultOutputName("a.jar"));
+        assertEquals("a-cfg-2.jar", ConfigCommand.defaultOutputName("a-cfg.jar"));
+        assertEquals("a-cfg-3.jar", ConfigCommand.defaultOutputName("a-cfg-2.jar"));
+        assertEquals("A-cfg-2.jar", ConfigCommand.defaultOutputName("A-CONFIGURED.JAR"));
+        assertEquals("legacy-cfg-3.jar", ConfigCommand.defaultOutputName("legacy-configured-2.jar"));
+        assertEquals("app-configured-old-cfg.jar", ConfigCommand.defaultOutputName("app-configured-old.jar"));
+        assertEquals("a-cfg-1000000.jar", ConfigCommand.defaultOutputName("a-cfg-999999.jar"));
+        assertEquals("a-cfg-1000001.jar", ConfigCommand.defaultOutputName("a-cfg-1000000.jar"));
 
         // 실제 사용 순서: 공개 JAR → embed-key → 결과 JAR로 config set → 그 결과 JAR로 다시 config set
         Path work = Files.createDirectories(dir.resolve("chain"));
@@ -108,22 +112,22 @@ class ConfigJarTest {
         assertEquals(0, cli.run("keygen", "--out", keyFile.toString(), "--reason", "시험"));
         assertEquals(0, cli.run("config", "embed-key", "--from-file", keyFile.toString(), "--key-id", "prod01",
                 "--operator", "123456", "--reason", "회사 키", "--yes", "--jar", original.toString()), cli.err());
-        Path first = work.resolve("java-crypto-kit-0.1.0-configured.jar");
+        Path first = work.resolve("java-crypto-kit-0.1.0-cfg.jar");
         assertTrue(cli.out().contains("생성 JAR  : " + first.toAbsolutePath()), "결과 JAR의 절대 경로: " + cli.out());
         assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", first.toString()), cli.err());
-        Path second = work.resolve("java-crypto-kit-0.1.0-configured-2.jar");
+        Path second = work.resolve("java-crypto-kit-0.1.0-cfg-2.jar");
         assertTrue(Files.exists(second), cli.out());
-        assertFalse(Files.exists(work.resolve("java-crypto-kit-0.1.0-configured-configured.jar")), "접미사가 겹치면 안 된다");
+        assertFalse(Files.exists(work.resolve("java-crypto-kit-0.1.0-cfg-cfg.jar")), "접미사가 겹치면 안 된다");
         assertEquals(0, cli.run("config", "set", "crypto.warning.enabled=false", "--operator", "123456",
                 "--jar", second.toString()), cli.err());
-        Path third = work.resolve("java-crypto-kit-0.1.0-configured-3.jar");
+        Path third = work.resolve("java-crypto-kit-0.1.0-cfg-3.jar");
         assertTrue(Files.exists(third), cli.out());
         assertEquals(0, cli.run("config", "set", "crypto.output.encoding=base64", "--operator", "123456",
                 "--jar", third.toString()), cli.err());
-        Path fourth = work.resolve("java-crypto-kit-0.1.0-configured-4.jar");
+        Path fourth = work.resolve("java-crypto-kit-0.1.0-cfg-4.jar");
         assertTrue(Files.exists(fourth), cli.out());
         try (Stream<Path> list = Files.list(work)) {
-            assertFalse(list.anyMatch(p -> p.getFileName().toString().matches(".*configured.*configured.*")),
+            assertFalse(list.anyMatch(p -> p.getFileName().toString().matches(".*(?:cfg|configured).*(?:cfg|configured).*")),
                     "접미사가 누적된 이름(-configured-2-configured.jar 등)이 생기면 안 된다");
         }
 
@@ -141,9 +145,16 @@ class ConfigJarTest {
         // 같은 원본으로 다시 바꾸면 기본 결과가 이미 있으므로 확인 질문 전에 멈추고, 덮어쓰지 않으며, 쓸 수 있는 이름을 안내한다.
         byte[] firstBytes = Files.readAllBytes(first);
         assertEquals(1, cli.run("config", "set", "crypto.key.id=prod09", "--operator", "123456", "--jar", original.toString()));
-        assertTrue(cli.err().contains("--out java-crypto-kit-0.1.0-configured-5.jar") && !cli.err().contains("CHANGE"), cli.err());
+        assertTrue(cli.err().contains("--out java-crypto-kit-0.1.0-cfg-5.jar") && !cli.err().contains("CHANGE"), cli.err());
         assertTrue(Arrays.equals(firstBytes, Files.readAllBytes(first)), "기존 결과 JAR는 그대로");
-        assertFalse(Files.exists(work.resolve("java-crypto-kit-0.1.0-configured-5.jar")), "안내만 하고 만들지 않는다");
+        assertFalse(Files.exists(work.resolve("java-crypto-kit-0.1.0-cfg-5.jar")), "안내만 하고 만들지 않는다");
+
+        Path legacy = Files.copy(fourth, work.resolve("legacy-configured-9.jar"));
+        byte[] legacyBytes = Files.readAllBytes(legacy);
+        assertEquals(0, cli.run("config", "set", "crypto.lang=ko", "--operator", "123456",
+                "--jar", legacy.toString()), cli.err());
+        assertTrue(Files.exists(work.resolve("legacy-cfg-10.jar")), cli.out());
+        assertArrayEquals(legacyBytes, Files.readAllBytes(legacy));
 
         // --out·--replace(백업 후 교체)는 기존과 같이 동작한다.
         Path named = work.resolve("company-final.jar");
@@ -514,15 +525,15 @@ class ConfigJarTest {
         assertEquals(1, cli.run("config", "set", "crypto.key.id=prod09", "--operator", "123456", "--yes", "--jar",
                 jar.toString()));
         assertTrue(cli.err().contains("--reason"), cli.err());
-        assertFalse(Files.exists(dir.resolve("java-crypto-kit-0.1.0-configured.jar")), "사유 없이 만들면 안 된다");
+        assertFalse(Files.exists(dir.resolve("java-crypto-kit-0.1.0-cfg.jar")), "사유 없이 만들면 안 된다");
         // 키 관련 설정은 새 JAR를 만들 때도 확인한다: 터미널도 --yes도 없으면 만들지 않는다.
         assertEquals(1, cli.run("config", "set", "crypto.key.id=prod09", "--operator", "123456", "--reason", "x",
                 "--jar", jar.toString()));
         assertTrue(cli.err().contains("CHANGE") && cli.err().contains("--yes"), cli.err());
-        assertFalse(Files.exists(dir.resolve("java-crypto-kit-0.1.0-configured.jar")), "확인 없이 만들면 안 된다");
+        assertFalse(Files.exists(dir.resolve("java-crypto-kit-0.1.0-cfg.jar")), "확인 없이 만들면 안 된다");
         assertEquals(0, cli.run("config", "set", "crypto.key.id=prod09", "--operator", "123456", "--reason", "x", "--yes",
                 "--jar", jar.toString()), cli.err());
-        assertTrue(Files.exists(dir.resolve("java-crypto-kit-0.1.0-configured.jar")), "기본 결과 이름 <이름>-configured.jar");
+        assertTrue(Files.exists(dir.resolve("java-crypto-kit-0.1.0-cfg.jar")), "기본 결과 이름 <이름>-cfg.jar");
         // 키와 무관한 설정은 새 JAR 생성에 확인이 없다.
         assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", jar.toString(),
                 "--out", dir.resolve("lang.jar").toString()), cli.err());
@@ -563,7 +574,7 @@ class ConfigJarTest {
     void unknownSettingNameGetsSuggestionAndNothingChanges() throws Exception {
         assertEquals(1, cli.run("config", "set", "crypto.warnning.enabled=false", "--operator", "123456", "--jar", jar.toString()));
         assertTrue(cli.err().contains("'crypto.warning.enabled'"), cli.err());
-        assertFalse(Files.exists(dir.resolve("java-crypto-kit-0.1.0-configured.jar")));
+        assertFalse(Files.exists(dir.resolve("java-crypto-kit-0.1.0-cfg.jar")));
     }
 
     @Test

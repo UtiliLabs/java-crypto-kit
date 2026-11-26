@@ -24,7 +24,7 @@
 3. Resource를 다시 만들거나 Tomcat을 재시작한 뒤 실제 SQL이 성공하는지 확인합니다.
 
 ```powershell
-java -jar .\java-crypto-kit-0.1.0-configured-2.jar encrypt
+java -jar .\java-crypto-kit-0.2.0-cfg-2.jar encrypt
 ```
 
 키를 그대로 쓰는 비밀번호 변경에는 `keygen`·`config embed-key`·`rekey`가 필요 없습니다.
@@ -90,13 +90,13 @@ crypto.key.file=C:/Users/me/jck-secure/example.key
 ```
 
 ```powershell
-java -jar .\java-crypto-kit-0.1.0-configured.jar info --config "$SECURE\app.properties"
-java -jar .\java-crypto-kit-0.1.0-configured.jar verify --config "$SECURE\app.properties" --value 'ENC[v1:key01:...]'
+java -jar .\java-crypto-kit-0.2.0-cfg.jar info --config "$SECURE\app.properties"
+java -jar .\java-crypto-kit-0.2.0-cfg.jar verify --config "$SECURE\app.properties" --value 'ENC[v1:key01:...]'
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.1.0-configured.jar info --config "$SECURE/app.properties"
-java -jar ./java-crypto-kit-0.1.0-configured.jar verify --config "$SECURE/app.properties" --value 'ENC[v1:key01:...]'
+java -jar ./java-crypto-kit-0.2.0-cfg.jar info --config "$SECURE/app.properties"
+java -jar ./java-crypto-kit-0.2.0-cfg.jar verify --config "$SECURE/app.properties" --value 'ENC[v1:key01:...]'
 ```
 
 ```text
@@ -141,15 +141,15 @@ java -jar ./app-pass-v3.jar config key add --key-id app-pass --type key --from-f
 
 ```powershell
 java -jar .\use.jar config show
-java -jar .\java-crypto-kit-0.1.0-configured.jar keygen --out "$SECURE\ci.key" --admin-pass-file "$SECURE\admin.pw"
-java -jar .\java-crypto-kit-0.1.0-configured.jar config key add --key-id ci-pass --generate --operator example-admin --reason "CI 키" --yes --out ci.jar --admin-pass-file "$SECURE\admin.pw"
+java -jar .\java-crypto-kit-0.2.0-cfg.jar keygen --out "$SECURE\ci.key" --admin-pass-file "$SECURE\admin.pw"
+java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id ci-pass --generate --operator example-admin --reason "CI 키" --yes --out ci.jar --admin-pass-file "$SECURE\admin.pw"
 java -jar .\use.jar config key use --key-id gen-pass --operator example-admin --reason "CI 전환" --out use2.jar --admin-pass-file "$SECURE\admin.pw"
 ```
 
 ```bash
 java -jar ./use.jar config show
-java -jar ./java-crypto-kit-0.1.0-configured.jar keygen --out "$SECURE/ci.key" --admin-pass-file "$SECURE/admin.pw"
-java -jar ./java-crypto-kit-0.1.0-configured.jar config key add --key-id ci-pass --generate --operator example-admin --reason "CI 키" --yes --out ci.jar --admin-pass-file "$SECURE/admin.pw"
+java -jar ./java-crypto-kit-0.2.0-cfg.jar keygen --out "$SECURE/ci.key" --admin-pass-file "$SECURE/admin.pw"
+java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id ci-pass --generate --operator example-admin --reason "CI 키" --yes --out ci.jar --admin-pass-file "$SECURE/admin.pw"
 java -jar ./use.jar config key use --key-id gen-pass --operator example-admin --reason "CI 전환" --out use2.jar --admin-pass-file "$SECURE/admin.pw"
 ```
 
@@ -163,7 +163,7 @@ java -jar ./use.jar config key use --key-id gen-pass --operator example-admin --
 관리자 비밀번호와 관련된 오류는 다음과 같습니다(코드별 조치: [9.3절](#93-오류-코드별-조치)).
 
 ```text
-[java-crypto-kit] [사유: ADMIN_SETUP] 이 JAR(java-crypto-kit-0.1.0.jar)은 관리자 비밀번호가 설정되지 않아 CLI 기능을 쓸 수 없습니다. 조치: ...
+[java-crypto-kit] [사유: ADMIN_SETUP] 이 JAR(java-crypto-kit-0.2.0.jar)은 관리자 비밀번호가 설정되지 않아 CLI 기능을 쓸 수 없습니다. 조치: ...
 [java-crypto-kit] [사유: ADMIN_AUTH] 관리자 비밀번호가 맞지 않습니다(3번 실패). 아무것도 하지 않았습니다. 분실했다면 사용자 가이드 12.8을 보세요.
 [java-crypto-kit] [사유: ADMIN_AUTH] --admin-pass-file 파일의 관리자 비밀번호가 맞지 않습니다. 아무것도 하지 않았습니다.
 [java-crypto-kit] [사유: ADMIN_AUTH] --admin-pass-file 파일을 다른 사용자도 읽거나 쓸 수 있습니다(권한 rw-r--r--). chmod 600 <파일>로 소유자만 읽게 한 뒤 다시 실행하세요. 아무것도 하지 않았습니다.
@@ -174,3 +174,19 @@ java -jar ./use.jar config key use --key-id gen-pass --operator example-admin --
 ---
 
 [전체 가이드 목차](../user-guide.md) · [README](../../README.md)
+
+<a name="api-cli-errors"></a>
+### 독립 보안 API CLI의 오류
+
+| 상황 | 확인 방법 |
+|---|---|
+| `USAGE` | 지정한 명령의 `--help`에서 인증·필수 옵션·배타 옵션을 확인합니다. |
+| `INVALID_INPUT` | 파일 형식과 지정 인코딩, 알고리즘, 데이터 길이·키 길이를 맞춥니다. |
+| stdout의 `FAIL` (종료 1) | MAC·서명·해시·OTP가 일치하지 않거나 검증한 JWT/OAuth 토큰이 거부됐습니다. 토큰 거부 사유 코드는 stderr에 표시됩니다. |
+| JWT·OAuth 토큰 거부 | `KEY_NOT_FOUND`는 키·kid, `SIGNATURE`는 키와 서명, `EXPIRED`는 만료, `SCOPE`는 권한을 확인합니다. |
+| 보호 파일 권한 오류 | 표시된 실제 옵션(`--in`, `--key-file` 등)의 POSIX other 읽기·쓰기 권한을 제거합니다. |
+| OAuth 상태 조회 한도 | 16,384자(ASCII 16 KiB) 이내에 발급된 토큰을 사용합니다. 로컬 JWT의 64 KiB 한도와 구분합니다. |
+| OAuth `CLIENT_AUTH`, `TIMEOUT`, `TLS`, 응답 오류 | 서버 상태 및 오류 코드를 보고 권한·TLS 신뢰 저장소·시간 제한을 확인합니다. |
+| 결과 파일 저장 실패 | 새 파일 이름과 상위 디렉터리 접근 권한·하드 링크 지원을 확인합니다. |
+
+[독립 CLI 입출력·인증](../guide/cli.md#api-cli)

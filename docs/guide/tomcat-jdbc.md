@@ -67,21 +67,21 @@ flowchart TD
 아래는 **새 환경에서 업무용 Passphrase 키를 내장하는 예**입니다. 이미 운영 키를 쓰고 있다면 키를 다시 생성하지 말고 같은 JAR·외부 설정으로 `encrypt`만 실행합니다.
 
 ```bash
-java -jar java-crypto-kit-0.1.0.jar admin setup --operator example-admin
-java -jar java-crypto-kit-0.1.0-configured.jar config key add --key-id app-pass --active --operator example-admin --reason "Tomcat DB 접속정보 보호" --out app-tomcat.jar
+java -jar java-crypto-kit-0.2.0.jar admin setup --operator example-admin
+java -jar java-crypto-kit-0.2.0-cfg.jar config key add --key-id app-pass --active --operator example-admin --reason "Tomcat DB 접속정보 보호" --out app-tomcat.jar
 java -jar app-tomcat.jar doctor
 java -jar app-tomcat.jar encrypt --key-id app-pass
 java -jar app-tomcat.jar verify
 ```
 
-실제 터미널에서 관리자 비밀번호와 Passphrase를 화면에 보이지 않게 입력하고, 키 변경 확인에 응답합니다. `doctor`의 결과와 키 상태를 확인한 뒤 암호문 한 줄 전체를 Resource에 붙입니다. `app-tomcat.jar`를 반드시 안전하게 백업합니다. 내장 pass 키의 Passphrase 원문은 JAR에서 복원할 수 없습니다. 같은 문자열로 새 키를 등록해도 새 Salt로 다른 키가 생성됩니다. 원래 JAR를 유지하거나, 최초 생성 시 `--generate --export <백업파일>`을 사용해 복원 정보를 별도로 보관하는 방법을 선택하세요([키 복구 절차](key-management.md#topic-key-recovery)). 아래 기존 상세 예제의 `java-crypto-kit-0.1.0-configured-2.jar`는 같은 역할의 사용자 지정 키 JAR 이름입니다. 실제 파일명으로 바꾸어 실행하세요. Tomcat은 이 CLI 관리자 비밀번호를 묻지 않습니다.
+실제 터미널에서 관리자 비밀번호와 Passphrase를 화면에 보이지 않게 입력하고, 키 변경 확인에 응답합니다. `doctor`의 결과와 키 상태를 확인한 뒤 암호문 한 줄 전체를 Resource에 붙입니다. `app-tomcat.jar`를 반드시 안전하게 백업합니다. 내장 pass 키의 Passphrase 원문은 JAR에서 복원할 수 없습니다. 같은 문자열로 새 키를 등록해도 새 Salt로 다른 키가 생성됩니다. 원래 JAR를 유지하거나, 최초 생성 시 `--generate --export <백업파일>`을 사용해 복원 정보를 별도로 보관하는 방법을 선택하세요([키 복구 절차](key-management.md#topic-key-recovery)). 아래 기존 상세 예제의 `java-crypto-kit-0.2.0-cfg-2.jar`는 같은 역할의 사용자 지정 키 JAR 이름입니다. 실제 파일명으로 바꾸어 실행하세요. Tomcat은 이 CLI 관리자 비밀번호를 묻지 않습니다.
 
 ### 방법 B. 무작위 AES 키(`key`)로 준비하기
 
 Passphrase 방식 대신 JCK가 32바이트 AES 키를 직접 생성하게 할 수 있습니다. 아래 명령은 위와 **별개의 대안**입니다. 최초 관리자 설정은 한 번만 실행하며 이미 설정한 JAR에서 시작합니다. `--export` 경로는 접근 제한된 기존 디렉터리의 새 파일이어야 합니다.
 
 ```bash
-java -jar java-crypto-kit-0.1.0-configured.jar config key add --key-id app-aes --type key --generate --export /secure/app-aes.key --active --operator example-admin --reason "Tomcat AES key" --out app-tomcat-aes.jar
+java -jar java-crypto-kit-0.2.0-cfg.jar config key add --key-id app-aes --type key --generate --export /secure/app-aes.key --active --operator example-admin --reason "Tomcat AES key" --out app-tomcat-aes.jar
 java -jar app-tomcat-aes.jar doctor
 java -jar app-tomcat-aes.jar encrypt --key-id app-aes
 java -jar app-tomcat-aes.jar verify
@@ -134,11 +134,11 @@ Windows에서는 `/secure/app-aes.key`를 접근 제한된 실제 Windows 경로
 Tomcat Factory는 CLI 관리자 비밀번호를 읽거나 묻지 않습니다. 관리자 비밀번호를 설정한 JAR·설정하지 않은 JAR·검증값이 손상된 JAR 모두 Tomcat 기동과 복호화는 같게 동작합니다(관리자 비밀번호는 CLI 전용, [1.4절](cli.md#topic-admin--14-cli-관리자-비밀번호)).
 
 ```powershell
-Copy-Item .\java-crypto-kit-0.1.0-configured-2.jar C:/tomcat/lib/
+Copy-Item .\java-crypto-kit-0.2.0-cfg-2.jar C:/tomcat/lib/
 ```
 
 ```bash
-cp ./java-crypto-kit-0.1.0-configured-2.jar /opt/tomcat/lib/ && chown tomcat:tomcat /opt/tomcat/lib/java-crypto-kit-0.1.0-configured-2.jar
+cp ./java-crypto-kit-0.2.0-cfg-2.jar /opt/tomcat/lib/ && chown tomcat:tomcat /opt/tomcat/lib/java-crypto-kit-0.2.0-cfg-2.jar
 ```
 
 <a name="topic-tomcat--32-dbcp2와-tomcat-jdbc-pool-선택"></a>
