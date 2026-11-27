@@ -9,7 +9,7 @@ import java.util.List;
  * <b>내부 확장 지점(공개 API 아님)</b>: 키 재료를 공급하는 공급원 하나의 계약이다.
  *
  * <p><b>책임 경계</b>: 공급원은 "키 프로필 하나의 재료를 어디에서 어떻게 가져오는지"만 안다(파일·환경변수·Vault·AWS KMS 등).
- * Passphrase 파생·키 길이 검증·지문 고정 검사·공개 키 경고는 {@link KeyResolver}가, 암복호화는 {@code core.CredentialCipher}가
+ * Passphrase 파생·키 길이 검증·지문 고정 검사·공개 키 차단는 {@link KeyResolver}가, 암복호화는 {@code core.CredentialCipher}가
  * 맡는다. 그래서 pass·key 두 유형이 같은 공급원 구현과 같은 AES-GCM 엔진을 쓴다. 인증·네트워크 코드는 해당 공급원 안에만 둔다.</p>
  *
  * <p><b>재료 형식</b>: {@link #textMaterial()}이 true인 공급원(file·env·vault)은 저장된 문자열을 UTF-8 바이트로 돌려준다(key 유형은

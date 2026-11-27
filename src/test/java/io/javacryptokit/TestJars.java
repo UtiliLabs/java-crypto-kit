@@ -31,7 +31,7 @@ import java.util.jar.Manifest;
  */
 public final class TestJars {
     /** 시험용 JAR의 버전(build.gradle의 version과 같게 유지). 배포 JAR 이름은 java-crypto-kit-&lt;버전&gt;.jar다. */
-    public static final String VERSION = "0.2.0";
+    public static final String VERSION = "0.2.1";
 
     /** 프로세스 실행 결과. */
     public static final class Run {
@@ -92,11 +92,9 @@ public final class TestJars {
                 String trimmed = line.trim();
                 if (trimmed.startsWith("crypto.key.type") || trimmed.startsWith("crypto.key.active.")
                         || trimmed.startsWith("crypto.keys.")) continue;
-                if (trimmed.startsWith("crypto.key.embedded=obf1:")) {
+                if (trimmed.startsWith("crypto.key.embedded=")) {
                     // 이전 형식는 내장 키를 표준 Base64 평문으로 두었다(같은 키 바이트).
-                    byte[] key = io.javacryptokit.config.LightObfuscation.decode(trimmed.substring("crypto.key.embedded=".length()));
-                    line = "crypto.key.embedded=" + java.util.Base64.getEncoder().encodeToString(key);
-                    Arrays.fill(key, (byte) 0);
+                    line = TestSupport.managedSettings()[0];
                 }
                 kept.append(line).append('\n');
             }
@@ -111,7 +109,9 @@ public final class TestJars {
         main.put(Attributes.Name.IMPLEMENTATION_VERSION, VERSION);
         main.putValue("Build-Time", "2026-11-21T00:00:00Z");
         main.putValue("Settings-Fingerprint", "sha256:" + hex(sha256(settingsBytes)).substring(0, 16));
+        if (!legacy) main.putValue(io.javacryptokit.config.JarState.ATTRIBUTE, "1");
         try (OutputStream file = Files.newOutputStream(jar); JarOutputStream out = new JarOutputStream(file, manifest)) {
+            if (!legacy) io.javacryptokit.config.JarState.reserveEntries(out);
             for (Map.Entry<String, Path> entry : entries.entrySet()) {
                 JarEntry jarEntry = new JarEntry(entry.getKey());
                 out.putNextEntry(jarEntry);

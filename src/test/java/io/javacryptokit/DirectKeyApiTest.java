@@ -204,7 +204,7 @@ class DirectKeyApiTest {
 
     @Test
     void directObjectsAndManagedObjectsDoNotAffectEachOther() throws Exception {
-        CredentialCrypto managed = TestSupport.jarDefaults();
+        CredentialCrypto managed = TestSupport.managedCrypto();
         List<KeyInfo> managedKeysBefore = managed.keys();
         String managedToken = managed.encryptText("dummy-managed");
         String managedKeyToken = managed.encryptText("dummy-managed-key", KeyType.KEY); // Key ID default
@@ -230,15 +230,15 @@ class DirectKeyApiTest {
         assertEquals("dummy-managed", managed.decryptText(managedToken));
         assertEquals("dummy-managed-key", managed.decryptText(managedKeyToken));
         assertEquals(summary(managedKeysBefore), summary(managed.keys()));
-        assertEquals(summary(managedKeysBefore), summary(TestSupport.jarDefaults().keys()), "새로 만든 설정 기반 객체도 같은 키 목록");
-        assertEquals("pass-default", managed.keyId());
+        assertEquals(summary(managedKeysBefore), summary(TestSupport.managedCrypto().keys()), "새로 만든 설정 기반 객체도 같은 키 목록");
+        assertEquals("test-pass", managed.keyId());
     }
 
     @Test
     void concurrentUseKeepsEveryObjectsOwnKey() throws Exception {
         CredentialCrypto a = CredentialCrypto.fromRawKey("thread-a", randomBytes(32));
         CredentialCrypto b = CredentialCrypto.fromPassphrase("thread-b", "dummy-thread-pass".toCharArray(), randomBytes(16), ITERATIONS);
-        CredentialCrypto managed = TestSupport.jarDefaults();
+        CredentialCrypto managed = TestSupport.managedCrypto();
         ExecutorService pool = Executors.newFixedThreadPool(8);
         try {
             List<Future<Boolean>> results = new ArrayList<>();

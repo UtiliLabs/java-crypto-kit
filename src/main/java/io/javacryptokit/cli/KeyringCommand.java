@@ -54,11 +54,11 @@ import java.util.regex.Pattern;
  *       거부한다(같은 Key ID가 다른 키를 가리키면 예전 암호문의 실패 원인을 구분할 수 없다). 공개 기본 키와 같은 재료, 이미 등록된
  *       키와 같은 재료도 거부한다.</li>
  *   <li>키를 추가해도 기본 키는 바뀌지 않는다({@code --active} 또는 {@code config key use}로만 바꾼다).</li>
- *   <li>모든 키 변경은 새 JAR를 만들 때도 {@code CHANGE} 입력 또는 {@code --yes}가 필요하다. 취소·실패하면 원본은 그대로다.</li>
+ *   <li>대상 JAR의 키 변경에는 {@code CHANGE} 입력 또는 {@code --yes}가 필요하다. 발행 후 I/O 오류는 현재 키와 이력을 확인하도록 안내한다.</li>
  * </ul>
  */
 final class KeyringCommand {
-    /** 공개 기본 키 전용 Key ID(사용자 키에 쓸 수 없다). */
+    /** 이전 공개 키의 예약 Key ID(사용자 키에 쓸 수 없다). */
     static final Set<String> RESERVED_IDS = Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList(
             PassKdf.PUBLIC_KEY_ID, "default")));
     /** 키 목록(config key)을 지원하는 JAR인지 판별하는 표지 항목(이 클래스가 없는 이전 버전 JAR는 템플릿 프로필을 모른다). */
@@ -105,11 +105,10 @@ final class KeyringCommand {
         if (!KEY_ID.matcher(keyId).matches()) throw new CryptoCli.CliException(Messages.get("cfg.err.keyIdFormat"));
     }
 
-    /** key add·use·remove 사전 검사(관리자 인증 전): 결과 옵션·작업자 ID, 결과 파일이 이미 있지 않은지. */
+    /** key add·use·remove 사전 검사(관리자 인증 전): 갱신 대상 경로와 작업자 ID. */
     private static void checkOutput(CliCommands.Parsed parsed) throws CryptoCli.CliException {
-        ConfigCommand.checkOutputOptions(parsed);
         JarConfigEditor.checkOperator(parsed.value("--operator"));
-        ConfigCommand.outputJar(parsed, ConfigCommand.sourceJar(parsed));
+        ConfigCommand.checkUpdatePath(ConfigCommand.sourceJar(parsed));
     }
 
     /** config key use·remove 사전 검사(관리자 인증 전). */
@@ -125,7 +124,7 @@ final class KeyringCommand {
      */
     private static Target target(CliCommands.Parsed parsed) throws CryptoCli.CliException, CredentialCryptoException {
         Path jar = ConfigCommand.sourceJar(parsed);
-        JarConfigEditor.Snapshot snap = JarConfigEditor.read(jar);
+        JarConfigEditor.Snapshot snap = parsed.admin.snapshot(jar);
         if (!supportsKeyring(snap)) throw new CryptoCli.CliException(Messages.get("cfg.err.noKeyring", JarConfigEditor.name(jar)));
         if (snap.signed) throw new CryptoCli.CliException(Messages.get("jar.err.signed"));
         if (snap.history.problem != null) throw new CryptoCli.CliException("INTEGRITY", Messages.get("jar.err.historyInvalid"));
@@ -197,6 +196,16 @@ final class KeyringCommand {
             throw new CryptoCli.CliException(Messages.get("cfg.err.keyIdRestoreMismatch", keyId, String.join(", ", different)));
         }
         return true;
+    }
+
+    /** Keeps an established AES identity when its material is moved without changing its ID. */
+    static void checkEstablishedKey(String id, ConfigHistory.KeyRecord established, String fingerprint)
+            throws CredentialCryptoException {
+        if (established == null || established.fingerprint == null) return;
+        if (fingerprint == null || !KeyType.KEY.code().equals(established.type) || !established.fingerprint.equals(fingerprint)) {
+            String message = fingerprint == null ? "cfg.err.slotKeyUnverified" : "cfg.err.slotKeyMismatch";
+            throw new CredentialCryptoException(CredentialCryptoException.Reason.KEY_SOURCE, Messages.get(message, id));
+        }
     }
 
     /**
@@ -327,13 +336,13 @@ final class KeyringCommand {
         // 기존 키일 수 있는 재료(파일·다른 JAR·외부 공급원)는 키를 만든 뒤 이력의 같은 키인지 확인한다(복원).
         boolean restoreCapable = !generate && (fromJar != null || fromFile != null || !"embedded".equals(source));
         checkNewKeyId(keyId, target.settings, target.snap, restoreCapable);
-        Path output = ConfigCommand.outputJar(parsed, target.jar);
+        Path output = target.jar;
         Path exportPath = export == null ? null : newFilePath(export, "--export");
         Path dataKeyPath = createsDataKey(parsed, source) ? newFilePath(location, "--location") : null;
         // 사유: JAR 기준 검사를 마친 뒤, 재료 입력·생성·KMS 호출보다 먼저(사유 → 재료 → 바꿀 내용 → CHANGE).
         String reason = CryptoCli.reasonOption(parsed, terminals);
 
-        NewKey key = fromJar != null ? copyFromJar(path(fromJar, "--from-jar"), keyId, type)
+        NewKey key = fromJar != null ? copyFromJar(parsed.admin.snapshot(path(fromJar, "--from-jar")), keyId, type)
                 : build(keyId, chosen, source, location, generate, fromFile, terminals, target);
         try {
             boolean restoredFromHistory = checkRestore(keyId, key.record(key.origin), target.snap);
@@ -356,7 +365,7 @@ final class KeyringCommand {
                 return 0;
             }
 
-            // 키 재료 파일(aws-kms 데이터 키, --export 원본)을 먼저 만든다. JAR 변경이 실패하면 지운다(원본 JAR는 그대로).
+            // 키 재료 파일(aws-kms 데이터 키, --export 원본)을 먼저 만든다. 발행 전 실패 시 정리하고 발행 후 오류 시 보존한다.
             List<Path> created = new ArrayList<>();
             boolean done = false;
             try {
@@ -370,8 +379,7 @@ final class KeyringCommand {
                 }
                 JarConfigEditor.Change change = new JarConfigEditor.Change("key add", values, Collections.<String>emptySet(),
                         summaries, parsed.value("--operator"), reason);
-                JarConfigEditor.Result result = JarConfigEditor.apply(target.jar, output, parsed.flag("--replace"),
-                        ConfigCommand.runningJar(), change, Instant.now());
+                JarConfigEditor.Result result = JarConfigEditor.apply(target.snap, change, Instant.now());
                 done = true;
                 ConfigCommand.printResult(result, out);
                 out.println(Messages.get("cfg.result.keyAdded", keyId, key.type.code(), key.source,
@@ -396,6 +404,10 @@ final class KeyringCommand {
                     }
                 }
                 return 0;
+            } catch (CryptoCli.CliException e) {
+                // Keep explicitly requested key files when publication succeeded before an I/O failure.
+                if (JarConfigEditor.publicationInterrupted(e)) done = true;
+                throw e;
             } finally {
                 if (!done) for (Path file : created) deleteQuietly(file);
             }
@@ -628,8 +640,8 @@ final class KeyringCommand {
     }
 
     /** --from-jar: 다른 JAR에 등록된 같은 Key ID의 정의를 그대로 복사한다(pass 원문은 어느 JAR에도 없다). */
-    private static NewKey copyFromJar(Path otherJar, String keyId, KeyType expected) throws Exception {
-        JarConfigEditor.Snapshot other = JarConfigEditor.read(otherJar);
+    private static NewKey copyFromJar(JarConfigEditor.Snapshot other, String keyId, KeyType expected) throws Exception {
+        Path otherJar = other.jar;
         if (!supportsKeyring(other) && other.settings.getProperty(CryptoSettings.KEY_ID, "").trim().isEmpty()) {
             throw new CryptoCli.CliException(Messages.get("cfg.err.fromJarMissing", keyId, JarConfigEditor.name(otherJar)));
         }
@@ -751,13 +763,12 @@ final class KeyringCommand {
         // key 유형의 crypto.key.* AES 키는 빈 값으로 둔다(빈 값 = crypto.key.*를 따른다. 이후 embed-key로 바꿔도 따라간다).
         String value = profile.legacy() ? "" : keyId;
         Map<String, String> values = Collections.singletonMap(setting, value);
-        Path output = ConfigCommand.outputJar(parsed, target.jar);
+        Path output = target.jar;
         String reason = CryptoCli.reasonOption(parsed, terminals);
         List<String> items = Collections.singletonList(ConfigCommand.change(setting, target.snap.settings.getProperty(setting), value));
         if (!ConfigCommand.confirm(parsed, terminals, out, Messages.get("cfg.confirm.keyUse"), output, items, reason)) return 0;
         JarConfigEditor.Change change = new JarConfigEditor.Change("key use", values, parsed.value("--operator"), reason);
-        JarConfigEditor.Result result = JarConfigEditor.apply(target.jar, output, parsed.flag("--replace"),
-                ConfigCommand.runningJar(), change, Instant.now());
+        JarConfigEditor.Result result = JarConfigEditor.apply(target.snap, change, Instant.now());
         ConfigCommand.printResult(result, out);
         out.println(Messages.get("cfg.result.active", profile.type().code(), keyId));
         return 0;
@@ -783,7 +794,7 @@ final class KeyringCommand {
             if (target.snap.settings.containsKey(name)) ordered.add(name);
         }
         if (ordered.isEmpty()) throw new CryptoCli.CliException(Messages.get("jar.err.noChange"));
-        Path output = ConfigCommand.outputJar(parsed, target.jar);
+        Path output = target.jar;
         String reason = CryptoCli.reasonOption(parsed, terminals);
         List<String> items = new ArrayList<>();
         for (String name : ordered) items.add(ConfigCommand.change(name, target.snap.settings.getProperty(name), null));
@@ -797,8 +808,7 @@ final class KeyringCommand {
                 ConfigHistory.ABSENT));
         JarConfigEditor.Change change = new JarConfigEditor.Change("key remove", Collections.<String, String>emptyMap(),
                 new LinkedHashSet<>(ordered), summaries, parsed.value("--operator"), reason);
-        JarConfigEditor.Result result = JarConfigEditor.apply(target.jar, output, parsed.flag("--replace"),
-                ConfigCommand.runningJar(), change, Instant.now());
+        JarConfigEditor.Result result = JarConfigEditor.apply(target.snap, change, Instant.now());
         ConfigCommand.printResult(result, out);
         out.println(Messages.get("cfg.result.keyRemoved", keyId));
         return 0;
@@ -1103,7 +1113,7 @@ final class KeyringCommand {
         return line;
     }
 
-    /** 결과 줄의 경로: 생성 JAR·키 파일 줄과 같은 운영체제 표기(절대 경로). */
+    /** 결과 줄의 경로: 갱신한 JAR·키 파일 줄과 같은 운영체제 표기(절대 경로). */
     static String display(Path file) {
         return Messages.singleLine(file.toAbsolutePath().normalize().toString());
     }

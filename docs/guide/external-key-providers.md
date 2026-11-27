@@ -37,7 +37,9 @@ Vault와 AWS KMS는 관리형 키를 공급합니다. `api` 명령은 입력받�
 
 **어떤 값을 준비하나요?** Vault의 pass 프로필에는 Passphrase 원문, key 프로필에는 정확히 32바이트인 키의 표준 Base64 한 줄을 둡니다. AWS KMS를 쓰는 서비스에는 KMS가 보호한 데이터 키 파일과 복호화 권한이 함께 필요합니다. 같은 서버에서 `info`가 키 ID를 표시해도 원격 접근이 된다는 보장은 없습니다. 원격 조회까지 확인할 때는 `doctor`에서 `--offline`을 생략하세요.
 
-키 목록에 등록한 외부 키는 지문이 달라지면 실패합니다. 같은 위치의 값을 조용히 덮어쓰지 말고 새 키 ID로 등록한 후 이전 암호문을 이전합니다. CLI `info`·`doctor`를 실제 서비스와 같은 설정 및 권한으로 확인하고 Tomcat에서는 실제 DB 연결까지 점검합니다.
+**어느 키가 선택되나요?** 외부 공급원도 키 선택 규칙은 같습니다. 유형·키 ID를 정하지 않으면 기본 유형(`crypto.key.type`, `admin setup` 뒤에는 `pass`)의 활성 키, 유형만 정하면 그 유형의 활성 키, 키 ID만 정하면 그 ID의 키를 쓰고, 둘 다 정하면 유형이 맞는지 확인한 뒤 그 키를 씁니다. 외부 AES 키를 `crypto.key.*` 슬롯에 두고 유형 없이 암호화하려면 외부 Properties에 `crypto.key.type=key`를 함께 적습니다. `crypto.key.active.key`에 다른 키 ID가 지정되어 있으면 `crypto.key.type=key`만으로는 그 키가 선택되므로, `crypto.key.active.key`를 외부 키의 ID(예: `key01`)로 지정하거나 명령에 `--key-id key01`을 붙입니다. 특정 외부 키의 지문은 `fingerprint --key-id key01`처럼 키 ID로 확인합니다. 외부 AES 키 하나만 슬롯에 두는 구성과, `config key add --source vault|aws-kms`로 PASS·KEY 프로필을 추가로 등록하는 구성(등록한 키 ID와 활성 키로 선택)은 구분합니다.
+
+고정 지문이 있는 키 목록의 외부 키는 실행 시 지문이 달라지면 실패합니다. 레거시 AES 슬롯에는 실행 시 고정 지문을 적용하지 않습니다. 이력에 지문이 있는 슬롯을 `config set`으로 옮길 때는 동일 키를 확인할 수 있도록 새 공급원의 위치와 재료를 먼저 준비합니다. 같은 위치의 값을 조용히 덮어쓰지 말고 새 키 ID로 등록한 후 이전 암호문을 이전합니다. CLI `info`·`doctor`를 실제 서비스와 같은 설정 및 권한으로 확인하고 Tomcat에서는 실제 DB 연결까지 점검합니다.
 
 <a name="topic-vault"></a>
 
@@ -73,6 +75,7 @@ Vault와 AWS KMS는 관리형 키를 공급합니다. `api` 명령은 입력받�
 ```bash
 # 이미 KV v2 마운트가 있으면 'secrets enable'은 다시 하지 않습니다.
 vault secrets enable -path=secret kv-v2
+
 # keygen으로 만든 키 파일을 Secret에 저장합니다.
 vault kv put secret/java-crypto-kit/prod key=@example.key
 ```
@@ -90,6 +93,8 @@ Vault 읽기 정책의 대상 경로 예는 `secret/data/java-crypto-kit/prod`�
 **외부 설정 예(토큰 값 없음):**
 
 ```properties
+# 유형을 정하지 않은 암호화에도 이 키를 쓸 때(crypto.key.active.key가 다른 ID면 key01로 지정)
+crypto.key.type=key
 crypto.key.source=vault
 crypto.key.id=key01
 crypto.vault.url=https://vault.example.internal:8200
@@ -102,9 +107,14 @@ crypto.vault.timeout.ms=5000
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar doctor --config /etc/java-crypto-kit/vault.properties --offline
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar doctor --config /etc/java-crypto-kit/vault.properties
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar fingerprint --config /etc/java-crypto-kit/vault.properties
+# 키 공급원과 암복호화 동작 진단
+java -jar ./java-crypto-kit-0.2.1.jar doctor --config /etc/java-crypto-kit/vault.properties --offline
+
+# 키 공급원과 암복호화 동작 진단
+java -jar ./java-crypto-kit-0.2.1.jar doctor --config /etc/java-crypto-kit/vault.properties
+
+# Vault에 설정한 key01의 SHA-256 지문 확인
+java -jar ./java-crypto-kit-0.2.1.jar fingerprint --key-id key01 --config /etc/java-crypto-kit/vault.properties
 ```
 
 **결과 판단:** `--offline`은 네트워크 확인을 건너뜁니다(SKIP). `--offline` 없는 `doctor`는 TLS·토큰·KV v2 키 조회까지 확인합니다. 403이면 토큰 권한뿐 아니라 **mount·path 오타**도 확인합니다(정책 밖 경로도 Vault는 권한 부족으로 답함). 404면 Secret·버전·KV v2 여부를 확인합니다.
@@ -123,7 +133,7 @@ java -jar ./java-crypto-kit-0.2.0-cfg-2.jar fingerprint --config /etc/java-crypt
 <a name="topic-aws-kms--217-kms-datakey--aws-kms-데이터-키-파일-만들기"></a>
 ### `kms datakey` — AWS KMS 데이터 키 파일 만들기 (2.17)
 
-**사용 상황:** `crypto.key.*` AES 키의 키 공급원 `aws-kms`를 처음 준비할 때 한 번(이전 형식와 같은 AES 전용 명령). pass 키나 추가 키를 KMS로 보호하려면 `config key add --source aws-kms`([2.18절](key-management.md#topic-key-registration--218-config-key-add--키-추가))를 씁니다.
+**사용 상황:** `crypto.key.*` AES 키의 키 공급원 `aws-kms`를 처음 준비할 때 한 번(AES 전용 명령). pass 키나 추가 키를 KMS로 보호하려면 `config key add --source aws-kms`([2.18절](key-management.md#topic-key-registration--218-config-key-add--키-추가))를 씁니다.
 
 기본 JAR만으로는 AWS SDK를 쓸 수 없으므로 선택형 `aws-kms-lib/*.jar`를 실행 클래스패스에 함께 넣습니다(Tomcat에서도 같음). 자세한 준비는 [8.2절](#topic-aws-kms--82-aws-kms).
 
@@ -149,9 +159,9 @@ java -cp '<JAR>;aws-kms-lib/*' io.javacryptokit.cli.CryptoCli kms datakey --out 
 
 | 셸 | 변수 만들기 | 사용 |
 |---|---|---|
-| Windows PowerShell | `$CP = "java-crypto-kit-0.2.0-cfg-2.jar;aws-kms-lib/*"` | `java -cp "$CP" io.javacryptokit.cli.CryptoCli <명령>` |
-| Windows 명령 프롬프트 | `set "CP=java-crypto-kit-0.2.0-cfg-2.jar;aws-kms-lib/*"` | `java -cp "%CP%" io.javacryptokit.cli.CryptoCli <명령>` |
-| Linux(bash) | `CP="java-crypto-kit-0.2.0-cfg-2.jar:aws-kms-lib/*"` | `java -cp "$CP" io.javacryptokit.cli.CryptoCli <명령>` |
+| Windows PowerShell | `$CP = "java-crypto-kit-0.2.1.jar;aws-kms-lib/*"` | `java -cp "$CP" io.javacryptokit.cli.CryptoCli <명령>` |
+| Windows 명령 프롬프트 | `set "CP=java-crypto-kit-0.2.1.jar;aws-kms-lib/*"` | `java -cp "%CP%" io.javacryptokit.cli.CryptoCli <명령>` |
+| Linux(bash) | `CP="java-crypto-kit-0.2.1.jar:aws-kms-lib/*"` | `java -cp "$CP" io.javacryptokit.cli.CryptoCli <명령>` |
 
 변수는 만든 터미널 창에서만 유지되므로 새 창에서는 다시 만듭니다.
 
@@ -159,17 +169,27 @@ java -cp '<JAR>;aws-kms-lib/*' io.javacryptokit.cli.CryptoCli kms datakey --out 
 
 ```powershell
 # Windows PowerShell
-$CP = "java-crypto-kit-0.2.0-cfg-2.jar;aws-kms-lib/*"
+
+# JCK와 AWS SDK 클래스패스 지정
+$CP = "java-crypto-kit-0.2.1.jar;aws-kms-lib/*"
+
 # 새 데이터 키 만들기(새 키이므로 기존 암호문은 rekey 필요)
 java -cp "$CP" io.javacryptokit.cli.CryptoCli kms datakey --out C:/secure/prod.datakey --config C:/secure/kms.properties --reason "KMS 데이터 키 준비"
+
 # 이미 쓰는 키(keygen 형식)를 KMS로 감싸기(키·키 ID가 그대로라 기존 암호문을 계속 씀)
 java -cp "$CP" io.javacryptokit.cli.CryptoCli kms datakey --from-file C:/secure/example.key --out C:/secure/prod.datakey --config C:/secure/kms.properties --reason "기존 키를 KMS로 보호"
 ```
 
 ```bash
 # Linux
-CP="java-crypto-kit-0.2.0-cfg-2.jar:aws-kms-lib/*"
+
+# JCK와 AWS SDK 클래스패스 지정
+CP="java-crypto-kit-0.2.1.jar:aws-kms-lib/*"
+
+# KMS로 보호한 데이터 키 파일 생성
 java -cp "$CP" io.javacryptokit.cli.CryptoCli kms datakey --out /secure/prod.datakey --config /secure/kms.properties --reason "KMS 데이터 키 준비"
+
+# KMS로 보호한 데이터 키 파일 생성
 java -cp "$CP" io.javacryptokit.cli.CryptoCli kms datakey --from-file /secure/example.key --out /secure/prod.datakey --config /secure/kms.properties --reason "기존 키를 KMS로 보호"
 ```
 
@@ -177,7 +197,7 @@ java -cp "$CP" io.javacryptokit.cli.CryptoCli kms datakey --from-file /secure/ex
 
 암호화된 데이터 키 파일만 만들고, KMS `Decrypt`로 복원까지 확인한 뒤 결과 줄(파일·방식·키 ID·64자 키 지문·사유, `--operator`를 주면 작업자, `이력 : 저장 안 함`)을 출력합니다.
 
-`파일`의 경로를 설정 `crypto.aws.kms.data-key.file`에 그대로 씁니다(예: `config set crypto.key.source=aws-kms crypto.aws.kms.data-key.file=<경로> crypto.aws.kms.key.id=<KMS 키> --operator <ID> --reason <사유>` 또는 외부 Properties).
+결과의 `파일` 경로를 `crypto.aws.kms.data-key.file`에 지정합니다. 외부 Properties 설정은 위 예제를 참고하세요. 기존 AES 슬롯에 같은 키를 KMS로 공급할 때는 그 JAR의 Key ID로 감싼 데이터 키 파일을 준비하고 `config set`에서 공급원·파일·KMS 키 ID를 함께 지정할 수 있습니다. 새 데이터 키라면 새 Key ID를 사용하고 기존 암호문은 `rekey`로 이전합니다.
 
 ```text
 파일      : /secure/prod.datakey
@@ -194,11 +214,11 @@ java -cp "$CP" io.javacryptokit.cli.CryptoCli kms datakey --from-file /secure/ex
 
 데이터 키 파일은 KMS가 암호화한 형식이라 `keygen` 키 파일(표준 Base64 한 줄)·pass 복원 백업과 다른 파일이며, `--from-file`로 다시 등록하는 키 원문이 아닙니다.
 
-이 명령은 이전 형식처럼 데이터 키 파일만 만들고 데이터 키 원문을 화면에 보여 주지 않습니다(KMS 마스터 키를 보여 주거나 내보내는 기능도 없음). 복구는 같은 데이터 키 파일과 KMS 키·권한으로 합니다. 사유는 결과 화면에만 나오고 저장되지 않습니다.
+이 명령은 데이터 키 파일만 만들고 데이터 키 원문을 화면에 보여 주지 않습니다(KMS 마스터 키를 보여 주거나 내보내는 기능도 없음). 복구는 같은 데이터 키 파일과 KMS 키·권한으로 합니다. 사유는 결과 화면에만 나오고 저장되지 않습니다.
 
 **권한·오류:** 새 키 생성은 `kms:GenerateDataKey`·`kms:Decrypt`, 기존 키 감싸기는 `kms:Encrypt`·`kms:Decrypt`가 필요합니다.
 
-SDK가 없으면 클래스패스를, `AccessDenied`면 IAM·키 정책을, 자격증명·리전·키 ID 누락이면 설정을 확인합니다. 실제 AWS 연동은 사용하는 계정·IAM·네트워크에서 따로 검증해야 합니다.
+SDK가 없으면 클래스패스를, `AccessDenied`면 IAM·키 정책을, 자격증명·리전·키 ID 누락이면 설정을 확인합니다. 선택 SDK가 SLF4J 로깅 구현체 부재를 stderr에 알릴 수 있습니다. 성공 여부는 CLI 종료 코드와 결과 파일로 판단하세요. 종료 코드 0이면 결과 파일을 확인하고, 1이면 JCK의 오류와 조치를 확인하세요. 실제 AWS 연동은 사용하는 계정·IAM·네트워크에서 따로 검증해야 합니다.
 
 <a name="topic-aws-kms--82-aws-kms"></a>
 ### AWS KMS (8.2)
@@ -213,6 +233,8 @@ SDK가 없으면 클래스패스를, `AccessDenied`면 IAM·키 정책을, 자�
 4. WAS에는 데이터 키 파일, `crypto.key.source=aws-kms` 설정, SDK 묶음을 배포합니다. WAS는 기동할 때 KMS `Decrypt`로 **같은 키**를 복원합니다.
 
 ```properties
+# 유형을 정하지 않은 암호화에도 이 키를 쓸 때(crypto.key.active.key가 다른 ID면 key01로 지정)
+crypto.key.type=key
 crypto.key.source=aws-kms
 crypto.key.id=key01
 crypto.aws.region=ap-northeast-2
@@ -223,14 +245,19 @@ crypto.aws.kms.timeout.ms=10000
 
 ```bash
 # Linux: 배포 JAR와 aws-kms-lib 폴더가 현재 폴더에 있다고 가정(변수 CP: 2.17절)
-CP="java-crypto-kit-0.2.0-cfg-2.jar:aws-kms-lib/*"
+CP="java-crypto-kit-0.2.1.jar:aws-kms-lib/*"
+
 # 새 데이터 키를 만드는 예입니다. 이미 쓰는 AES 키가 있으면 --from-file /secure/example.key를 붙여야 기존 ENC가 유지됩니다.
 java -cp "$CP" io.javacryptokit.cli.CryptoCli kms datakey --out /etc/java-crypto-kit/prod.datakey --config /etc/java-crypto-kit/kms.properties --reason "KMS 데이터 키 준비"
+
+# 키 공급원과 암복호화 동작 진단
 java -cp "$CP" io.javacryptokit.cli.CryptoCli doctor --offline --config /etc/java-crypto-kit/kms.properties
+
+# 키 공급원과 암복호화 동작 진단
 java -cp "$CP" io.javacryptokit.cli.CryptoCli doctor --config /etc/java-crypto-kit/kms.properties
 ```
 
-Windows PowerShell은 `$CP = "java-crypto-kit-0.2.0-cfg-2.jar;aws-kms-lib/*"`처럼 세미콜론으로 만들고 같은 `java -cp "$CP" ...` 명령을 씁니다(셸별 방법: [2.17절](#topic-aws-kms--217-kms-datakey--aws-kms-데이터-키-파일-만들기)). AWS SDK가 필요한 실행에서는 `java -jar`와 `-cp`를 함께 쓰지 않습니다.
+Windows PowerShell은 `$CP = "java-crypto-kit-0.2.1.jar;aws-kms-lib/*"`처럼 세미콜론으로 만들고 같은 `java -cp "$CP" ...` 명령을 씁니다(셸별 방법: [2.17절](#topic-aws-kms--217-kms-datakey--aws-kms-데이터-키-파일-만들기)). AWS SDK가 필요한 실행에서는 `java -jar`와 `-cp`를 함께 쓰지 않습니다.
 
 필요한 권한은 새 키 생성 `kms:GenerateDataKey`+`kms:Decrypt`, 기존 키 감싸기 `kms:Encrypt`+`kms:Decrypt`, WAS 복원 `kms:Decrypt`입니다.
 

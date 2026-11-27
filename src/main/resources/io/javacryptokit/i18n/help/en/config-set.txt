@@ -1,23 +1,24 @@
-config set - change the JAR built-in settings (default: create a new JAR)
+config set - change the JAR built-in settings in place
 
 Usage
-  java -jar {jar} config set <setting>=<value> [...]
-       --operator <ID> [--reason <text>] [--jar <jar>]
-       [--out <jar> | --replace] [--yes]
+  {update} config set <setting>=<value> [...]
+                           crypto.key.id rejects reserved or registered IDs.
+                      A used ID requires the matching key fingerprint.
+  --operator <ID> [--reason <text>] [--jar <jar>]
+       [--replace] [--yes]
        [--admin-pass-file <file>] [--lang en|ko]
 
 Options
   <setting>=<value>   Settings to change (one or more; names: config help).
                       crypto.key.embedded is not allowed (config embed-key).
                       Of a key list entry only location items (file, ...).
+                      A recorded AES slot requires the same key.
+                      Set the new location before switching the source.
   --operator <ID>     Operator ID for the history (required, a record only)
   --reason <text>     Reason for the history (one line, max 200). Required for
                       key-related settings (asked interactively), else optional
   --jar <jar>         JAR to change (optional, default: the running JAR)
-  --out <jar>         Result JAR (optional, default <name>-cfg.jar, then
-                      -cfg-2.jar). Existing files are never overwritten.
-  --replace           Replace the original instead (backup <name>.bak-<UTC>,
-                      atomic move). Not together with --out.
+  --replace           Compatibility flag. Updates the same path.
   --yes               Skip the CHANGE confirmation for key-related settings
                       (other settings ask nothing)
   --admin-pass-file <file>
@@ -26,10 +27,10 @@ Options
   --lang en|ko        Message language for this run (optional)
 
 Result
-  Created JAR : /opt/app/java-crypto-kit-{version}-cfg.jar
+  Updated JAR : /opt/app/java-crypto-kit-{version}.jar
   Changes     : crypto.lang (ko -> en)
                 (one line per setting when there are several)
 
 Examples
-  java -jar {jar} config set crypto.lang=en --operator ops
+  {update} config set crypto.lang=en --operator ops
   (--replace, key file and pool examples: docs/user-guide.md 2.12)

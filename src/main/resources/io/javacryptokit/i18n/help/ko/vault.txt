@@ -9,12 +9,15 @@ help vault - HashiCorp Vault KV v2에서 키 읽기(crypto.key.source=vault)
 
 설정(config set 또는 외부 Properties)
   crypto.key.source=vault          crypto.key.id=prod02
+  crypto.key.type=key              (유형을 생략한 암호화에도 이 키를 쓸 때)
   crypto.vault.url=https://vault.example.internal:8200
   crypto.vault.mount=secret        crypto.vault.path=java-crypto-kit/prod
   crypto.vault.field=key           crypto.vault.ver=1
   crypto.vault.token.file=/run/secrets/vault-token
   (또는 crypto.vault.token.env=VAULT_TOKEN. 토큰 값은 설정·-D에 두지 않음)
   crypto.vault.ca.file=/etc/java-crypto-kit/vault-ca.pem   (사설 CA일 때)
+  crypto.key.active.key에 다른 키 ID가 있으면 prod02로 바꾸거나 명령에
+  --key-id prod02를 붙입니다.
 
 확인(--offline은 연결 없이 설정·토큰·CA 파일만 점검)
   java -jar {jar} doctor --offline

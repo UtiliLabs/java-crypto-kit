@@ -25,7 +25,7 @@ JCK Factory는 암호문의 키 ID로 관리형 키를 찾아 AES-256-GCM 복호
 | CLI 선택 | `encrypt --type pass` 또는 해당 `--key-id` | `encrypt --type key` 또는 해당 `--key-id` |
 | 운영 보관 | 동일 키 복원에 필요한 백업(원래 Passphrase·Salt·KDF 정보) 또는 같은 키의 JAR | 동일 AES 키·키 ID 또는 같은 키의 JAR |
 
-**JCK가 기본 제공하는 것:** 공개 JAR의 `pass-default`(기본 유형)와 `default`(key 유형)는 설치 없이 시험하는 공개 예제 키입니다. 암호화 동작을 확인할 수 있지만 실제 DB 비밀번호에는 쓰지 않습니다. 사용자 지정 키를 추가하거나 내장하면 새 JAR를 만들 수 있습니다. 같은 Passphrase로 신규 등록하더라도 Salt가 새로 생성되면 기존 암호문을 풀 수 없습니다.
+**배치할 JAR:** 내장 키를 쓴다면 암호화에 사용한 설정 JAR를 Tomcat에 배치합니다. 외부 키를 설정한 Java·Tomcat은 관리자 등록 없이 사용할 수 있습니다. 키가 없거나 공개 키이면 해당 JNDI Resource 조회가 실패합니다.
 
 ### 키를 어디에 둘까요?
 
@@ -47,15 +47,15 @@ JCK Factory는 암호문의 키 ID로 관리형 키를 찾아 AES-256-GCM 복호
 | 단계 | 수행 작업 | 확인할 결과 |
 |---|---|---|
 | 1 | JCK JAR와 DB JDBC 드라이버 준비 | 사용할 Tomcat과 Pool 선택 |
-| 2 | CLI 관리자 비밀번호 설정, 업무용 키 준비 | 새 설정 JAR 또는 외부 키 설정 확보 |
-| 3 | 같은 키로 CLI `encrypt` 실행 | 암호문 전체를 복사 (`ENC[...]`) |
+| 2 | CLI로 암호화할 때 사용할 JAR에서 `admin setup` 실행 | 내장 방식은 같은 경로에 생성한 키를 사용. 외부 방식은 유효한 외부 설정과 업무 키를 준비 |
+| 3 | 같은 키로 CLI `enc` 실행 | 암호문 전체를 복사 (`ENC[...]`) |
 | 4 | JCK JAR와 JDBC 드라이버를 Tomcat `lib`에 배치 | 암호화에 쓴 키를 Tomcat 서비스 계정에서 읽을 수 있어야 함 |
 | 5 | JNDI Resource의 Factory·password 및 Pool 속성 설정 | 기존 JNDI 이름 유지 |
 | 6 | Tomcat 재시작, JNDI 조회 후 실제 SQL 실행 | DB 연결 성공 |
 
 ```mermaid
 flowchart TD
-    admin["관리자 · CLI encrypt"] -->|"암호문 한 줄"| resource["Tomcat JNDI Resource"]
+    admin["관리자 · CLI enc"] -->|"암호문 한 줄"| resource["Tomcat JNDI Resource"]
     resource --> factory["EncryptedDataSourceFactory"]
     key["등록된 키 · 암호문의 키 ID로 선택"] --> factory
     factory -->|"복호화한 접속정보"| pool["DBCP2 또는 Tomcat JDBC Pool"]
@@ -64,26 +64,48 @@ flowchart TD
 
 ### 방법 A. Passphrase(`pass`)로 키와 암호문 준비
 
-아래는 **새 환경에서 업무용 Passphrase 키를 내장하는 예**입니다. 이미 운영 키를 쓰고 있다면 키를 다시 생성하지 말고 같은 JAR·외부 설정으로 `encrypt`만 실행합니다.
+아래는 **새 환경에서 업무용 Passphrase 키를 내장하는 예**입니다. 이미 운영 키를 쓰고 있다면 키를 다시 생성하지 말고 같은 JAR·외부 설정으로 `enc`만 실행합니다.
 
 ```bash
-java -jar java-crypto-kit-0.2.0.jar admin setup --operator example-admin
-java -jar java-crypto-kit-0.2.0-cfg.jar config key add --key-id app-pass --active --operator example-admin --reason "Tomcat DB 접속정보 보호" --out app-tomcat.jar
+# 관리자 비밀번호를 등록하고 같은 JAR에 두 키 저장
+java -jar java-crypto-kit-0.2.1.jar admin setup
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp java-crypto-kit-0.2.1.jar app-tomcat.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar app-tomcat.jar config key add --key-id app-pass --active --operator example-admin --reason "Tomcat DB 접속정보 보호"
+
+# 키 공급원과 암복호화 동작 진단
 java -jar app-tomcat.jar doctor
-java -jar app-tomcat.jar encrypt --key-id app-pass
+
+# 입력한 값을 활성 키로 암호화
+java -jar app-tomcat.jar enc --key-id app-pass
+
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar app-tomcat.jar verify
 ```
 
-실제 터미널에서 관리자 비밀번호와 Passphrase를 화면에 보이지 않게 입력하고, 키 변경 확인에 응답합니다. `doctor`의 결과와 키 상태를 확인한 뒤 암호문 한 줄 전체를 Resource에 붙입니다. `app-tomcat.jar`를 반드시 안전하게 백업합니다. 내장 pass 키의 Passphrase 원문은 JAR에서 복원할 수 없습니다. 같은 문자열로 새 키를 등록해도 새 Salt로 다른 키가 생성됩니다. 원래 JAR를 유지하거나, 최초 생성 시 `--generate --export <백업파일>`을 사용해 복원 정보를 별도로 보관하는 방법을 선택하세요([키 복구 절차](key-management.md#topic-key-recovery)). 아래 기존 상세 예제의 `java-crypto-kit-0.2.0-cfg-2.jar`는 같은 역할의 사용자 지정 키 JAR 이름입니다. 실제 파일명으로 바꾸어 실행하세요. Tomcat은 이 CLI 관리자 비밀번호를 묻지 않습니다.
+실제 터미널에서 관리자 비밀번호와 Passphrase를 화면에 보이지 않게 입력하고, 키 변경 확인에 응답합니다. `doctor`의 결과와 키 상태를 확인한 뒤 암호문 한 줄 전체를 Resource에 붙입니다. `app-tomcat.jar`를 반드시 안전하게 백업합니다. 내장 pass 키의 Passphrase 원문은 JAR에서 복원할 수 없습니다. 같은 문자열로 새 키를 등록해도 새 Salt로 다른 키가 생성됩니다. 원래 JAR를 유지하거나, 최초 생성 시 `--generate --export <백업파일>`을 사용해 복원 정보를 별도로 보관하는 방법을 선택하세요([키 복구 절차](key-management.md#topic-key-recovery)). 아래 기존 상세 예제의 `java-crypto-kit-0.2.1.jar`는 같은 역할의 사용자 지정 키 JAR 이름입니다. 실제 파일명으로 바꾸어 실행하세요. Tomcat은 이 CLI 관리자 비밀번호를 묻지 않습니다.
 
 ### 방법 B. 무작위 AES 키(`key`)로 준비하기
 
 Passphrase 방식 대신 JCK가 32바이트 AES 키를 직접 생성하게 할 수 있습니다. 아래 명령은 위와 **별개의 대안**입니다. 최초 관리자 설정은 한 번만 실행하며 이미 설정한 JAR에서 시작합니다. `--export` 경로는 접근 제한된 기존 디렉터리의 새 파일이어야 합니다.
 
 ```bash
-java -jar java-crypto-kit-0.2.0-cfg.jar config key add --key-id app-aes --type key --generate --export /secure/app-aes.key --active --operator example-admin --reason "Tomcat AES key" --out app-tomcat-aes.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp java-crypto-kit-0.2.1.jar app-tomcat-aes.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar app-tomcat-aes.jar config key add --key-id app-aes --type key --generate --export /secure/app-aes.key --active --operator example-admin --reason "Tomcat AES key"
+
+# 키 공급원과 암복호화 동작 진단
 java -jar app-tomcat-aes.jar doctor
-java -jar app-tomcat-aes.jar encrypt --key-id app-aes
+
+# 입력한 값을 활성 키로 암호화
+java -jar app-tomcat-aes.jar enc --key-id app-aes
+
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar app-tomcat-aes.jar verify
 ```
 
@@ -91,7 +113,7 @@ Windows에서는 `/secure/app-aes.key`를 접근 제한된 실제 Windows 경로
 
 이미 AES 키 파일이 있다면 `--generate --export ...` 대신 `--from-file /secure/existing.key`를 사용합니다. 키 파일은 정확히 32바이트를 표준 Base64로 나타낸 값입니다. `keygen` 후 `config embed-key` 방식도 가능합니다([키 생성·내장](key-management.md#topic-key-generation)).
 
-### 결과 JAR와 암호문을 맞추기
+### 갱신한 JAR와 암호문을 맞추기
 
 | 사용할 설정 | Resource에 넣는 값 | Tomcat에 배포 |
 |---|---|---|
@@ -125,7 +147,7 @@ Windows에서는 `/secure/app-aes.key`를 접근 제한된 실제 Windows 경로
 <a name="topic-tomcat--31-적용-순서"></a>
 ### 적용 순서 (3.1)
 
-1. **운영 키 준비:** 공개 예제 키 대신 사용자 지정 키를 씁니다([1.3절](key-management.md#topic-key-selection--13-체험용-내장-키와-운영용-사용자-지정-키)).
+1. **운영 키 준비:** 최초 설정에서 생성한 키 또는 등록한 사용자 키를 씁니다([1.3절](key-management.md#topic-key-selection--13-체험용-내장-키와-운영용-사용자-지정-키)).
 2. **설치:** 키 내장 JAR(또는 외부 키를 쓰는 공개 JAR)와 DB의 JDBC 드라이버 JAR를 `CATALINA_BASE/lib`에 복사합니다. 같은 `lib`에는 java-crypto-kit JAR를 **하나만** 둡니다(웹앱 `WEB-INF/lib`에도 둘 때의 동작은 [3.7절](#topic-tomcat--37-jar를-lib과-웹앱에-함께-둘-때)).
 3. **암호화:** Tomcat과 같은 JAR·설정으로 `encrypt`를 실행해 DB 비밀번호 암호문을 만듭니다. pass·key 어느 유형의 암호문이든 쓸 수 있습니다(Factory가 암호문의 키 ID로 키를 고름).
 4. **Resource 작성:** 실제 Context 파일에 `factory`, `cryptoPool`과 암호문 `password`를 넣은 `<Resource>`를 둡니다([3.3절](#topic-tomcat--33-resource를-넣을-파일)·[3.4절](#topic-tomcat--34-resource-주요-속성)).
@@ -134,11 +156,13 @@ Windows에서는 `/secure/app-aes.key`를 접근 제한된 실제 Windows 경로
 Tomcat Factory는 CLI 관리자 비밀번호를 읽거나 묻지 않습니다. 관리자 비밀번호를 설정한 JAR·설정하지 않은 JAR·검증값이 손상된 JAR 모두 Tomcat 기동과 복호화는 같게 동작합니다(관리자 비밀번호는 CLI 전용, [1.4절](cli.md#topic-admin--14-cli-관리자-비밀번호)).
 
 ```powershell
-Copy-Item .\java-crypto-kit-0.2.0-cfg-2.jar C:/tomcat/lib/
+# Tomcat 공용 라이브러리 폴더에 설정 JAR 배치
+Copy-Item .\java-crypto-kit-0.2.1.jar C:/tomcat/lib/
 ```
 
 ```bash
-cp ./java-crypto-kit-0.2.0-cfg-2.jar /opt/tomcat/lib/ && chown tomcat:tomcat /opt/tomcat/lib/java-crypto-kit-0.2.0-cfg-2.jar
+# Tomcat에 설정 JAR 배치 후 소유권 부여
+cp ./java-crypto-kit-0.2.1.jar /opt/tomcat/lib/ && chown tomcat:tomcat /opt/tomcat/lib/java-crypto-kit-0.2.1.jar
 ```
 
 <a name="topic-tomcat--32-dbcp2와-tomcat-jdbc-pool-선택"></a>
@@ -412,7 +436,7 @@ try (java.sql.Connection conn = ds.getConnection();
 - **JVM 공통 `-D`를 한쪽 JAR에서 막기:** JAR B에 `crypto.jvm.override.enabled=false`를 넣으면(`java -jar <JAR B> config set crypto.jvm.override.enabled=false --operator <ID> --reason <사유>`) 같은 JVM의 `-Dcrypto.*` 값을 JAR B는 무시하고 자기 내장 설정대로 동작합니다(위 `-Dcrypto.key.active.pass` 예에서 JAR B는 실패하지 않고 자기 기본 키를 씀, JAR A는 그 값을 따름). 이 정책은 `-D` 설정 값만 막으며, 외부 설정 파일 지정(`-Dcrypto.config.file`, 환경변수 `CRYPTO_CONFIG_FILE`)은 그대로 적용되므로 JVM 전체에 외부 설정 파일을 걸지 않습니다.
 
   무시된 `-D`는 `info`·`doctor`에 표시됩니다.
-- **공개 기본 키 경고는 사본마다 1회**입니다. 두 사본이 모두 공개 키를 쓰면 경고가 2건 남습니다.
+- 같은 DB 암호문을 읽는 노드에는 동일한 키와 ID가 필요합니다.
 - **웹앱 안의 JAR B는 그 웹앱 코드와 같은 신뢰 범위**입니다. 그 웹앱의 코드는 JAR B에 등록된 키로 복호화할 수 있으므로, 웹앱 코드에 맡기지 않을 키는 JAR B에 넣지 않습니다.
 - **클래스로더 분리는 기능적 분리이지 보안 격리가 아닙니다.** 위 결과는 "각 사본이 자기 설정·키로 동작하고 서로의 암호문을 풀지 않는다"는 뜻일 뿐입니다.
 

@@ -4,6 +4,26 @@ Java Crypto Kit는 Java 애플리케이션에서 데이터 암복호화, 요청 
 
 **Java 8 이상 · 실행형 JAR 1개 · Apache License 2.0**
 
+<a name="api-cli-빠른-시작"></a>
+## 빠른 시작
+
+[배포 JAR](https://github.com/UtiliLabs/java-crypto-kit/releases)를 준비하고 JAR가 있는 폴더에서 실행하세요. 배포 원본에는 암호화 키가 없습니다. Windows와 Linux에서 같은 명령을 사용합니다. 설정 후에도 파일명과 경로는 같습니다.
+
+```powershell
+# 최초 한 번 관리자 비밀번호를 두 번 입력. 같은 JAR에 독립 랜덤 pass·AES 키 생성
+java -jar java-crypto-kit-0.2.1.jar admin setup
+
+# JDBC 비밀번호를 숨김 입력해 기본 pass 키로 암호화
+java -jar java-crypto-kit-0.2.1.jar enc
+
+# 필요할 때 관리자 인증 후 암호문 한 줄 전체를 입력해 복호화
+java -jar java-crypto-kit-0.2.1.jar dec
+```
+
+최초 설정은 파일명과 경로를 유지하며 작업자 옵션을 생략하면 `SYSTEM`으로 기록합니다. 공식 배포 SHA-256은 설정 전에 비교하세요. 최초 설정 이후에는 JAR 내부가 갱신되므로 공식 배포본과 SHA-256이 달라지는 것이 정상입니다.
+
+암호문을 평문 표시 없이 확인하려면 같은 JAR로 `verify`를 실행하세요. 설정 JAR를 안전하게 백업하고 같은 암호문을 읽는 서버에 같은 키와 ID를 배치하세요. 내장 Passphrase 원문은 사후 조회할 수 없습니다. 원문이 필요하면 최초 설정 때 `--pass-export`로 보호된 복원 파일을 만드세요. 명시적 외부 키를 쓰는 Java·Tomcat 및 호출자가 키를 주는 독립 Java API는 CLI 관리자 등록 없이 동작합니다.
+
 ## 주요 특징
 
 - **서비스가 가진 키로 호출** · 암호화 키, 신뢰할 서명 키, 검증 정책을 애플리케이션에서 직접 전달할 수 있습니다.
@@ -33,7 +53,7 @@ JCK의 관리형 암복호화는 `pass`와 `key` 두 가지 키 준비 방식을
 | `pass` (Passphrase) | 비밀 문자열에서 PBKDF2로 AES 키를 파생합니다. 사람이 관리하는 비밀 문자열을 사용하거나 기존 Passphrase를 기반으로 키를 구성할 때 사용합니다. |
 | `key` (AES 키) | 32바이트 AES 키를 직접 사용합니다. 새 무작위 키를 생성하거나 기존 AES 키를 사용할 때 적합합니다. |
 
-공개 JAR는 두 유형의 체험용 키(`pass-default`, `default`)를 기본 제공하므로 별도 키 생성 없이 시험할 수 있습니다. 공개 키는 누구나 알 수 있으므로 실제 데이터에는 사용자 지정 키가 필요합니다. 키를 JAR에 내장하거나 파일·환경변수·Vault·AWS KMS에서 공급할 수 있습니다. 암호문에 기록된 키 ID로 복호화할 키를 선택합니다.
+키를 JAR에 내장하거나 파일·환경변수·Vault·AWS KMS에서 공급할 수 있습니다. 암호문에 기록된 키 ID로 복호화할 키를 선택합니다.
 
 [키 유형·공급원 선택 및 관리](docs/guide/key-management.md#choose-key-material) · [직접 키 주입과 독립 AES·RSA 사용법](docs/guide/java-encryption.md)
 
@@ -55,27 +75,15 @@ JAR를 직접 실행해 DB 계정·비밀번호나 설정값을 암복호화하�
 
 [Java API 선택 기준](docs/reference/api-selection.md) · [Java 암복호화 예제](docs/guide/java-encryption.md) · [메서드·Builder·반환값](docs/reference/java-api-reference.md#api-members)
 
-## API CLI 빠른 시작
-
-CLI를 처음 사용할 때 한 번 관리자 비밀번호를 설정합니다. 설정 결과는 별도의 `-cfg.jar`입니다. 전체 도움말 첫 줄에서 버전을 확인하고, 개별 기능의 옵션과 예제는 설정 전에도 찾아볼 수 있습니다.
-
-```sh
-java -jar java-crypto-kit-0.2.0.jar --help
-java -jar java-crypto-kit-0.2.0.jar api --help
-java -jar java-crypto-kit-0.2.0.jar api jwt --examples
-java -jar java-crypto-kit-0.2.0.jar admin setup --operator example
-java -jar java-crypto-kit-0.2.0-cfg.jar api rand uuid
-```
-
-AES·RSA·Hybrid, HMAC·SHA·서명, 난수·비밀번호·KDF, 인증서·키 변환, JWT·OAuth·OTP·RequestAuth를 CLI에서 직접 실행할 수 있습니다. [18개 기능군과 입출력·인증](docs/guide/cli.md#api-cli) · [단축어](docs/guide/cli.md#cli-aliases)
-
 ## 다운로드
 
 [**GitHub Releases에서 JAR 다운로드**](https://github.com/UtiliLabs/java-crypto-kit/releases) · [배포 파일과 사용 준비](docs/reference/getting-started.md)
 
-일반 기능은 JAR 하나면 됩니다. 실제 업무에서는 공개 예제 키 대신 [사용자 지정 키](docs/guide/key-management.md#topic-key-selection)를 사용하세요. CLI 사용 시 최초 관리자 인증 설정이 필요하지만 Java API와 Tomcat 기동에는 필요하지 않습니다.
+일반 기능은 JAR 하나면 됩니다. 업무 키 등록과 이전은 [사용자 지정 키](docs/guide/key-management.md#topic-key-selection)를 사용하세요. CLI 사용 시 최초 관리자 인증 설정이 필요하지만 Java API와 Tomcat 기동에는 필요하지 않습니다.
 
-> 이 문서는 현재 소스 버전 0.2.0을 기준으로 작성되었습니다. 공개 릴리스보다 앞선 기능은 이 소스에서 Gradle Wrapper로 빌드해 확인할 수 있습니다.
+> 이 문서는 현재 소스 버전 0.2.1을 기준으로 작성되었습니다. 공개 릴리스보다 앞선 기능은 이 소스에서 Gradle Wrapper로 빌드해 확인할 수 있습니다.
+>
+> 받은 JAR의 버전은 `java -jar java-crypto-kit-0.2.1.jar help` 결과의 첫 줄(`java-crypto-kit CLI 0.2.1 - ...`)에서 확인합니다. 최초 설정 전에도 실행할 수 있습니다.
 
 ## 지원 환경
 

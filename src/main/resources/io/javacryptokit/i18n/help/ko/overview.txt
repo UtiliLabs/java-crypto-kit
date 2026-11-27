@@ -3,15 +3,15 @@ java-crypto-kit CLI {version} - 범용 Java 보안 도구
 사용법: java [-D...] -jar {jar} <명령> [옵션]
 
 관리자(CLI를 처음 쓸 때 1회 설정)
-  admin setup              관리자 비밀번호 최초 설정(새 JAR)
-  admin password change    관리자 비밀번호 변경(새 JAR)
+  admin setup              관리자 비밀번호 최초 설정(같은 경로)
+  admin password change    관리자 비밀번호 변경(같은 경로)
 문자열
-  encrypt                  문자열 암호화
-  decrypt *                문자열 복호화
+  enc (encrypt)            문자열 암호화
+  dec (decrypt) *          문자열 복호화
   verify                   암호문 검증(평문 미출력)
 파일
-  file encrypt             파일 암호화
-  file decrypt *           파일 복호화
+  file enc (file encrypt)  파일 암호화
+  file dec * (file decrypt)  파일 복호화
 키
   keygen *                 AES 키 파일 생성
   fingerprint              키 지문 확인
@@ -20,11 +20,11 @@ java-crypto-kit CLI {version} - 범용 Java 보안 도구
 설정·진단
   config show *            JAR 내부 설정·키 목록
   config history *         설정 변경 이력
-  config set *             JAR 설정 변경(새 JAR)
-  config embed-key *       AES 키를 JAR에 내장(새 JAR)
-  config key add *         키 추가(새 JAR)
-  config key use *         기본 키 변경(새 JAR)
-  config key remove *      키 제거(새 JAR)
+  config set *             JAR 설정 변경(같은 경로)
+  config embed-key *       AES 키를 JAR에 내장(같은 경로)
+  config key add *         키 추가(같은 경로)
+  config key use *         기본 키 변경(같은 경로)
+  config key remove *      키 제거(같은 경로)
   config key show *        키 관리정보·원문 확인(--show, --export)
   info                     실제 적용 설정
   doctor                   설정·기능 점검
@@ -34,9 +34,9 @@ java-crypto-kit CLI {version} - 범용 Java 보안 도구
 
 * 실행할 때마다 관리자 비밀번호 확인(비대화형: --admin-pass-file <파일>).
   Java API·Tomcat 자동 복호화에는 관리자 비밀번호가 필요 없습니다.
-키 유형: pass(Passphrase, 기본), key(AES 키). 암호화는 --type·--key-id로
-고르고, 복호화는 암호문의 키 ID로 키를 자동 선택합니다.
-상세: help <명령>   (예: help config set, decrypt --help)
+키 유형: PASS (Passphrase), KEY (AES Key). 기본값: PASS.
+암호화는 --type pass|key 또는 --key-id, 복호화는 암호문의 키 ID로 선택합니다.
+상세: help <명령>   (예: help config set, dec --help)
 예제 조회: <명령> --examples (예: file --examples)
 설정: help config    키 목록: help config key
 연동: help tomcat / help vault / help aws-kms

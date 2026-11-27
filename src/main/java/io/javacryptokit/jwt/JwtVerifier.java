@@ -2,6 +2,7 @@ package io.javacryptokit.jwt;
 
 import io.javacryptokit.security.Bytes;
 import java.time.Clock;
+import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -171,13 +172,19 @@ public final class JwtVerifier {
         Instant iat = time(raw, "iat");
         if (exp == null && requireExpiration) throw Jose.fail(JwtException.Reason.MISSING_CLAIM, "jwt.err.missing", "exp");
         if (exp != null && !now.isBefore(exp.plusSeconds(skewSeconds))) throw Jose.fail(JwtException.Reason.EXPIRED, "jwt.err.expired", "exp");
-        if (nbf != null && now.plusSeconds(skewSeconds).isBefore(nbf)) throw Jose.fail(JwtException.Reason.NOT_YET_VALID, "jwt.err.notYetValid", "nbf");
+        if (nbf != null && now.isBefore(nbf.minusSeconds(skewSeconds))) throw Jose.fail(JwtException.Reason.NOT_YET_VALID, "jwt.err.notYetValid", "nbf");
         if (iat == null && (requireIssuedAt || maxAge != null)) throw Jose.fail(JwtException.Reason.MISSING_CLAIM, "jwt.err.missing", "iat");
-        if (iat != null && rejectFutureIssuedAt && now.plusSeconds(skewSeconds).isBefore(iat)) {
+        if (iat != null && rejectFutureIssuedAt && now.isBefore(iat.minusSeconds(skewSeconds))) {
             throw Jose.fail(JwtException.Reason.ISSUED_IN_FUTURE, "jwt.err.futureIat", "iat");
         }
-        if (iat != null && maxAge != null && now.isAfter(iat.plus(maxAge).plusSeconds(skewSeconds))) {
-            throw Jose.fail(JwtException.Reason.TOO_OLD, "jwt.err.tooOld", "iat");
+        if (iat != null && maxAge != null) {
+            Instant deadline;
+            try {
+                deadline = iat.plus(maxAge).plusSeconds(skewSeconds);
+            } catch (ArithmeticException | DateTimeException e) {
+                throw Jose.fail(JwtException.Reason.INVALID_CLAIM, "jwt.err.maxAgeRange", "iat");
+            }
+            if (now.isAfter(deadline)) throw Jose.fail(JwtException.Reason.TOO_OLD, "jwt.err.tooOld", "iat");
         }
         String tokenIssuer = (String) raw.get("iss");
         if (issuer != null && !issuer.equals(tokenIssuer)) throw Jose.fail(JwtException.Reason.ISSUER, "jwt.err.issuer", "iss");

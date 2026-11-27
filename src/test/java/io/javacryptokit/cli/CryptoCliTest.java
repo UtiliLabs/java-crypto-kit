@@ -48,7 +48,7 @@ class CryptoCliTest {
         // 설정 파일을 지정하지 않는 명령도 실제 환경의 외부 설정·JVM 개별 속성을 읽지 않도록 격리한다.
         assumeTrue(TestSupport.noConfigEnvironmentVariables());
         commonProperty = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY, null);
-        legacyProperty = TestSupport.clearOtherConfigProperties();
+        legacyProperty = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY, TestSupport.managedConfig().toString());
         jvmProperties = TestSupport.jvmSettings();
         DefaultKeyWarning.resetForTests();
     }
@@ -109,7 +109,7 @@ class CryptoCliTest {
         lines.add("crypto.key.id=cli01");
         lines.add("crypto.key.file=" + TestSupport.propertiesPath(key));
         for (String line : extra) lines.add(line);
-        return TestSupport.writeConfig(dir, "cli.properties", lines.toArray(new String[0]));
+        return TestSupport.writeManagedConfig(dir, "cli.properties", lines.toArray(new String[0]));
     }
 
     @Test
@@ -134,15 +134,15 @@ class CryptoCliTest {
         String output = out();
         // 기본 유형·유형별 기본 키, 그다음 등록된 키마다 한 덩어리(crypto.key.* AES 키가 먼저).
         assertTrue(output.contains("기본 유형 : pass [JAR 기본값]"), output);
-        assertTrue(output.contains("pass 기본 : pass-default [JAR 기본값]"), output);
+        assertTrue(output.contains("pass 기본 : test-pass [외부 설정 파일]"), output);
         assertTrue(output.contains("key 기본  : default [JAR 기본값]"), output);
         String aes = block(output, "키 default (key, 기본, crypto.key.*)");
-        assertTrue(aes.contains("  공급원 : embedded [JAR 기본값]"), aes);
-        assertTrue(aes.contains("  상태   : 공개 기본 키") && aes.contains("  조회   : OK"), aes);
-        String pass = block(output, "키 pass-default (pass, 기본)");
+        assertTrue(aes.contains("  공급원 : embedded [JAR 기본값"), aes);
+        assertTrue(aes.contains("  상태   : 사용자 지정") && aes.contains("  조회   : OK"), aes);
+        String pass = block(output, "키 test-pass (pass, 기본)");
         assertTrue(pass.contains("  KDF    : pbkdf2-sha256, 반복 600,000회"), pass);
-        assertTrue(pass.contains("  상태   : 공개 기본 키") && pass.contains("  지문   : 3dca588c78a1...94453656"), pass);
-        assertTrue(output.indexOf("키 default (") < output.indexOf("키 pass-default ("), "crypto.key.* AES 키가 먼저");
+        assertTrue(pass.contains("  상태   : 사용자 지정") && SHORT_FINGERPRINT.matcher(pass).find(), pass);
+        assertTrue(output.indexOf("키 default (") < output.indexOf("키 test-pass ("), "crypto.key.* AES 키가 먼저");
         assertTrue(output.contains("경고 출력 : true [JAR 기본값]"), output);
         assertTrue(output.contains("출력 형식 : enc [JAR 기본값]"), output);
         assertTrue(SHORT_FINGERPRINT.matcher(output).find(), "짧은 키 지문으로 식별: " + output);
@@ -162,8 +162,8 @@ class CryptoCliTest {
         assertTrue(aes.contains("  위치   : 파일 cli.key [외부 설정 파일]"), aes);
         assertTrue(aes.contains("  상태   : 사용자 지정") && aes.contains("  조회   : OK"), aes);
         assertFalse(aes.contains("공개 기본 키"), aes);
-        // crypto.key.*를 바꿔도 JAR의 공개 pass 키(pass-default)는 그대로 키 목록에 있다(유형 미지정 기본 = pass).
-        assertTrue(block(output, "키 pass-default (pass, 기본)").contains("  상태   : 공개 기본 키"), output);
+        // crypto.key.*를 바꿔도 JAR의 공개 pass 키(test-pass)는 그대로 키 목록에 있다(유형 미지정 기본 = pass).
+        assertTrue(block(output, "키 test-pass (pass, 기본)").contains("  상태   : 사용자 지정"), output);
         assertTrue(output.contains("외부 설정 : cli.properties [직접 지정(--config, fromConfigFile)]"), output);
         assertTrue(output.contains("경고 출력 : false [외부 설정 파일]"), output);
         assertTrue(output.contains("출력 형식 : base64 [외부 설정 파일]"), output);
@@ -172,7 +172,7 @@ class CryptoCliTest {
 
     @Test
     void infoMakesInheritedEmbeddedSourceVisible() throws Exception {
-        Path config = TestSupport.writeConfig(dir, "id-only.properties", "crypto.key.id=prod01");
+        Path config = TestSupport.writeManagedConfig(dir, "id-only.properties", "crypto.key.id=prod01");
         assertEquals(0, run(null, "info", "--config", config.toString()));
         assertTrue(block(out(), "키 prod01 (key, 기본, crypto.key.*)")
                 .contains("  공급원 : embedded [JAR 기본값 - 외부 설정·-D에 crypto.key.source 없음]"), out());
@@ -180,13 +180,13 @@ class CryptoCliTest {
 
     @Test
     void infoFailsWhenKeyCannotBeLoaded() throws Exception {
-        Path config = TestSupport.writeConfig(dir, "missing.properties", "crypto.key.source=file",
+        Path config = TestSupport.writeManagedConfig(dir, "missing.properties", "crypto.key.source=file",
                 "crypto.key.file=" + TestSupport.propertiesPath(dir.resolve("gone.key")));
         assertEquals(1, run(null, "info", "--config", config.toString()));
         String aes = block(out(), "키 default (key, 기본, crypto.key.*)");
         assertTrue(aes.contains("  조회   : FAIL"), out());
         assertFalse(aes.contains("지문"), "키를 읽지 못하면 지문을 만들어 보이지 않는다: " + out());
-        assertTrue(block(out(), "키 pass-default (pass, 기본)").contains("  조회   : OK"), "다른 키 확인은 계속한다: " + out());
+        assertTrue(block(out(), "키 test-pass (pass, 기본)").contains("  조회   : OK"), "다른 키 확인은 계속한다: " + out());
         assertTrue(err().startsWith("[java-crypto-kit] [사유: KEY_SOURCE] "), "실제 원인은 오류 형식 한 줄: " + err());
         assertEquals(1, err().trim().split("\\r?\\n").length, "실패한 키마다 한 줄: " + err());
     }
@@ -205,7 +205,7 @@ class CryptoCliTest {
         FakeTerminal terminal = new FakeTerminal();
         terminal.secrets.add("dummy-pw-123");
         assertEquals(0, run(terminal, "encrypt"));
-        assertTrue(out().trim().startsWith("ENC[v1:pass-default:"), "유형 미지정 기본은 pass: " + out());
+        assertTrue(out().trim().startsWith("ENC[v1:test-pass:"), "유형 미지정 기본은 pass: " + out());
         assertEquals(1, out().trim().split("\\r?\\n").length, "표준 출력은 암호문 한 줄만: " + out());
         assertEquals(java.util.Collections.singletonList("암호화할 값(입력 숨김): "), terminal.printed,
                 "입력 프롬프트 하나뿐, 다음 단계 안내 없음");
@@ -264,7 +264,7 @@ class CryptoCliTest {
 
     @Test
     void decryptShowsPlaintextRightAfterTheCiphertextWithoutExtraConfirmation() throws Exception {
-        String token = TestSupport.jarDefaults().encryptText("dummy decrypt\npw ");
+        String token = TestSupport.managedCrypto().encryptText("dummy decrypt\npw ");
         FakeTerminal terminal = new FakeTerminal();
         terminal.secrets.add(token);
         assertEquals(0, run(terminal, "decrypt"));
@@ -276,7 +276,7 @@ class CryptoCliTest {
 
     @Test
     void decryptOfDamagedOrForeignCiphertextNeverPrintsPlaintext() throws Exception {
-        Path config = TestSupport.writeConfig(dir, "quiet.properties", "crypto.key.source=embedded",
+        Path config = TestSupport.writeManagedConfig(dir, "quiet.properties", "crypto.key.source=embedded",
                 "crypto.warning.enabled=false");
         String token = CredentialCrypto.fromConfigFile(config).encryptText("dummy-damaged-pw");
         String tampered = token.substring(0, token.length() - 3)
@@ -415,7 +415,7 @@ class CryptoCliTest {
         assertTrue(output.contains("외부 설정·-D에 crypto.key.source 없음"), output);
         assertTrue(output.contains("알고리즘  : AES/GCM/NoPadding [JAR 기본값]"), output);
         // 사용자가 직접 요청한 조회(info)의 키 상태는 경고 정책 false에서도 그대로 보여 준다.
-        assertTrue(block(output, "키 cli02 (key, 기본, crypto.key.*)").contains("  상태   : 공개 기본 키"), output);
+        assertTrue(block(output, "키 cli02 (key, 기본, crypto.key.*)").contains("  상태   : 사용자 지정"), output);
         assertFalse(output.contains(TestSupport.publicKeyBase64()), "키 값을 출력하면 안 된다");
     }
 
@@ -484,7 +484,7 @@ class CryptoCliTest {
     void fileCommandsRequireExplicitOutputBeforeWorkInBothLanguages() throws Exception {
         Path source = Files.write(dir.resolve("input.txt"), new byte[] {1, 2, 3});
         Path encrypted = dir.resolve("input.jck");
-        TestSupport.jarDefaults().encryptFile(source, encrypted);
+        TestSupport.managedCrypto().encryptFile(source, encrypted);
         java.util.Set<Path> before;
         try (java.util.stream.Stream<Path> paths = Files.list(dir)) {
             before = paths.collect(java.util.stream.Collectors.toSet());
@@ -536,7 +536,7 @@ class CryptoCliTest {
             assertFalse(message.contains(dir.toString()) || message.contains("\u2029") || message.contains("12KB"));
         }
         Path originalJar = dir.resolve("한글\u2028.jar");
-        assertEquals(dir.resolve("한글\u2028-cfg.jar"), ConfigCommand.defaultOutputJar(originalJar));
+        assertEquals("한글\\u2028.jar", JarConfigEditor.name(originalJar));
     }
 
     @Test

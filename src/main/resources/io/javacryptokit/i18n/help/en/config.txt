@@ -3,11 +3,11 @@ config help - manage the JAR built-in settings; list of all settings
 Commands (work on the JAR file only, no rebuild)
   config show                         JAR built-in settings and key list
   config history                      Settings change history
-  config set <setting>=<value> ...    Create a new JAR with changed settings
-  config embed-key --from-file <key>  Create a new JAR with an AES key built in
+  config set <setting>=<value> ...    Update the settings in place
+  config embed-key --from-file <key>  Embed an AES key in the target JAR
   config key add|use|remove           Add, use (as default) or remove a key
   Options of each command: add --help, e.g. config set --help
-  A change of keys needs CHANGE or --yes, also when creating a new JAR.
+  A change of keys needs CHANGE or --yes.
 
 Setting priority: JVM -D > external Properties > JAR built-in value
   External Properties: --config <file>, -Dcrypto.config.file=<file>,
@@ -16,7 +16,7 @@ Setting priority: JVM -D > external Properties > JAR built-in value
   crypto.jvm.override.enabled). Settings are read at startup.
 
 Examples
-  java -jar {jar} config set crypto.lang=en --operator ops
+  {update} config set crypto.lang=en --operator ops
   java -Dcrypto.config.file=app.properties -jar {jar} info
 
 {settings}

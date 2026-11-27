@@ -20,9 +20,9 @@ Result (part, --type key)
   History check: OK (3 changes, hash chain and current settings match)
   Showing      : key-related 1 of 3 changes
 
-  #1  2026-11-22T05:30:12Z  operator ops  config embed-key  [key]
+  #2  2026-11-22T05:30:12Z  operator ops  config embed-key  [key]
       reason: rotate the production key
-      crypto.key.id: default -> key01
+      crypto.key.id: key-<generated ID> -> key01
       key key01: (none) -> key, embedded, crypto.key.*, file
         Fingerprint:
           ab12cd34...(all 64)

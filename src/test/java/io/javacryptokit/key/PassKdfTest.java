@@ -59,24 +59,24 @@ class PassKdfTest {
     }
 
     @Test
-    void publicPassKeyConstantsAreReproducibleAndMatchTheJarDefaults() throws Exception {
+    void legacyPublicPassVectorMatchesItsPublishedFingerprint() throws Exception {
         // 공개 Salt = SHA-256("java-crypto-kit/pass-default/salt/v1")의 앞 16바이트(누구나 다시 계산할 수 있는 공개 값).
         byte[] digest = MessageDigest.getInstance("SHA-256")
                 .digest("java-crypto-kit/pass-default/salt/v1".getBytes(StandardCharsets.US_ASCII));
-        assertArrayEquals(Arrays.copyOf(digest, 16), PassKdf.publicSalt());
+        assertArrayEquals(Arrays.copyOf(digest, 16), Base64.getDecoder().decode("Bt9HhTFtDOVUgGsvFtnzMw=="));
         Properties jar = jarDefaults();
-        assertEquals(Base64.getEncoder().encodeToString(PassKdf.publicSalt()), jar.getProperty("crypto.keys.pass-default.salt"));
+        assertEquals(Base64.getEncoder().encodeToString(Base64.getDecoder().decode("Bt9HhTFtDOVUgGsvFtnzMw==")), jar.getProperty("crypto.keys.pass-default.salt"));
         assertEquals("600000", jar.getProperty("crypto.keys.pass-default.kdf.iterations"));
         assertEquals("pbkdf2-sha256", jar.getProperty("crypto.keys.pass-default.kdf"));
         // JAR에는 공개 예제 Passphrase로 파생한 키만 들어 있다(원문은 없다). 같은 계산을 다시 하면 같은 키가 나온다.
         // 값은 obf1(경량 난독화) 표현으로 저장되어 있고, 되돌린 키 바이트가 파생 결과와 같다.
-        byte[] derived = PassKdf.derive(PassKdf.normalize(PassKdf.PUBLIC_PASSPHRASE.toCharArray()), PassKdf.publicSalt(), 600_000);
+        byte[] derived = PassKdf.derive(PassKdf.normalize("java-crypto-kit-public-passphrase-v1".toCharArray()), Base64.getDecoder().decode("Bt9HhTFtDOVUgGsvFtnzMw=="), 600_000);
         String stored = jar.getProperty("crypto.keys.pass-default.embedded");
         assertTrue(stored.startsWith("obf1:"), "공개 pass 키도 같은 obf1 표현으로 저장한다: " + stored);
         assertArrayEquals(derived, KeyResolver.decodeEmbedded(stored));
         assertEquals("3dca588c78a17aad886e9403e8743990d79d479bbe610664adc3ff7e94453656", KeyResolver.fingerprint(derived));
         assertTrue(DefaultKeyWarning.isPublicDefaultKey(derived), "공개 pass 키도 공개 기본 키로 판정");
-        assertFalse(jar.toString().contains(PassKdf.PUBLIC_PASSPHRASE), "JAR 설정에 Passphrase 원문은 없다");
+        assertFalse(jar.toString().contains("java-crypto-kit-public-passphrase-v1"), "JAR 설정에 Passphrase 원문은 없다");
     }
 
     @Test
@@ -110,7 +110,7 @@ class PassKdfTest {
 
     @Test
     void publicPassphraseIsRecognizedAndGeneratedPassphrasesAreRandom() {
-        assertTrue(PassKdf.isPublicPassphrase(PassKdf.normalize(PassKdf.PUBLIC_PASSPHRASE.toCharArray())));
+        assertTrue(PassKdf.isPublicPassphrase(PassKdf.normalize("java-crypto-kit-public-passphrase-v1".toCharArray())));
         assertFalse(PassKdf.isPublicPassphrase("java-crypto-kit-public-passphrase-v2".toCharArray()));
         Set<String> seen = new HashSet<>();
         for (int i = 0; i < 20; i++) {
@@ -125,7 +125,7 @@ class PassKdfTest {
 
     private static Properties jarDefaults() throws Exception {
         Properties properties = new Properties();
-        try (InputStream in = PassKdfTest.class.getResourceAsStream("/java-crypto-kit.properties");
+        try (InputStream in = PassKdfTest.class.getResourceAsStream("/legacy-public.properties");
              Reader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
             properties.load(reader);
         }

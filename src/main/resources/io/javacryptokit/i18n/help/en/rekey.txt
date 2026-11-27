@@ -28,8 +28,9 @@ Result
   ENC[v1:key02:...]      (only the new ciphertext, one line on standard output)
   The old key is found by the key ID of the ciphertext; the result is printed
   only after it decrypts with the target key. Same key ID or same key: refused.
-  If the target key is a public default key, standard error gets one warning.
+  A published default key is rejected.
 
-Examples (new.jar: a JAR with the new key, made by config embed-key)
+Examples (backup/old.jar and new.jar already have the keys)
+  java -jar {jar} rekey --from-jar backup/old.jar
   java -jar {jar} rekey --to-jar new.jar
   java -jar {jar} rekey --key-id app-pass

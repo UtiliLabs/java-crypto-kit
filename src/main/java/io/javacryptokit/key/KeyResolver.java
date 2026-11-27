@@ -90,15 +90,16 @@ public final class KeyResolver {
     /**
      * 프로필의 공급원에서 재료를 읽어 32바이트 키로 만든다. key 유형은 Base64 키, pass 유형은 Passphrase 파생(내장·KMS는 등록 때
      * 파생한 키를 저장). 외부 공급 키는 등록할 때 고정한 지문과 같아야 쓴다(외부 비밀값이 바뀌면 같은 Key ID로 조용히 받지 않음).
-     * 공개 기본 키이면 경고 정책에 따라 한 줄 경고를 남길 수 있다({@link DefaultKeyWarning}, 공급 방식과 무관, JVM당 1회).
+     * 이전 공개 AES 키와 공개 Passphrase는 관리형 키로 사용할 수 없다.
      *
-     * @param settings 검증된 설정(공통 연결 정보·경고 정책)
+     * @param settings 검증된 설정(공통 연결 정보)
      * @param profile  키 프로필
      * @return 32바이트 원시 키. 호출자가 반드시 사용 후 {@code Arrays.fill(key, (byte) 0)}으로 지워야 한다.
      * @throws IOException              파일이 없거나(NoSuchFileException) 읽을 권한이 없거나, 원격 공급원 통신 실패
      * @throws IllegalArgumentException 설정·형식 오류, 32바이트가 아닌 키, 지문 불일치({@link SafeMessageException})
      */
     public static byte[] resolve(CryptoSettings settings, KeyProfile profile) throws IOException {
+        if (profile == null) throw new SafeMessageException(Messages.get("key.err.unconfigured"));
         KeyProvider provider = provider(profile.source());
         byte[] material = provider.loadMaterial(settings, profile);
         byte[] key;
@@ -118,8 +119,11 @@ public final class KeyResolver {
             Arrays.fill(key, (byte) 0);
             throw new SafeMessageException(Messages.get("key.err.pinMismatch", profile.id()));
         }
-        // 공개 기본 키 여부는 공급 방식과 관계없이 키 값으로 확인하고, 실제 출력은 경고 정책(crypto.warning.enabled)을 따른다.
-        DefaultKeyWarning.warnIfNeeded(settings, key);
+        // 이전 공개 AES 키는 공급 방식과 관계없이 키 값으로 판별한다.
+        if (DefaultKeyWarning.isPublicDefaultKey(key)) {
+            Arrays.fill(key, (byte) 0);
+            throw new SafeMessageException(Messages.get("key.err.public"));
+        }
         return key;
     }
 
@@ -135,8 +139,8 @@ public final class KeyResolver {
     }
 
     /**
-     * 등록 전 임시 프로필({@link KeyProfile#probe})의 공급원을 한 번 읽어 32바이트 키를 만든다. 지문 고정 검사와 공개 기본 키 자동
-     * 경고를 하지 않는다(등록 명령이 결과 키를 직접 확인한다).
+     * 등록 전 임시 프로필({@link KeyProfile#probe})의 공급원을 한 번 읽어 32바이트 키를 만든다. 공개 Passphrase는 파생 전에 거부하고,
+     * 결과 키의 지문과 공개 AES 키 여부는 등록 명령에서 확인한다.
      *
      * @param settings 공급원 연결 설정(Vault 주소·토큰, AWS 지역 등)
      * @param probe    임시 프로필
@@ -175,6 +179,9 @@ public final class KeyResolver {
         char[] normalized = null;
         try {
             normalized = PassKdf.normalize(chars);
+            if (PassKdf.isPublicPassphrase(normalized)) {
+                throw new SafeMessageException(Messages.get("key.err.publicPassphrase"));
+            }
             return PassKdf.deriveCached(profile.id(), normalized, profile.salt(), profile.iterations());
         } finally {
             Arrays.fill(chars, '\0');

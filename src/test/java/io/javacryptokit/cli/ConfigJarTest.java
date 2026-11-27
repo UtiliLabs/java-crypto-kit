@@ -13,7 +13,6 @@ import io.javacryptokit.TestSupport;
 import io.javacryptokit.config.CryptoSettings;
 import io.javacryptokit.config.LightObfuscation;
 import io.javacryptokit.key.KeyResolver;
-import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -70,17 +69,7 @@ class ConfigJarTest {
 
     /** JAR 항목의 원래 바이트(압축을 풀어 열었을 때 보이는 그대로). 없으면 null. */
     private static byte[] rawEntry(Path target, String name) throws Exception {
-        try (JarFile file = new JarFile(target.toFile())) {
-            JarEntry entry = file.getJarEntry(name);
-            if (entry == null) return null;
-            try (InputStream in = file.getInputStream(entry)) {
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                byte[] buffer = new byte[4096];
-                int read;
-                while ((read = in.read(buffer)) != -1) out.write(buffer, 0, read);
-                return out.toByteArray();
-            }
-        }
+        return CliHarness.effectiveEntry(target, name);
     }
 
     private List<Path> leftovers() throws Exception {
@@ -93,85 +82,29 @@ class ConfigJarTest {
     }
 
     @Test
-    void repeatedChangesGetNumberedResultNamesAndNeverTouchEarlierJars() throws Exception {
-        // 기본 결과 이름 규칙: 접미사를 겹치지 않고 순번을 올린다(대소문자 무시, 다른 이름은 그대로 뒤에 붙임).
-        assertEquals("a-cfg.jar", ConfigCommand.defaultOutputName("a.jar"));
-        assertEquals("a-cfg-2.jar", ConfigCommand.defaultOutputName("a-cfg.jar"));
-        assertEquals("a-cfg-3.jar", ConfigCommand.defaultOutputName("a-cfg-2.jar"));
-        assertEquals("A-cfg-2.jar", ConfigCommand.defaultOutputName("A-CONFIGURED.JAR"));
-        assertEquals("legacy-cfg-3.jar", ConfigCommand.defaultOutputName("legacy-configured-2.jar"));
-        assertEquals("app-configured-old-cfg.jar", ConfigCommand.defaultOutputName("app-configured-old.jar"));
-        assertEquals("a-cfg-1000000.jar", ConfigCommand.defaultOutputName("a-cfg-999999.jar"));
-        assertEquals("a-cfg-1000001.jar", ConfigCommand.defaultOutputName("a-cfg-1000000.jar"));
-
-        // 실제 사용 순서: 공개 JAR → embed-key → 결과 JAR로 config set → 그 결과 JAR로 다시 config set
-        Path work = Files.createDirectories(dir.resolve("chain"));
-        Path original = Files.copy(jar, work.resolve("java-crypto-kit-0.1.0.jar"));
-        byte[] originalBytes = Files.readAllBytes(original);
-        Path keyFile = work.resolve("company.key");
-        assertEquals(0, cli.run("keygen", "--out", keyFile.toString(), "--reason", "시험"));
-        assertEquals(0, cli.run("config", "embed-key", "--from-file", keyFile.toString(), "--key-id", "prod01",
-                "--operator", "123456", "--reason", "회사 키", "--yes", "--jar", original.toString()), cli.err());
-        Path first = work.resolve("java-crypto-kit-0.1.0-cfg.jar");
-        assertTrue(cli.out().contains("생성 JAR  : " + first.toAbsolutePath()), "결과 JAR의 절대 경로: " + cli.out());
-        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", first.toString()), cli.err());
-        Path second = work.resolve("java-crypto-kit-0.1.0-cfg-2.jar");
-        assertTrue(Files.exists(second), cli.out());
-        assertFalse(Files.exists(work.resolve("java-crypto-kit-0.1.0-cfg-cfg.jar")), "접미사가 겹치면 안 된다");
-        assertEquals(0, cli.run("config", "set", "crypto.warning.enabled=false", "--operator", "123456",
-                "--jar", second.toString()), cli.err());
-        Path third = work.resolve("java-crypto-kit-0.1.0-cfg-3.jar");
-        assertTrue(Files.exists(third), cli.out());
-        assertEquals(0, cli.run("config", "set", "crypto.output.encoding=base64", "--operator", "123456",
-                "--jar", third.toString()), cli.err());
-        Path fourth = work.resolve("java-crypto-kit-0.1.0-cfg-4.jar");
-        assertTrue(Files.exists(fourth), cli.out());
-        try (Stream<Path> list = Files.list(work)) {
-            assertFalse(list.anyMatch(p -> p.getFileName().toString().matches(".*(?:cfg|configured).*(?:cfg|configured).*")),
-                    "접미사가 누적된 이름(-configured-2-configured.jar 등)이 생기면 안 된다");
-        }
-
-        // 원본은 그대로, 이력은 최초 설정 1건 뒤로 2 → 3 → 4 → 5건으로 이어지고, 마지막 JAR에는 네 변경이 모두 들어 있다.
-        assertTrue(Arrays.equals(originalBytes, Files.readAllBytes(original)), "원본 JAR는 바뀌지 않는다");
-        assertTrue(historyText(first).contains("entry.1.command=admin setup") && historyText(first).contains("entry.2.")
-                && !historyText(first).contains("entry.3."), historyText(first));
-        assertTrue(historyText(third).contains("entry.4.command=set") && !historyText(third).contains("entry.5."));
-        assertTrue(historyText(fourth).contains("entry.5.command=set"), historyText(fourth));
-        assertEquals(0, cli.run("config", "show", "--jar", fourth.toString()), cli.err());
-        assertTrue(cli.out().contains("crypto.key.id = prod01") && cli.out().contains("crypto.lang = en")
-                && cli.out().contains("crypto.warning.enabled = false") && cli.out().contains("crypto.output.encoding = base64"),
-                cli.out());
-
-        // 같은 원본으로 다시 바꾸면 기본 결과가 이미 있으므로 확인 질문 전에 멈추고, 덮어쓰지 않으며, 쓸 수 있는 이름을 안내한다.
-        byte[] firstBytes = Files.readAllBytes(first);
-        assertEquals(1, cli.run("config", "set", "crypto.key.id=prod09", "--operator", "123456", "--jar", original.toString()));
-        assertTrue(cli.err().contains("--out java-crypto-kit-0.1.0-cfg-5.jar") && !cli.err().contains("CHANGE"), cli.err());
-        assertTrue(Arrays.equals(firstBytes, Files.readAllBytes(first)), "기존 결과 JAR는 그대로");
-        assertFalse(Files.exists(work.resolve("java-crypto-kit-0.1.0-cfg-5.jar")), "안내만 하고 만들지 않는다");
-
-        Path legacy = Files.copy(fourth, work.resolve("legacy-configured-9.jar"));
-        byte[] legacyBytes = Files.readAllBytes(legacy);
-        assertEquals(0, cli.run("config", "set", "crypto.lang=ko", "--operator", "123456",
-                "--jar", legacy.toString()), cli.err());
-        assertTrue(Files.exists(work.resolve("legacy-cfg-10.jar")), cli.out());
-        assertArrayEquals(legacyBytes, Files.readAllBytes(legacy));
-
-        // --out·--replace(백업 후 교체)는 기존과 같이 동작한다.
-        Path named = work.resolve("company-final.jar");
-        assertEquals(0, cli.run("config", "set", "crypto.lang=ko", "--operator", "123456", "--jar", fourth.toString(),
-                "--out", named.toString()), cli.err());
-        byte[] beforeReplace = Files.readAllBytes(named);
-        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", named.toString(),
-                "--replace"), cli.err());
-        Path backup;
-        try (Stream<Path> list = Files.list(work)) {
-            backup = list.filter(p -> p.getFileName().toString().startsWith("company-final.jar.bak-")).findFirst().orElse(null);
-        }
-        assertTrue(backup != null && Arrays.equals(beforeReplace, Files.readAllBytes(backup)), "교체 전 JAR가 그대로 백업된다");
-        assertTrue(historyText(named).contains("entry.7."), "교체 후에도 이력 유지: " + historyText(named));
-        try (Stream<Path> list = Files.list(work)) {
-            assertFalse(list.anyMatch(p -> p.getFileName().toString().endsWith(".tmp") || p.getFileName().toString().endsWith(".lock")),
-                    "임시·잠금 파일이 남지 않는다");
+    void repeatedChangesKeepPathHistoryAndFailClosedOnConflict() throws Exception {
+        for (String name : new String[]{"app.jar", "app-cfg.jar", "app-configured-3.jar"}) {
+            Path folder = Files.createDirectory(dir.resolve(name + "-test"));
+            Path target = Files.copy(jar, folder.resolve(name));
+            JarConfigEditor.Snapshot old = JarConfigEditor.read(target);
+            assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "ops",
+                    "--jar", target.toString()), cli.err());
+            byte[] first = Files.readAllBytes(target);
+            JarConfigEditor.Change stale = new JarConfigEditor.Change("set",
+                    java.util.Collections.singletonMap("crypto.warning.enabled", "false"), "ops", "stale");
+            CryptoCli.CliException conflict = org.junit.jupiter.api.Assertions.assertThrows(CryptoCli.CliException.class,
+                    () -> JarConfigEditor.apply(old, stale, java.time.Instant.now()));
+            assertEquals("IO_ERROR", conflict.code);
+            assertArrayEquals(first, Files.readAllBytes(target));
+            assertEquals(1, cli.run("config", "set", "crypto.lang=ko", "--operator", "ops",
+                    "--jar", target.toString(), "--out", folder.resolve("other.jar").toString()));
+            assertArrayEquals(first, Files.readAllBytes(target));
+            assertEquals(0, cli.run("config", "set", "crypto.warning.enabled=false", "--operator", "ops",
+                    "--jar", target.toString(), "--replace"), cli.err());
+            assertTrue(historyText(target).contains("entry.3.command=set"), historyText(target));
+            try (Stream<Path> entries = Files.list(folder)) {
+                assertEquals(1L, entries.count());
+            }
         }
     }
 
@@ -194,16 +127,14 @@ class ConfigJarTest {
         // pass는 KDF·반복 횟수·Salt·Salt SHA-256(마스킹 없음, 키 원문 없음)
         assertTrue(out.contains("관리자    : 비밀번호 설정됨(민감 명령은 관리자 인증 필요)"), out);
         assertTrue(out.contains("기본 유형 : pass"), out);
-        assertTrue(out.contains("기본 키   : pass=pass-default, key=default"), out);
+        CryptoSettings initial = JarConfigEditor.read(jar).validated();
+        String passId = initial.activeProfile(io.javacryptokit.KeyType.PASS).id();
+        assertTrue(out.contains(KeyringView.jarFingerprint(initial.legacyProfile())), out);
+        assertTrue(out.contains(passId) && out.contains(KeyringView.jarFingerprint(initial.profile(passId))), out);
         String ls = System.lineSeparator();
-        assertTrue(out.contains("키 목록   :" + ls + "  default: key, embedded, 공개 기본 키, crypto.key.*" + ls
-                + "    키 지문: aac695cbd2498e97131ae49579a219c5e7f41e87e2738ba49199847c00e41a49" + ls), out);
-        assertTrue(out.contains("  pass-default: pass, embedded, 공개 기본 키" + ls
-                + "    키 지문: 3dca588c78a17aad886e9403e8743990d79d479bbe610664adc3ff7e94453656" + ls
-                + "    KDF: pbkdf2-sha256, 600,000회" + ls + "    Salt: "), out);
         assertTrue(out.contains("    Salt SHA-256:" + ls + "      "), "80열을 넘는 항목은 이름 다음 줄에 값: " + out);
         for (String line : out.split("\\r?\\n")) assertTrue(CliHelp.width(line) <= 80 || line.contains(" = "), "80열: " + line);
-        assertTrue(out.contains("crypto.keys.pass-default.embedded = (비공개)"), "키 프로필의 내장 값도 숨긴다: " + out);
+        assertTrue(out.contains("crypto.keys." + passId + ".embedded = (비공개)"), "키 프로필의 내장 값도 숨긴다: " + out);
         assertTrue(out.contains("설정 지문 : sha256:"), "설정 파일 지문은 키 지문과 다른 라벨: " + out);
         assertFalse(out.contains(TestSupport.publicKeyBase64()), "내장 키 값을 출력하면 안 된다");
         assertTrue(out.contains("crypto.key.embedded = (비공개)") && out.contains("crypto.lang = ko"), out);
@@ -218,23 +149,22 @@ class ConfigJarTest {
     void setRecordsEveryChangeAndKeepsFullHistoryAcrossNewJars() throws Exception {
         Path first = dir.resolve("first.jar");
         assertEquals(0, cli.run("config", "set", "crypto.lang=en", "crypto.warning.enabled=false", "--operator", "123456",
-                "--reason", "보안팀 승인", "--jar", jar.toString(), "--out", first.toString()), cli.err());
+                "--reason", "보안팀 승인", "--jar", Files.copy(jar, first).toString()), cli.err());
         // 결과: 생성 JAR 한 줄과 변경 항목(한 줄에 하나씩, 값 열에 맞춤)뿐
-        assertEquals("생성 JAR  : " + first.toAbsolutePath() + System.lineSeparator() + CliHarness.permissionLine()
+        assertEquals("갱신 JAR  : " + first.toAbsolutePath() + System.lineSeparator()
                 + "변경 항목 : crypto.lang (ko -> en)" + System.lineSeparator()
                 + "            crypto.warning.enabled (true -> false)" + System.lineSeparator(),
                 cli.out(), "결과는 생성 JAR와 항목별 변경 내용뿐");
         Path second = dir.resolve("second.jar");
         assertEquals(0, cli.run("config", "set", "crypto.output.encoding=base64", "--operator", "a.kim@corp",
-                "--jar", first.toString(), "--out", second.toString()), cli.err());
+                "--jar", Files.copy(first, second).toString()), cli.err());
         // 바꾼 값이 없으면 실패하고 이력에도 남지 않는다.
         assertEquals(1, cli.run("config", "set", "crypto.output.encoding=base64", "--operator", "123456",
-                "--jar", second.toString(), "--out", dir.resolve("same.jar").toString()));
+                "--jar", second.toString()));
         assertTrue(cli.err().contains("바꿀 내용이 없습니다"), cli.err());
         assertFalse(Files.exists(dir.resolve("same.jar")), "실패하면 결과 파일을 남기지 않는다");
         // 잘못된 값은 실패하고 이력에도 남지 않는다.
-        assertEquals(1, cli.run("config", "set", "crypto.lang=jp", "--operator", "123456", "--jar", second.toString(),
-                "--out", dir.resolve("bad.jar").toString()));
+        assertEquals(1, cli.run("config", "set", "crypto.lang=jp", "--operator", "123456", "--jar", second.toString()));
         assertTrue(cli.err().contains("[사유: CONFIGURATION]"), cli.err());
 
         // 기본 보기는 pass 관련 변경만이다: 일반 설정만 바꾼 이력은 보이지 않고, 범위와 전체 건수를 표시한다(검증은 전체).
@@ -265,8 +195,8 @@ class ConfigJarTest {
         // 긴 값: 80열을 넘으면 이름 다음과 -> 앞에서만 줄을 바꾸고 값은 자르지 않는다(결과·이력 모두).
         Path pool = dir.resolve("pool.jar");
         assertEquals(0, cli.run("config", "set", "crypto.pool.factory=org.apache.tomcat.jdbc.pool.DataSourceFactory",
-                "--operator", "123456", "--jar", second.toString(), "--out", pool.toString()), cli.err());
-        String[] result = CliHarness.withoutPermissionLine(cli.out()).split("\\r?\\n");
+                "--operator", "123456", "--jar", Files.copy(second, pool).toString()), cli.err());
+        String[] result = cli.out().split("\\r?\\n");
         assertEquals("변경 항목 : crypto.pool.factory", result[1], cli.out());
         assertEquals("              (org.apache.tomcat.dbcp.dbcp2.BasicDataSourceFactory", result[2], cli.out());
         assertEquals("              -> org.apache.tomcat.jdbc.pool.DataSourceFactory)", result[3], cli.out());
@@ -286,12 +216,16 @@ class ConfigJarTest {
         assertEquals(0, cli.run("keygen", "--out", keyFile.toString(), "--reason", "회사 키 준비"), cli.err());
         String keyText = new String(Files.readAllBytes(keyFile), StandardCharsets.US_ASCII).trim();
         // 공개 AES 키(default)로 만든 기존 암호문
-        String oldToken = TestSupport.jarDefaults().encryptText("dummy-db-password", io.javacryptokit.KeyType.KEY);
+        CryptoSettings initial = JarConfigEditor.read(jar).validated();
+        String oldId = initial.legacyProfile().id();
+        String passId = initial.activeProfile(io.javacryptokit.KeyType.PASS).id();
+        String oldFingerprint = KeyringView.jarFingerprint(initial.legacyProfile());
+        String oldToken = io.javacryptokit.core.CryptoService.of(initial).encryptText("dummy-db-password".toCharArray(), io.javacryptokit.KeyType.KEY, null);
 
-        Path company = dir.resolve("company.jar");
+        Path company = Files.createDirectory(dir.resolve("new")).resolve("java-crypto-kit-0.2.1.jar");
         // 실제 키 변경이므로 새 JAR를 만들 때도 확인이 필요하다: 터미널도 --yes도 없으면 아무것도 만들지 않는다.
         assertEquals(1, cli.run("config", "embed-key", "--from-file", keyFile.toString(), "--key-id", "prod01",
-                "--operator", "123456", "--reason", "회사 키", "--jar", jar.toString(), "--out", company.toString()));
+                "--operator", "123456", "--reason", "회사 키", "--jar", jar.toString()));
         assertTrue(cli.err().contains("CHANGE") && cli.err().contains("--yes"), cli.err());
         assertFalse(Files.exists(company), "확인 없이 결과 JAR를 만들면 안 된다");
         // 대화형 확인 화면: 제목, 결과 JAR, 바뀌는 항목(이전 키를 같은 키 ID로 남기는 항목 포함)
@@ -299,40 +233,38 @@ class ConfigJarTest {
         terminal.lines.add("회사 키로 교체");
         terminal.lines.add("CHANGE");
         assertEquals(0, cli.run(terminal, "config", "embed-key", "--from-file", keyFile.toString(), "--key-id", "prod01",
-                "--operator", "123456", "--jar", jar.toString(), "--out", company.toString()), cli.err());
+                "--operator", "123456", "--jar", Files.copy(jar, company).toString()), cli.err());
         // 사유 → 바꿀 내용 → CHANGE 확인 순서
         assertEquals(java.util.Arrays.asList("사유(비밀값 제외): ", "계속하려면 CHANGE를 입력하세요(그 외 입력은 취소): "),
                 terminal.prompts);
         String screen = String.join("\n", terminal.printed);
         assertTrue(screen.startsWith("AES 키(crypto.key.*)를 교체합니다(이전 키가 남아 기존 암호문은 그대로):"), screen);
         assertTrue(screen.contains("  사유: 회사 키로 교체"), screen);
-        assertTrue(screen.contains("  결과: 새 JAR company.jar (원본은 그대로)"), screen);
-        assertTrue(screen.contains("  crypto.keys.default.embedded (비공개)"), screen);
+        assertTrue(screen.contains("  현재 JAR java-crypto-kit-0.2.1.jar 갱신"), screen);
+        assertTrue(screen.contains("  crypto.keys." + oldId + ".embedded (비공개)"), screen);
         String out = cli.out();
-        assertTrue(out.contains("생성 JAR  : " + company.toAbsolutePath()), out);
+        assertTrue(out.contains("갱신 JAR  : " + company.toAbsolutePath()), out);
         String ls = System.lineSeparator();
-        assertTrue(out.contains("변경 항목 : crypto.key.embedded (비공개)" + ls
-                + "            crypto.key.id (default -> prod01)" + ls
-                + "            crypto.keys.default.type ((없음) -> key)" + ls
-                + "            crypto.keys.default.source ((없음) -> embedded)" + ls
-                + "            crypto.keys.default.embedded (비공개)" + ls), "변경 항목은 한 줄에 하나씩: " + out);
+        assertTrue(out.contains("변경 항목 : crypto.key.embedded (비공개)" + ls)
+                && out.contains("crypto.key.id (" + oldId + " -> prod01)")
+                && out.contains("crypto.keys." + oldId + ".type ((없음)")
+                && out.contains("crypto.keys." + oldId + ".source ((없음)")
+                && out.contains("crypto.keys." + oldId + ".embedded (비공개)"), out);
         assertTrue(java.util.regex.Pattern.compile("키 지문   : [0-9a-f]{12}\\.\\.\\.[0-9a-f]{8}").matcher(out).find(), out);
-        assertEquals(7, CliHarness.withoutPermissionLine(out).trim().split("\\r?\\n").length,
-                "결과는 JAR·(POSIX 권한 안내)·변경 항목·키 지문뿐(다음 단계 안내 없음): " + out);
         assertFalse(out.contains(keyText), "키를 출력하면 안 된다");
 
         String history = historyText(company);
         assertFalse(history.contains(keyText), "이력에 키 원문이 들어가면 안 된다");
         assertFalse(history.contains(TestSupport.publicKeyBase64()), "이전 키 원문도 기록하면 안 된다");
         assertTrue(history.contains("after.crypto.key.embedded=[replaced]"), history);
-        assertTrue(history.contains("before.crypto.key.id=default") && history.contains("after.crypto.key.id=prod01"), history);
-        assertTrue(history.contains("before.crypto.keys.default.embedded=[none]")
-                && history.contains("after.crypto.keys.default.embedded=[secret]"), "옮긴 이전 키도 값 없이 표시만: " + history);
+        assertTrue(history.contains("before.crypto.key.id=" + oldId) && history.contains("after.crypto.key.id=prod01"), history);
+        assertTrue(history.contains("before.crypto.keys." + oldId + ".embedded=[none]")
+                && history.contains("after.crypto.keys." + oldId + ".embedded=[secret]"), "옮긴 이전 키도 값 없이 표시만: " + history);
         assertTrue(history.contains("before.key.prod01=[none]")
                 && history.contains("after.key.prod01=type=key;source=embedded;origin=file;slot=yes;fingerprint="), history);
         // 이전 슬롯 키(공개 AES 키 default)는 같은 키 ID로 키 목록에 옮긴다: 전후 지문이 같은 기록
-        assertTrue(history.contains("before.key.default=type=key;source=embedded;slot=yes;public=yes;fingerprint=aac695cbd249")
-                && history.contains("after.key.default=type=key;source=embedded;origin=moved;public=yes;fingerprint=aac695cbd249"),
+        assertTrue(history.contains("before.key." + oldId + "=type=key;source=embedded;origin=generated;slot=yes;fingerprint=" + oldFingerprint)
+                && history.contains("after.key." + oldId + "=type=key;source=embedded;origin=moved;fingerprint=" + oldFingerprint),
                 history);
         assertTrue(history.contains("entry.1.command=admin setup") && history.contains("entry.2.reason=회사 키로 교체"), history);
         assertEquals(TestSupport.publicKeyBase64().length(), keyText.length());
@@ -343,7 +275,7 @@ class ConfigJarTest {
         assertEquals(0, show.exit, show.toString());
         assertTrue(show.out.contains("  prod01: key, embedded, 사용자 지정, ")
                 && show.out.contains("crypto.key.id = prod01"), show.toString());
-        assertTrue(show.out.contains("기본 키   : pass=pass-default, key=prod01"), "key 기본은 새 crypto.key.* 키: " + show);
+        assertTrue(show.out.contains("기본 키   : pass=" + passId), "key 기본은 새 crypto.key.* 키: " + show);
         assertFalse(show.out.contains(keyText), "키를 출력하면 안 된다");
         TestJars.Run hist = TestJars.run(company, Collections.<String>emptyList(), "config", "history", "--type", "key",
                 "--admin-pass-file", adminFile);
@@ -351,13 +283,11 @@ class ConfigJarTest {
         assertTrue(hist.out.contains("표시 범위 : key 관련 1건(전체 2건)"), hist.toString());
         assertTrue(hist.out.contains("config embed-key  [key]") && hist.out.contains("    사유: 회사 키로 교체"), hist.toString());
         assertTrue(hist.out.contains("crypto.key.embedded: (비공개) -> (교체됨)"), hist.toString());
-        assertTrue(hist.out.contains("crypto.key.id: default -> prod01"), hist.toString());
+        assertTrue(hist.out.contains("crypto.key.id: " + oldId + " -> prod01"), hist.toString());
         // 키 기록: 요약 한 줄과 기록된 관리정보(전체 지문)를 마스킹 없이 보여 준다. 80열을 넘는 기록은 -> 앞에서 줄을 바꾼다.
         assertTrue(hist.out.contains("    키 prod01: (없음) -> key, embedded, crypto.key.*, 파일" + System.lineSeparator()
                 + "      키 지문: " + KeyResolver.fingerprint(java.util.Base64.getDecoder().decode(keyText))), hist.toString());
-        assertTrue(hist.out.contains("    키 default: key, embedded, crypto.key.*, 공개 기본 키" + System.lineSeparator()
-                + "      -> key, embedded, 공개 기본 키, 옮김" + System.lineSeparator()
-                + "      키 지문: aac695cbd2498e97131ae49579a219c5e7f41e87e2738ba49199847c00e41a49"), hist.toString());
+        assertTrue(hist.out.contains(oldId) && hist.out.contains(oldFingerprint), hist.toString());
         for (String line : hist.out.split("\\r?\\n")) assertTrue(CliHelp.width(line) <= 80, "이력 80열: " + line);
         // 기본 보기(pass)에는 이 변경이 없다.
         TestJars.Run passView = TestJars.run(company, Collections.<String>emptyList(), "config", "history",
@@ -367,9 +297,19 @@ class ConfigJarTest {
         // 이전 키(공개 AES 키 default)는 키 목록에 남으므로 기존 암호문은 계속 복호화된다(공개 키 사용 경고 1줄).
         TestJars.Run verifyOld = TestJars.run(company, Collections.<String>emptyList(), "verify", "--value", oldToken);
         assertEquals(0, verifyOld.exit, "이전 키는 남아 기존 암호문을 복호화한다: " + verifyOld);
-        assertTrue(verifyOld.err.contains("[WARN]"), verifyOld.toString());
-        TestJars.Run rekey = TestJars.run(company, Collections.<String>emptyList(), "rekey", "--from-jar", jar.toString(),
-                "--value", oldToken, "--admin-pass-file", adminFile);
+        assertFalse(verifyOld.err.contains("[WARN]"), verifyOld.toString());
+        Path backup = Files.copy(jar, Files.createDirectory(dir.resolve("backup")).resolve(company.getFileName()));
+        byte[] backupBefore = Files.readAllBytes(backup);
+        byte[] companyBefore = Files.readAllBytes(company);
+        TestJars.Run backupShow = TestJars.run(company, Collections.<String>emptyList(), "config", "show",
+                "--jar", backup.toString(), "--admin-pass-file", adminFile);
+        assertEquals(0, backupShow.exit, backupShow.toString());
+        assertTrue(backupShow.out.contains("crypto.key.id = " + oldId), backupShow.toString());
+        assertFalse(backupShow.out.contains("crypto.key.id = prod01"), backupShow.toString());
+        TestJars.Run rekey = TestJars.run(company, Collections.<String>emptyList(), "rekey", "--type", "key", "--from-jar",
+                backup.toString(), "--value", oldToken, "--admin-pass-file", adminFile);
+        assertArrayEquals(backupBefore, Files.readAllBytes(backup));
+        assertArrayEquals(companyBefore, Files.readAllBytes(company));
         assertEquals(0, rekey.exit, rekey.toString());
         String newToken = rekey.out.trim();
         assertTrue(newToken.startsWith("ENC[v1:prod01:"), rekey.toString());
@@ -393,8 +333,8 @@ class ConfigJarTest {
 
         // 공개 키를 더 쓰지 않으려면 명시적으로 제거한다(자동 삭제 없음). 제거 후에는 그 키의 암호문이 KEY_ID_MISMATCH다.
         Path noPublic = dir.resolve("company-no-public.jar");
-        assertEquals(0, cli.run("config", "key", "remove", "--key-id", "default", "--operator", "123456", "--yes",
-                "--reason", "공개 키 제거", "--jar", company.toString(), "--out", noPublic.toString()), cli.err());
+        assertEquals(0, cli.run("config", "key", "remove", "--key-id", oldId, "--operator", "123456", "--yes",
+                "--reason", "공개 키 제거", "--jar", Files.copy(company, noPublic).toString()), cli.err());
         TestJars.Run verifyRemoved = TestJars.run(noPublic, Collections.<String>emptyList(), "verify", "--value", oldToken);
         assertEquals(1, verifyRemoved.exit, verifyRemoved.toString());
         assertTrue(verifyRemoved.err.contains("[사유: KEY_ID_MISMATCH]"), verifyRemoved.toString());
@@ -405,11 +345,11 @@ class ConfigJarTest {
     @Test
     void cliPrintsThePublicKeyWarningOnceOnStandardErrorOnlyWhenTheKeyIsUsed() throws Exception {
         // 실제 JVM(java -jar)으로 실행: 공개 기본 키를 쓰는 명령은 표준 오류에 [WARN] 한 줄, 결과(표준 출력)와 섞이지 않는다.
-        String token = TestSupport.jarDefaults().encryptText("dummy-warn-pw");
+        String token = io.javacryptokit.core.CryptoService.of(JarConfigEditor.read(jar).validated()).encryptText("dummy-warn-pw".toCharArray());
         TestJars.Run verify = TestJars.run(jar, Collections.<String>emptyList(), "verify", "--value", token);
         assertEquals(0, verify.exit, verify.toString());
         assertEquals("OK", verify.out.trim(), verify.toString());
-        assertEquals("[WARN] 공개 기본 키 사용 중 (별도 키 설정 권장)", verify.err.trim(), verify.toString());
+        assertEquals("", verify.err.trim(), verify.toString());
         // 경고를 끄면 0건, 결과는 그대로
         TestJars.Run quiet = TestJars.run(jar, Collections.singletonList("-Dcrypto.warning.enabled=false"),
                 "verify", "--value", token);
@@ -442,29 +382,27 @@ class ConfigJarTest {
         Path publicKey = TestSupport.writeKeyFile(dir, "public.key", TestSupport.publicKeyBase64());
         assertEquals(1, cli.run("config", "embed-key", "--from-file", publicKey.toString(), "--key-id", "prod01",
                 "--operator", "123456", "--reason", "x", "--yes", "--jar", jar.toString()));
-        assertTrue(cli.err().contains("공개 기본 키는 내장할 수 없습니다"), cli.err());
+        assertTrue(cli.err().contains("공개된 기본 키는 내장할 수 없습니다"), cli.err());
         Path fileSource = dir.resolve("file-source.jar");
-        assertEquals(0, cli.run("config", "set", "crypto.key.source=file", "--operator", "123456", "--reason", "외부 키",
-                "--yes", "--jar", jar.toString(), "--out", fileSource.toString()), cli.err());
+        assertEquals(0, cli.run("config", "set", "crypto.key.id=external-slot", "crypto.key.source=file", "--operator",
+                "123456", "--reason", "외부 키", "--yes", "--jar", Files.copy(jar, fileSource).toString()), cli.err());
         assertEquals(1, cli.run("config", "embed-key", "--from-file", keyFile.toString(), "--key-id", "prod01",
                 "--operator", "123456", "--reason", "x", "--yes", "--jar", fileSource.toString()));
         assertTrue(cli.err().contains("--source embedded") && cli.err().contains("JAR는 바뀌지 않았습니다"), cli.err());
         assertEquals(0, cli.run("config", "embed-key", "--from-file", keyFile.toString(), "--key-id", "prod01",
-                "--source", "embedded", "--operator", "123456", "--reason", "x", "--yes", "--jar", fileSource.toString(),
-                "--out", dir.resolve("embedded-again.jar").toString()), cli.err());
+                "--source", "embedded", "--operator", "123456", "--reason", "x", "--yes", "--jar", Files.copy(fileSource, dir.resolve("embedded-again.jar")).toString()), cli.err());
         assertTrue(historyText(dir.resolve("embedded-again.jar")).contains("after.crypto.key.source=embedded"));
         // 이전 키(file, 위치는 실행 시 지정)는 지금 읽을 수 없으므로 키 목록에 남기지 않고 그 사실을 결과에 쓴다.
-        assertTrue(cli.out().contains("이전 키 default(file)는 지금 읽을 수 없어 키 목록에 남기지 않습니다"), cli.out());
+        assertTrue(cli.out().contains("이전 키 external-slot(file)는 지금 읽을 수 없어 키 목록에 남기지 않습니다"), cli.out());
         assertFalse(cli.out().contains("crypto.keys.default."), cli.out());
         // 이전 키를 남길 수 없으면 확인 제목도 기존 암호문 영향(rekey 필요)을 그대로 알린다("남습니다"라고 하지 않음).
         CliHarness.FakeTerminal confirmTerminal = new CliHarness.FakeTerminal();
         confirmTerminal.lines.add("CANCEL");
         assertEquals(0, cli.run(confirmTerminal, "config", "embed-key", "--from-file", keyFile.toString(), "--key-id", "prod01",
-                "--source", "embedded", "--operator", "123456", "--reason", "x", "--jar", fileSource.toString(),
-                "--out", dir.resolve("cancelled.jar").toString()), cli.err());
+                "--source", "embedded", "--operator", "123456", "--reason", "x", "--jar", fileSource.toString()), cli.err());
         String confirmScreen = String.join("\n", confirmTerminal.printed);
         assertTrue(confirmScreen.startsWith("내장 키를 교체합니다(기존 암호문은 rekey로 재암호화 필요):"), confirmScreen);
-        assertTrue(confirmScreen.contains("이전 키 default(file)는 지금 읽을 수 없어 키 목록에 남기지 않습니다"), confirmScreen);
+        assertTrue(confirmScreen.contains("이전 키 external-slot(file)는 지금 읽을 수 없어 키 목록에 남기지 않습니다"), confirmScreen);
         assertFalse(Files.exists(dir.resolve("cancelled.jar")), "취소하면 결과 JAR를 만들지 않는다");
     }
 
@@ -479,24 +417,24 @@ class ConfigJarTest {
         Path v1 = dir.resolve("v1.jar");
         Path v2 = dir.resolve("v2.jar");
         assertEquals(0, cli.run("config", "embed-key", "--from-file", first.toString(), "--key-id", "prod01",
-                "--operator", "123456", "--reason", "x", "--yes", "--jar", jar.toString(), "--out", v1.toString()), cli.err());
+                "--operator", "123456", "--reason", "x", "--yes", "--jar", Files.copy(jar, v1).toString()), cli.err());
         assertEquals(0, cli.run("config", "embed-key", "--from-file", second.toString(), "--key-id", "prod02",
-                "--operator", "123456", "--reason", "x", "--yes", "--jar", v1.toString(), "--out", v2.toString()), cli.err());
+                "--operator", "123456", "--reason", "x", "--yes", "--jar", Files.copy(v1, v2).toString()), cli.err());
         // 이전 AES 키 prod01은 키 목록에 남아 있다(등록된 키 ID), default는 공개 기본 키 전용: 둘 다 다른 키에 붙일 수 없다.
         for (String reused : new String[] {"prod01", "default"}) {
             Path out = dir.resolve("reuse-" + reused + ".jar");
             assertEquals(1, cli.run("config", "embed-key", "--from-file", third.toString(), "--key-id", reused,
-                    "--operator", "123456", "--reason", "x", "--yes", "--jar", v2.toString(), "--out", out.toString()));
+                    "--operator", "123456", "--reason", "x", "--yes", "--jar", v2.toString()));
             assertTrue(cli.err().contains("키 ID " + reused) && cli.err().contains("--key-id"), cli.err());
             assertFalse(Files.exists(out), "거부하면 결과 JAR를 만들지 않는다");
         }
         // 키 목록에서 뺀 뒤에도 이력에 남은 키 ID(prod01)는 다른 키에 다시 붙일 수 없다(예전 암호문과 혼동 방지).
         Path v2r = dir.resolve("v2-removed.jar");
         assertEquals(0, cli.run("config", "key", "remove", "--key-id", "prod01", "--operator", "123456", "--reason", "x",
-                "--yes", "--jar", v2.toString(), "--out", v2r.toString()), cli.err());
+                "--yes", "--jar", Files.copy(v2, v2r).toString()), cli.err());
         Path reuse = dir.resolve("reuse-removed.jar");
         assertEquals(1, cli.run("config", "embed-key", "--from-file", third.toString(), "--key-id", "prod01",
-                "--operator", "123456", "--reason", "x", "--yes", "--jar", v2r.toString(), "--out", reuse.toString()));
+                "--operator", "123456", "--reason", "x", "--yes", "--jar", v2r.toString()));
         assertTrue(cli.err().contains("키 ID prod01") && cli.err().contains("config history") && cli.err().contains("--key-id")
                 && cli.err().contains("다른 항목: 키 지문"), cli.err());
         assertFalse(Files.exists(reuse), "거부하면 결과 JAR를 만들지 않는다");
@@ -505,14 +443,13 @@ class ConfigJarTest {
                 .encryptText("dummy-prod01".toCharArray(), null, "prod01");
         Path back = dir.resolve("prod01-back.jar");
         assertEquals(0, cli.run("config", "embed-key", "--from-file", first.toString(), "--key-id", "prod01",
-                "--operator", "123456", "--reason", "복구", "--yes", "--jar", v2r.toString(), "--out", back.toString()), cli.err());
+                "--operator", "123456", "--reason", "복구", "--yes", "--jar", Files.copy(v2r, back).toString()), cli.err());
         assertTrue(cli.out().contains("복원      : 이력에 기록된 이 키 ID의 키와 같음"), cli.out());
         assertEquals("dummy-prod01", io.javacryptokit.core.CryptoService.of(JarConfigEditor.read(back).validated())
                 .decryptText(oldToken));
         // 한 번도 쓰지 않은 키ID는 허용한다.
         assertEquals(0, cli.run("config", "embed-key", "--from-file", third.toString(), "--key-id", "prod03",
-                "--operator", "123456", "--reason", "x", "--yes", "--jar", v2.toString(), "--out",
-                dir.resolve("v3.jar").toString()), cli.err());
+                "--operator", "123456", "--reason", "x", "--yes", "--jar", Files.copy(v2, dir.resolve("v3.jar")).toString()), cli.err());
     }
 
     @Test
@@ -533,10 +470,9 @@ class ConfigJarTest {
         assertFalse(Files.exists(dir.resolve("java-crypto-kit-0.1.0-cfg.jar")), "확인 없이 만들면 안 된다");
         assertEquals(0, cli.run("config", "set", "crypto.key.id=prod09", "--operator", "123456", "--reason", "x", "--yes",
                 "--jar", jar.toString()), cli.err());
-        assertTrue(Files.exists(dir.resolve("java-crypto-kit-0.1.0-cfg.jar")), "기본 결과 이름 <이름>-cfg.jar");
+        assertEquals("prod09", JarConfigEditor.read(jar).validated().legacyProfile().id());
         // 키와 무관한 설정은 새 JAR 생성에 확인이 없다.
-        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", jar.toString(),
-                "--out", dir.resolve("lang.jar").toString()), cli.err());
+        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", Files.copy(jar, dir.resolve("lang.jar")).toString()), cli.err());
         // 원본 교체(--replace) + 키 관련 설정: 터미널이 없고 --yes도 없으면 바꾸지 않고 실패한다.
         Path target = Files.copy(jar, dir.resolve("replace-me.jar"));
         byte[] before = Files.readAllBytes(target);
@@ -553,8 +489,8 @@ class ConfigJarTest {
         assertEquals("사유(비밀값 제외): ", terminal.prompts.get(0), "사유를 먼저 묻는다");
         assertTrue(cli.out().contains("취소했습니다"), cli.out());
         assertTrue(Arrays.equals(before, Files.readAllBytes(target)), "취소하면 원본 그대로");
-        assertTrue(String.join("\n", terminal.printed).contains("crypto.key.id (default -> prod10)"), terminal.printed.toString());
-        assertTrue(terminal.printed.contains("  결과: 원본 JAR 교체(백업 생성)"), terminal.printed.toString());
+        assertTrue(String.join("\n", terminal.printed).contains("crypto.key.id (prod09 -> prod10)"), terminal.printed.toString());
+        assertTrue(terminal.printed.contains("  현재 JAR replace-me.jar 갱신"), terminal.printed.toString());
         terminal.lines.add("CHANGE");
         assertEquals(0, cli.run(terminal, "config", "set", "crypto.key.id=prod10", "--operator", "123456",
                 "--reason", "키 ID 정리", "--jar", target.toString(), "--replace"), cli.err());
@@ -571,6 +507,153 @@ class ConfigJarTest {
     }
 
     @Test
+    void slotIdChangesRespectReservationsAndHistory() throws Exception {
+        cli.withCliJar(jar);
+        JarConfigEditor.Snapshot initial = JarConfigEditor.read(jar);
+        String originalId = initial.validated().keyId();
+        Path key = TestSupport.writeRandomKeyFile(dir, "recorded.key");
+        assertEquals(0, cli.run("config", "key", "add", "--type", "key", "--from-file", key.toString(),
+                "--key-id", "retired-aes", "--operator", "qa", "--reason", "register", "--yes",
+                "--admin-pass-file", adminFile), cli.err());
+        Path data = Files.write(dir.resolve("payload.bin"), new byte[] {3, 1, 4});
+        Path encrypted = dir.resolve("payload.jck");
+        io.javacryptokit.core.CryptoService.of(JarConfigEditor.read(jar).validated())
+                .encryptFile(data, encrypted, io.javacryptokit.KeyType.KEY, "retired-aes");
+        byte[] registered = Files.readAllBytes(jar);
+        assertEquals(1, cli.run("config", "set", "crypto.key.id=retired-aes", "--operator", "qa",
+                "--reason", "registered conflict", "--yes", "--admin-pass-file", adminFile), cli.err());
+        assertArrayEquals(registered, Files.readAllBytes(jar));
+        assertEquals(0, cli.run("config", "key", "remove", "--key-id", "retired-aes", "--operator", "qa",
+                "--reason", "retire", "--yes", "--admin-pass-file", adminFile), cli.err());
+
+        byte[] before = Files.readAllBytes(jar);
+        for (String rejected : new String[] {"retired-aes", "default", "pass-default"}) {
+            assertEquals(1, cli.run("config", "set", "crypto.key.id=" + rejected, "--operator", "qa",
+                    "--reason", "rejected", "--yes", "--admin-pass-file", adminFile), rejected);
+            assertTrue(cli.err().contains(rejected), cli.err());
+            assertArrayEquals(before, Files.readAllBytes(jar));
+        }
+        assertEquals(1, cli.run("config", "set", "crypto.key.id=new-slot", "--operator", "qa",
+                "--reason", "no authentication", "--yes"), cli.err());
+        assertTrue(cli.err().contains("ADMIN_AUTH"), cli.err());
+        assertArrayEquals(before, Files.readAllBytes(jar));
+        assertEquals(1, cli.run("config", "set", "crypto.key.id=new-slot", "--operator", "qa",
+                "--reason", "no confirmation", "--admin-pass-file", adminFile), cli.err());
+        assertTrue(cli.err().contains("CHANGE"), cli.err());
+        assertArrayEquals(before, Files.readAllBytes(jar));
+
+        assertEquals(0, cli.run("config", "set", "crypto.key.id=new-slot", "--operator", "qa",
+                "--reason", "rename", "--yes", "--admin-pass-file", adminFile), cli.err());
+        JarConfigEditor.Snapshot renamed = JarConfigEditor.read(jar);
+        assertEquals("new-slot", renamed.validated().keyId());
+        assertEquals(initial.history.lastRecord(originalId).fingerprint, renamed.history.lastRecord("new-slot").fingerprint);
+        assertEquals(null, renamed.history.lastAfter(ConfigHistory.KEY_SUMMARY_PREFIX + originalId));
+
+        byte[] renamedBytes = Files.readAllBytes(jar);
+        assertEquals(1, cli.run("config", "set", "crypto.key.id=new-slot", "--operator", "qa",
+                "--admin-pass-file", adminFile), cli.err());
+        assertArrayEquals(renamedBytes, Files.readAllBytes(jar));
+        assertEquals(0, cli.run("config", "set", "crypto.key.id=new-slot", "crypto.lang=en", "--operator", "qa",
+                "--admin-pass-file", adminFile), cli.err());
+        assertEquals("new-slot", JarConfigEditor.read(jar).validated().keyId());
+        assertEquals(0, cli.run("config", "set", "crypto.key.id=" + originalId, "--operator", "qa",
+                "--reason", "restore original", "--yes", "--admin-pass-file", adminFile), cli.err());
+        assertEquals(originalId, JarConfigEditor.read(jar).validated().keyId());
+
+        // The candidate includes the new source and ID. Restore only if it resolves to the original key.
+        assertEquals(0, cli.run("config", "set", "crypto.key.id=retired-aes", "crypto.key.source=file",
+                "crypto.key.file=" + key, "--operator", "qa", "--reason", "restore retired key", "--yes",
+                "--admin-pass-file", adminFile), cli.err());
+        JarConfigEditor.Snapshot restored = JarConfigEditor.read(jar);
+        assertEquals(null, restored.history.problem);
+        assertEquals("restored", restored.history.lastRecord("retired-aes").origin);
+        Path recovered = dir.resolve("recovered.bin");
+        io.javacryptokit.core.CryptoService.of(restored.validated()).decryptFile(encrypted, recovered);
+        assertArrayEquals(Files.readAllBytes(data), Files.readAllBytes(recovered));
+
+        byte[] restoredBytes = Files.readAllBytes(jar);
+        Path wrongFile = TestSupport.writeRandomKeyFile(dir, "different.key");
+        Path missingFile = dir.resolve("missing.key");
+        for (Path rejected : Arrays.asList(wrongFile, missingFile)) {
+            String lang = rejected.equals(wrongFile) ? "ko" : "en";
+            assertEquals(1, cli.run("config", "set", "crypto.key.file=" + rejected, "--operator", "qa",
+                    "--reason", "bad location", "--yes", "--admin-pass-file", adminFile, "--lang", lang), cli.err());
+            String code = "ko".equals(lang) ? "[사유: KEY_SOURCE]" : "[reason: KEY_SOURCE]";
+            String message = "ko".equals(lang) ? "키 ID retired-aes의 변경 후보가 이력에 기록된 키와 다릅니다."
+                    : "Cannot verify the recorded key for key ID retired-aes.";
+            assertTrue(cli.err().contains(code) && cli.err().contains(message), cli.err());
+            assertFalse(cli.err().contains(rejected.toString()), cli.err());
+            assertFalse(cli.err().contains(new String(Files.readAllBytes(wrongFile), StandardCharsets.US_ASCII).trim()));
+            assertArrayEquals(restoredBytes, Files.readAllBytes(jar));
+        }
+
+        Path relocated = Files.copy(key, dir.resolve("relocated.key"));
+        assertEquals(0, cli.run("config", "set", "crypto.key.file=" + relocated, "--operator", "qa",
+                "--reason", "same key at new location", "--yes", "--admin-pass-file", adminFile), cli.err());
+        JarConfigEditor.Snapshot moved = JarConfigEditor.read(jar);
+        assertEquals(restored.history.lastRecord("retired-aes").fingerprint,
+                moved.history.lastRecord("retired-aes").fingerprint);
+        Files.delete(recovered);
+        io.javacryptokit.core.CryptoService.of(moved.validated()).decryptFile(encrypted, recovered);
+        assertArrayEquals(Files.readAllBytes(data), Files.readAllBytes(recovered));
+
+        // The current file can be replaced externally. The authority remains the recorded key.
+        Files.write(relocated, Files.readAllBytes(wrongFile));
+        byte[] movedBytes = Files.readAllBytes(jar);
+        assertEquals(1, cli.run("config", "set", "crypto.key.file=" + wrongFile, "--operator", "qa",
+                "--reason", "cannot bless a replaced key", "--yes", "--admin-pass-file", adminFile), cli.err());
+        assertTrue(cli.err().contains("KEY_SOURCE"), cli.err());
+        Path replacement = TestSupport.writeRandomKeyFile(dir, "replacement.key");
+        assertEquals(1, cli.run("config", "embed-key", "--from-file", replacement.toString(), "--key-id", "replacement",
+                "--source", "embedded", "--operator", "qa", "--reason", "cannot preserve a replaced key", "--yes",
+                "--admin-pass-file", adminFile), cli.err());
+        assertTrue(cli.err().contains("KEY_SOURCE"), cli.err());
+        assertArrayEquals(movedBytes, Files.readAllBytes(jar));
+
+        assertEquals(0, cli.run("config", "set", "crypto.warning.enabled=false", "--operator", "qa",
+                "--admin-pass-file", adminFile), cli.err());
+        assertEquals(0, cli.run("config", "set", "crypto.key.file=" + key, "--operator", "qa",
+                "--reason", "restore readable source", "--yes", "--admin-pass-file", adminFile), cli.err());
+        Files.delete(recovered);
+        io.javacryptokit.core.CryptoService.of(JarConfigEditor.read(jar).validated()).decryptFile(encrypted, recovered);
+        assertArrayEquals(Files.readAllBytes(data), Files.readAllBytes(recovered));
+    }
+
+    @Test
+    void slotSourceChangeAllowsStagingAndRequiresTheRecordedKeyWhenActivated() throws Exception {
+        cli.withCliJar(jar);
+        Path key = TestSupport.writeKeyFile(dir, "env-key.txt", System.getenv(TestSupport.ENV_TEST_KEY));
+        byte[] original = Files.readAllBytes(jar);
+        assertEquals(1, cli.run("config", "set", "crypto.key.source=env", "--operator", "qa", "--reason",
+                "unverified existing ID", "--yes", "--admin-pass-file", adminFile), cli.err());
+        assertTrue(cli.err().contains("KEY_SOURCE"), cli.err());
+        assertArrayEquals(original, Files.readAllBytes(jar));
+
+        assertEquals(0, cli.run("config", "set", "crypto.key.source=file", "crypto.key.id=external-slot",
+                "--operator", "qa", "--reason", "stage new ID", "--yes", "--admin-pass-file", adminFile), cli.err());
+        assertEquals(0, cli.run("config", "set", "crypto.key.file=" + key, "--operator", "qa", "--reason",
+                "set material for new ID", "--yes", "--admin-pass-file", adminFile), cli.err());
+        assertEquals(0, cli.run("config", "set", "crypto.key.id=verified-slot", "--operator", "qa", "--reason",
+                "record identity as a new ID", "--yes", "--admin-pass-file", adminFile), cli.err());
+        assertEquals(0, cli.run("config", "set", "crypto.key.env=" + TestSupport.ENV_PUBLIC_KEY, "--operator",
+                "qa", "--reason", "stage inactive location", "--yes", "--admin-pass-file", adminFile), cli.err());
+        byte[] staged = Files.readAllBytes(jar);
+        assertEquals(1, cli.run("config", "set", "crypto.key.source=env", "--operator", "qa", "--reason",
+                "reject wrong key at staged location", "--yes", "--admin-pass-file", adminFile), cli.err());
+        assertTrue(cli.err().contains("KEY_SOURCE"), cli.err());
+        assertArrayEquals(staged, Files.readAllBytes(jar));
+
+        assertEquals(0, cli.run("config", "set", "crypto.key.env=" + TestSupport.ENV_TEST_KEY, "--operator",
+                "qa", "--reason", "prepare the same key", "--yes", "--admin-pass-file", adminFile), cli.err());
+        assertEquals(0, cli.run("config", "set", "crypto.key.source=env", "--operator", "qa", "--reason",
+                "switch to prepared source", "--yes", "--admin-pass-file", adminFile), cli.err());
+        JarConfigEditor.Snapshot updated = JarConfigEditor.read(jar);
+        assertEquals("env", updated.validated().keySource());
+        assertEquals(updated.history.lastRecord("verified-slot").fingerprint,
+                io.javacryptokit.core.CryptoService.of(updated.validated()).checkKey(updated.validated().legacyProfile()).fingerprint());
+    }
+
+    @Test
     void unknownSettingNameGetsSuggestionAndNothingChanges() throws Exception {
         assertEquals(1, cli.run("config", "set", "crypto.warnning.enabled=false", "--operator", "123456", "--jar", jar.toString()));
         assertTrue(cli.err().contains("'crypto.warning.enabled'"), cli.err());
@@ -583,41 +666,34 @@ class ConfigJarTest {
         String historyBefore = historyText(target);
         assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", target.toString(),
                 "--replace"), cli.err());
-        Path backup;
-        try (Stream<Path> list = Files.list(dir)) {
-            backup = list.filter(p -> p.getFileName().toString().startsWith("app.jar.bak-")).findFirst().orElse(null);
-        }
-        assertTrue(backup != null, "백업 파일이 있어야 한다");
-        // 결과: 교체한 JAR, 백업 파일, 변경 항목(복구 명령 강의 없음)
-        assertTrue(cli.out().contains("교체 JAR  : " + target.toAbsolutePath())
-                && cli.out().contains("백업      : " + backup.toAbsolutePath())
+        assertTrue(cli.out().contains("갱신 JAR  : " + target.toAbsolutePath())
                 && cli.out().contains("변경 항목 : crypto.lang (ko -> en)"), cli.out());
-        assertEquals(3, cli.out().trim().split("\\r?\\n").length, cli.out());
-        assertEquals(historyBefore, historyText(backup), "백업은 교체 전 원본이다(이력 포함)");
+        assertEquals(historyBefore, historyText(jar));
         assertEquals(0, cli.run("config", "set", "crypto.warning.enabled=false", "--operator", "654321", "--jar", target.toString(),
                 "--replace"), cli.err());
         String history = historyText(target);
         assertTrue(history.contains("entry.1.command=admin setup") && history.contains("entry.2.") && history.contains("entry.3."),
                 "교체 후에도 전체 이력 유지: " + history);
-        Files.createFile(dir.resolve("app.jar.lock"));
-        assertEquals(1, cli.run("config", "set", "crypto.output.encoding=base64", "--operator", "123456", "--jar", target.toString(),
-                "--replace"));
-        assertTrue(cli.err().contains("잠금 파일"), cli.err());
-        Files.delete(dir.resolve("app.jar.lock"));
+        byte[] before = Files.readAllBytes(target);
+        try (java.nio.channels.FileChannel file = java.nio.channels.FileChannel.open(target,
+                java.nio.file.StandardOpenOption.WRITE);
+             java.nio.channels.FileLock lock = file.lock(Long.MAX_VALUE - 16, 1, false)) {
+            assertEquals(1, cli.run("config", "set", "crypto.output.encoding=base64", "--operator", "123456",
+                    "--jar", target.toString(), "--replace"));
+        }
+        assertArrayEquals(before, Files.readAllBytes(target));
         assertEquals(1, cli.run("config", "set", "crypto.lang=ko", "--operator", "123456", "--jar", target.toString(),
                 "--replace", "--out", dir.resolve("x.jar").toString()));
-        assertTrue(cli.err().contains("--out") && cli.err().contains("--replace"), cli.err());
+        assertTrue(cli.err().contains("--out"), cli.err());
     }
 
     @Test
     void existingOutputIsNeverOverwrittenAndSignedJarIsRefused() throws Exception {
         Path existing = Files.write(dir.resolve("exists.jar"), "keep".getBytes(StandardCharsets.US_ASCII));
-        assertEquals(1, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", jar.toString(),
-                "--out", existing.toString()));
+        assertEquals(1, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", jar.toString(), "--out", existing.toString()));
         assertTrue(Arrays.equals("keep".getBytes(StandardCharsets.US_ASCII), Files.readAllBytes(existing)));
         Path signed = copyWithExtraEntry(jar, dir.resolve("signed.jar"), "META-INF/CORP.SF", "Signature-Version: 1.0\n");
-        assertEquals(1, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", signed.toString(),
-                "--out", dir.resolve("signed-out.jar").toString()));
+        assertEquals(1, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", signed.toString()));
         assertTrue(cli.err().contains("서명된 JAR"), cli.err());
         assertTrue(leftovers().isEmpty(), leftovers().toString());
     }
@@ -625,8 +701,7 @@ class ConfigJarTest {
     @Test
     void tamperedHistoryOrSettingsChangedWithoutHistoryAreDetected() throws Exception {
         Path changed = dir.resolve("changed.jar");
-        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", jar.toString(),
-                "--out", changed.toString()), cli.err());
+        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", Files.copy(jar, changed).toString()), cli.err());
         // JAR 안 이력은 obf1로 저장되어 압축을 풀어도 수정자 등이 글자 그대로 보이지 않는다.
         assertFalse(new String(rawEntry(changed, ConfigHistory.ENTRY), StandardCharsets.UTF_8).contains("123456"),
                 "이력 본문은 obf1 표현");
@@ -638,8 +713,7 @@ class ConfigJarTest {
         assertEquals(1, cli.run("config", "history", "--jar", tampered.toString()));
         assertTrue(cli.err().contains("[사유: INTEGRITY]"), cli.err());
         assertFalse(cli.out().contains("999999"), "손상 이력을 정상 이력처럼 보여 주면 안 된다");
-        assertEquals(1, cli.run("config", "set", "crypto.lang=ko", "--operator", "123456", "--jar", tampered.toString(),
-                "--out", dir.resolve("t2.jar").toString()));
+        assertEquals(1, cli.run("config", "set", "crypto.lang=ko", "--operator", "123456", "--jar", tampered.toString()));
         assertTrue(cli.err().contains("[사유: INTEGRITY]"), cli.err());
         // 2) 이력 없이 설정만 바꾼 JAR(직접 압축 수정)
         String settings = readEntry(jar, "java-crypto-kit.properties");
@@ -671,8 +745,7 @@ class ConfigJarTest {
     @Test
     void changedJarAppliesSettingsAtRuntimeAndLanguagePersists() throws Exception {
         Path english = dir.resolve("english.jar");
-        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", jar.toString(),
-                "--out", english.toString()), cli.err());
+        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", Files.copy(jar, english).toString()), cli.err());
         TestJars.Run help = TestJars.run(english, Collections.singletonList("-Duser.language=ko"), "help");
         assertEquals(0, help.exit, help.toString());
         assertTrue(help.out.contains("Usage"), "JAR 설정 en이 Locale보다 우선: " + help);
@@ -715,7 +788,7 @@ class ConfigJarTest {
         String reason = "obf1-확인용-고유사유-7f3a";
         Path out = dir.resolve("obf.jar");
         assertEquals(0, cli.run("config", "embed-key", "--from-file", keyFile.toString(), "--key-id", "obf01",
-                "--operator", "123456", "--reason", reason, "--yes", "--jar", jar.toString(), "--out", out.toString()), cli.err());
+                "--operator", "123456", "--reason", reason, "--yes", "--jar", Files.copy(jar, out).toString()), cli.err());
         // 압축을 풀어 일반 텍스트로 열었을 때: 설정 파일·이력 어디에도 키 Base64·사유·공개 키 Base64가 글자 그대로 없다.
         for (String entry : new String[] {"java-crypto-kit.properties", ConfigHistory.ENTRY}) {
             String raw = new String(rawEntry(out, entry), StandardCharsets.UTF_8);
@@ -724,8 +797,8 @@ class ConfigJarTest {
             assertFalse(raw.contains(TestSupport.publicKeyBase64()), entry + "에 공개 키 원문");
         }
         String rawSettings = new String(rawEntry(out, "java-crypto-kit.properties"), StandardCharsets.UTF_8);
-        assertTrue(rawSettings.contains("crypto.key.embedded=obf1:") && rawSettings.contains("crypto.keys.default.embedded=obf1:")
-                && rawSettings.contains("crypto.keys.pass-default.embedded=obf1:"), "내장 값은 모두 같은 obf1 표현");
+        assertTrue(rawSettings.contains("crypto.key.embedded=obf1:") && rawSettings.contains("crypto.keys." + JarConfigEditor.read(jar).validated().legacyProfile().id() + ".embedded=obf1:")
+                && rawSettings.contains("crypto.keys." + JarConfigEditor.read(jar).validated().activeProfile(io.javacryptokit.KeyType.PASS).id() + ".embedded=obf1:"), "내장 값은 모두 같은 obf1 표현");
         assertTrue(new String(rawEntry(out, ConfigHistory.ENTRY), StandardCharsets.US_ASCII).startsWith("obf1:"), "이력 본문도 obf1");
         assertFalse(new String(Files.readAllBytes(out), StandardCharsets.ISO_8859_1).contains(keyText), "JAR 파일 전체에도 없다");
         // 제품 명령은 그대로 읽는다: 이력의 사유, 키 지문 = 키 파일, 암복호화
@@ -746,32 +819,34 @@ class ConfigJarTest {
     void olderJarsWithPlainBuiltInKeysAreReadAndAnyEditRewritesThemAsObf1(String lineEnding) throws Exception {
         Path source = TestJars.build(dir.resolve("old-build.jar"));
         // 체크아웃 OS와 관계없이 LF/CRLF 리소스를 모두 재현한다. plainCopy가 변환 후 Manifest 지문을 재계산한다.
-        String settings = readEntry(source, "java-crypto-kit.properties").replace("\r\n", "\n").replace("\n", lineEnding);
+        String settings = readEntry(source, "java-crypto-kit.properties").replace("\r\n", "\n");
+        for (String value : TestSupport.managedSettings()) {
+            String keyName = value.substring(0, value.indexOf('='));
+            String pattern = "(?m)^" + java.util.regex.Pattern.quote(keyName) + "=.*$";
+            settings = java.util.regex.Pattern.compile(pattern).matcher(settings).find()
+                    ? settings.replaceAll(pattern, java.util.regex.Matcher.quoteReplacement(value)) : settings + "\n" + value;
+        }
+        settings = settings.replace("\n", lineEnding);
         Path fixture = replaceEntry(source, dir.resolve("old-line-endings.jar"), "java-crypto-kit.properties", settings);
         Path old = plainCopy(fixture, dir.resolve("old-plain.jar"));
         String oldSettings = readEntry(old, "java-crypto-kit.properties");
-        assertTrue(oldSettings.contains("crypto.key.embedded=" + TestSupport.publicKeyBase64()), "구형 평문 표현으로 만든 사본");
-        // 그대로 읽힌다(같은 키·지문, 이력 없음 정상).
+        assertTrue(oldSettings.contains(TestSupport.managedSettings()[0]));
         assertEquals(0, cli.run("config", "show", "--jar", old.toString()), cli.err());
-        String ls = System.lineSeparator();
-        assertTrue(cli.out().contains("  default: key, embedded, 공개 기본 키, crypto.key.*" + ls
-                + "    키 지문: aac695cbd2498e97131ae49579a219c5e7f41e87e2738ba49199847c00e41a49" + ls), cli.out());
-        assertTrue(cli.out().contains("  pass-default: pass, embedded, 공개 기본 키" + ls
-                + "    키 지문: 3dca588c78a17aad886e9403e8743990d79d479bbe610664adc3ff7e94453656" + ls), cli.out());
+        assertTrue(cli.out().contains(KeyringView.jarFingerprint(JarConfigEditor.read(old).validated().legacyProfile())));
         // 키와 무관한 설정 하나만 바꿔도 결과 JAR의 내장 값은 모두 obf1로 다시 쓴다(키 바이트 그대로라 변경 항목·이력에는 없음).
         Path edited = dir.resolve("old-edited.jar");
-        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", old.toString(),
-                "--out", edited.toString()), cli.err());
+        CliHarness.configure(Files.copy(old, edited), CliHarness.ADMIN_PASSWORD);
+        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", edited.toString()), cli.err());
         assertTrue(cli.out().contains("crypto.lang (ko -> en)") && !cli.out().contains("embedded"), cli.out());
         String newSettings = readEntry(edited, "java-crypto-kit.properties");
         assertFalse(newSettings.contains(TestSupport.publicKeyBase64()), "평문 내장 값이 남지 않는다");
-        assertTrue(newSettings.contains("crypto.key.embedded=obf1:") && newSettings.contains("crypto.keys.pass-default.embedded=obf1:"),
+        assertTrue(newSettings.contains("crypto.key.embedded=obf1:") && newSettings.contains("crypto.keys.test-pass.embedded=obf1:"),
                 newSettings);
         assertEquals(0, cli.run("config", "history", "--all", "--jar", edited.toString()), cli.err());
-        assertTrue(cli.out().contains("    crypto.lang: ko -> en") && !cli.out().contains("embedded"), cli.out());
+        assertTrue(cli.out().contains("    crypto.lang: ko -> en") && !cli.out().contains("crypto.key.embedded:"), cli.out());
         // 같은 키: 공개 키 암호문(pass·key)이 그대로 복호화되고 지문도 같다(암호문을 다시 만들지 않음).
-        String keyToken = TestSupport.jarDefaults().encryptText("dummy-key", io.javacryptokit.KeyType.KEY);
-        String passToken = TestSupport.jarDefaults().encryptText("dummy-pass");
+        String keyToken = TestSupport.managedCrypto().encryptText("dummy-key", io.javacryptokit.KeyType.KEY);
+        String passToken = TestSupport.managedCrypto().encryptText("dummy-pass");
         io.javacryptokit.core.CryptoService service = io.javacryptokit.core.CryptoService.of(JarConfigEditor.read(edited).validated());
         assertEquals("dummy-key", service.decryptText(keyToken));
         assertEquals("dummy-pass", service.decryptText(passToken));
@@ -781,14 +856,19 @@ class ConfigJarTest {
     void historyIsVerifiedWholeButShownByTypeAndOldAesRecordsAreNeverCalledPass() throws Exception {
         // 이전 형식 JAR(키 목록 없음): AES 키 교체(crypto.key.*)와 일반 설정 변경만 있다.
         Path legacy = TestJars.buildLegacy(dir.resolve("java-crypto-kit-legacy.jar"));
-        Path keyFile = dir.resolve("legacy.key");
-        assertEquals(0, cli.run("keygen", "--out", keyFile.toString(), "--reason", "x"), cli.err());
-        Path l1 = dir.resolve("l1.jar");
-        assertEquals(0, cli.run("config", "embed-key", "--from-file", keyFile.toString(), "--key-id", "prod01", "--operator",
-                "123456", "--reason", "AES 교체", "--yes", "--jar", legacy.toString(), "--out", l1.toString()), cli.err());
+        JarConfigEditor.Snapshot prior = JarConfigEditor.read(legacy);
+        byte[] settings = readEntry(legacy, "java-crypto-kit.properties")
+                .replace("crypto.lang=ko", "crypto.lang=en").getBytes(StandardCharsets.UTF_8);
+        byte[] one = ConfigHistory.append(prior.history, prior.version, java.time.Instant.now(), "ops", "embed-key", "legacy",
+                Collections.singletonList(new ConfigHistory.Change("crypto.key.id", "prior", "default")), prior.settingsBytes);
+        ConfigHistory.Log log = ConfigHistory.read(ConfigHistory.parse(one), prior.settingsBytes,
+                prior.history.baseSettings, prior.buildTime, prior.version);
+        byte[] two = ConfigHistory.append(log, prior.version, java.time.Instant.now(), "ops", "set", "",
+                Collections.singletonList(new ConfigHistory.Change("crypto.lang", "ko", "en")), settings);
         Path l2 = dir.resolve("l2.jar");
-        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "123456", "--jar", l1.toString(),
-                "--out", l2.toString()), cli.err());
+        Files.copy(legacy, l2);
+        CliHarness.replaceEntry(l2, JarConfigEditor.SETTINGS_ENTRY, settings);
+        CliHarness.replaceEntry(l2, ConfigHistory.ENTRY, two);
         assertEquals(0, cli.run("config", "history", "--jar", l2.toString()), cli.err());
         assertTrue(cli.out().contains("이력 검증 : 정상(2건") && cli.out().contains("표시 범위 : pass 관련 0건(전체 2건)")
                 && !cli.out().contains("#1"), "이전 형식 AES 기록을 pass로 보여 주지 않는다: " + cli.out());
@@ -800,7 +880,7 @@ class ConfigJarTest {
         // 기본 유형(crypto.key.type) 변경은 두 유형 모두에 영향이므로 pass·key 보기에 모두 나온다.
         Path t1 = dir.resolve("t1.jar");
         assertEquals(0, cli.run("config", "set", "crypto.key.type=key", "--operator", "123456", "--reason", "AES 기본",
-                "--yes", "--jar", jar.toString(), "--out", t1.toString()), cli.err());
+                "--yes", "--jar", Files.copy(jar, t1).toString()), cli.err());
         for (String[] view : new String[][] {{"config", "history", "--jar", t1.toString()},
                 {"config", "history", "--type", "key", "--jar", t1.toString()}}) {
             assertEquals(0, cli.run(view), cli.err());
@@ -843,7 +923,14 @@ class ConfigJarTest {
                 for (Enumeration<JarEntry> entries = in.entries(); entries.hasMoreElements(); ) {
                     JarEntry entry = entries.nextElement();
                     if ("META-INF/MANIFEST.MF".equals(entry.getName())) continue;
-                    out.putNextEntry(new JarEntry(entry.getName()));
+                    JarEntry copy = new JarEntry(entry.getName());
+                    if (entry.getName().startsWith("META-INF/jck-state/")) {
+                        copy.setMethod(java.util.zip.ZipEntry.STORED);
+                        copy.setSize(0);
+                        copy.setCrc(0);
+                        copy.setExtra(entry.getExtra());
+                    }
+                    out.putNextEntry(copy);
                     if ("java-crypto-kit.properties".equals(entry.getName())) {
                         out.write(bytes);
                     } else if (!entry.isDirectory()) {
@@ -861,15 +948,7 @@ class ConfigJarTest {
     }
 
     private static String readEntry(Path source, String name) throws Exception {
-        try (JarFile file = new JarFile(source.toFile())) {
-            try (InputStream in = file.getInputStream(file.getJarEntry(name))) {
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                byte[] buffer = new byte[4096];
-                int read;
-                while ((read = in.read(buffer)) != -1) out.write(buffer, 0, read);
-                return new String(out.toByteArray(), StandardCharsets.UTF_8);
-            }
-        }
+        return new String(CliHarness.effectiveEntry(source, name), StandardCharsets.UTF_8);
     }
 
     private static Path replaceEntry(Path source, Path target, String name, String content) throws Exception {
@@ -887,6 +966,16 @@ class ConfigJarTest {
     /** JAR 항목 하나를 바꾸거나(내용 null이면 제거) 항목을 더한 사본을 만든다(이력 갱신 없이 = 직접 조작 재현). */
     private static Path rewrite(Path source, Path target, String name, byte[] content, String extraName, byte[] extra)
             throws Exception {
+        if (name != null) {
+            Files.copy(source, target);
+            return CliHarness.replaceEntry(target, name, content);
+        }
+        io.javacryptokit.config.JarState.State state;
+        String stateFormat;
+        try (JarFile in = new JarFile(source.toFile())) {
+            stateFormat = in.getManifest().getMainAttributes().getValue(io.javacryptokit.config.JarState.ATTRIBUTE);
+        }
+        state = stateFormat == null ? null : io.javacryptokit.config.JarState.read(source, stateFormat);
         try (JarFile in = new JarFile(source.toFile());
              OutputStream file = Files.newOutputStream(target);
              JarOutputStream out = new JarOutputStream(file, in.getManifest())) {
@@ -894,7 +983,14 @@ class ConfigJarTest {
                 JarEntry entry = entries.nextElement();
                 if ("META-INF/MANIFEST.MF".equals(entry.getName())) continue;
                 if (entry.getName().equals(name) && content == null) continue;
-                out.putNextEntry(new JarEntry(entry.getName()));
+                JarEntry copy = new JarEntry(entry.getName());
+                if (entry.getName().startsWith("META-INF/jck-state/")) {
+                    copy.setMethod(java.util.zip.ZipEntry.STORED);
+                    copy.setSize(0);
+                    copy.setCrc(0);
+                    copy.setExtra(entry.getExtra());
+                }
+                out.putNextEntry(copy);
                 if (entry.getName().equals(name)) {
                     out.write(content);
                 } else if (!entry.isDirectory()) {
@@ -912,6 +1008,8 @@ class ConfigJarTest {
                 out.closeEntry();
             }
         }
+        if (state != null) io.javacryptokit.config.JarState.update(target, stateFormat, JarConfigEditor.sha256(target),
+                state.settings, state.history, state.admin, false);
         assertNotEquals(source, target);
         return target;
     }

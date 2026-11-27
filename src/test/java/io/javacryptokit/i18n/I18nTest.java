@@ -111,7 +111,7 @@ class I18nTest {
                 english.getMessage());
         assertEquals(CredentialCryptoException.Reason.INVALID_TOKEN, english.getReason(), "사유 코드는 언어와 무관");
         CredentialCryptoException korean = assertThrows(CredentialCryptoException.class,
-                () -> TestSupport.jarDefaults().decryptText("not-a-token"));
+                () -> TestSupport.managedCrypto().decryptText("not-a-token"));
         assertTrue(korean.getMessage().contains("암호문 형식이 올바르지 않습니다") && korean.getMessage().contains("조치:"),
                 korean.getMessage());
         // 설정 오류(설정 언어를 읽은 뒤의 검증 오류)도 그 설정의 언어로 알린다

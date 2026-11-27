@@ -69,6 +69,11 @@ public final class Pbkdf2 {
         if (salt.length < MIN_SALT_BYTES || salt.length > MAX_SALT_BYTES) {
             throw Text.invalid("sec.err.saltLength", MIN_SALT_BYTES, MAX_SALT_BYTES);
         }
+        checkIterations(iterations, minIterations);
+    }
+
+    /** 신규 정책과 레거시 검증에서 각각 지정한 최소 반복 횟수를 적용한다. */
+    static void checkIterations(int iterations, int minIterations) {
         if (iterations < minIterations || iterations > MAX_ITERATIONS) {
             throw Text.invalid("sec.err.iterations", minIterations, MAX_ITERATIONS);
         }

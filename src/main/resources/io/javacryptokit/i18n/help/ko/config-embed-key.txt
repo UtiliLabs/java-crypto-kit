@@ -1,24 +1,22 @@
-config embed-key - crypto.key.* AES 키와 새 키 ID를 내장한 새 JAR 생성
+config embed-key - crypto.key.* AES 키와 새 키 ID를 내장한 현재 JAR 갱신
 
 사용법
-  java -jar {jar} config embed-key --from-file <키 파일>
+  {update} config embed-key --from-file <키 파일>
        --key-id <새 키 ID> --operator <ID> [--source embedded]
-       [--reason <사유>] [--jar <jar>] [--out <jar> | --replace]
+       [--reason <사유>] [--jar <jar>] [--replace]
        [--yes] [--admin-pass-file <파일>] [--lang en|ko]
 
 옵션
   --from-file <키 파일>   keygen 형식 키 파일(필수). 키 원문은 인자로 받지 않음
-  --key-id <새 키 ID>     새 키 ID(필수, 영문·숫자·_·- 1~64자). 등록된 키 ID,
-                          공개 기본 키 ID는 쓸 수 없고, 이력에서 쓴 키 ID는
-                          같은 키를 되살릴 때(전체 지문 일치)만 쓸 수 있습니다.
+  --key-id <새 키 ID>     새 키 ID(필수, 영문·숫자·_·- 1~64자). 등록된 키 ID와
+                          예약 ID(default·pass-default)는 쓸 수 없고, 이력에서
+                          쓴 키 ID는 같은 키 복원(전체 지문 일치)에만 씁니다.
   --operator <ID>         이력에 남길 수정자 ID(필수)
   --source embedded       대상 JAR의 crypto.key.source가 embedded가 아닐 때만
                           필요(embedded로 전환). embedded면 생략합니다.
   --reason <사유>         이력에 남길 사유(필수, 없으면 대화형 터미널에서 질문)
   --jar <jar>             바꿀 JAR(선택, 기본: 실행 중인 JAR)
-  --out <jar>             결과 JAR(선택, 기본 <이름>-cfg.jar).
-                          기존 파일은 덮어쓰지 않습니다.
-  --replace               원본 교체(백업 후)
+  --replace           호환 옵션. 원래 경로에 저장합니다.
   --yes                   CHANGE 확인 생략(사유는 생략할 수 없음)
   --admin-pass-file <파일>
                           관리자 비밀번호 파일(비대화형 인증, 한 줄, 권한 600)
@@ -29,13 +27,13 @@ config embed-key - crypto.key.* AES 키와 새 키 ID를 내장한 새 JAR 생�
   pass 키와 다른 키는 바꾸지 않습니다. 키 추가·회전: help config key
 
 결과
-  생성 JAR  : C:\work\java-crypto-kit-{version}-cfg.jar
+  갱신 JAR  : C:\work\java-crypto-kit-{version}.jar
   변경 항목 : crypto.key.embedded (비공개)
-              crypto.key.id (default -> key01)
-              crypto.keys.default.type ((없음) -> key)
+              crypto.key.id (key-<생성 ID> -> key01)
+              crypto.keys.<이전 키 ID>.type ((없음) -> key)
               ...
   키 지문   : ab12cd34ef56...7890abcd
 
 예제
-  java -jar {jar} config embed-key --from-file example.key --key-id key01 --operator ops
-  java -jar {editedJar} fingerprint --type key
+  {update} config embed-key --from-file example.key --key-id key01 --operator ops
+  java -jar {jar} fingerprint --type key

@@ -45,7 +45,7 @@ public final class KeyInfo {
     /** @return 유형·Key ID를 정하지 않은 새 암호화({@code encryptText(value)})가 쓰는 키이면 true */
     public boolean isEncryptionDefault() { return encryptionDefault; }
 
-    /** @return 공개 기본 키(공개 예제 키)이면 true. 키를 읽지 못했으면 false */
+    /** @return 공개된 기본 키이면 true. 키를 읽지 못했으면 false */
     public boolean isPublicDefault() { return publicDefault; }
 
     /** @return 키를 실제로 읽을 수 있었으면 true */

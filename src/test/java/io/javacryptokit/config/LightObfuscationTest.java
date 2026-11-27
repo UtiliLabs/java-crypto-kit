@@ -77,9 +77,9 @@ class LightObfuscationTest {
     }
 
     @Test
-    void publicDefaultKeysInTheJarUseObf1AndKeepTheirPublishedKeys() throws Exception {
+    void legacyPublicVectorsUseObf1AndKeepTheirPublishedFingerprints() throws Exception {
         Properties jar = new Properties();
-        try (InputStream in = LightObfuscationTest.class.getResourceAsStream("/java-crypto-kit.properties");
+        try (InputStream in = LightObfuscationTest.class.getResourceAsStream("/legacy-public.properties");
              Reader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
             jar.load(reader);
         }

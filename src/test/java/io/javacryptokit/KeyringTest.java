@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.javacryptokit.config.CryptoSettings;
 import io.javacryptokit.config.KeyProfile;
 import io.javacryptokit.core.CryptoService;
+import io.javacryptokit.i18n.Messages;
 import io.javacryptokit.key.DefaultKeyWarning;
 import io.javacryptokit.key.KeyResolver;
 import io.javacryptokit.key.PassKdf;
@@ -59,36 +60,70 @@ class KeyringTest {
     // ===== 공식 JAR 기본값: 공개 기본 키 두 개, 유형 미지정 = pass =====
 
     @Test
-    void officialDefaultsHoldBothPublicKeysAndUnspecifiedTypeIsPass() throws Exception {
-        CredentialCrypto crypto = TestSupport.jarDefaults();
-        assertEquals("pass-default", crypto.keyId());
-        assertEquals(KeyType.PASS, crypto.keyType());
-        assertEquals("embedded", crypto.keySource());
-        String pass = crypto.encryptText("dummy-pw");
-        String key = crypto.encryptText("dummy-pw", KeyType.KEY);
-        assertTrue(pass.startsWith("ENC[v1:pass-default:"), pass);
-        assertTrue(key.startsWith("ENC[v1:default:"), "key 유형은 기존 공개 AES 키(바이트·ID 그대로): " + key);
-        // 복호화는 유형 없이 암호문의 Key ID로 자동 선택한다.
-        assertEquals("dummy-pw", crypto.decryptText(pass));
-        assertEquals("dummy-pw", crypto.decryptText(key));
+    void distributionHasNoKeysAndConfiguredKeysAreIndependent() throws Exception {
+        CredentialCrypto empty = CredentialCrypto.fromDefaultConfiguration();
+        assertTrue(empty.keys().isEmpty());
+        assertNull(empty.keyId());
+        assertNull(empty.keyType());
+        assertNull(empty.keySource());
+        for (KeyType type : KeyType.values()) {
+            assertEquals(CredentialCryptoException.Reason.CONFIGURATION,
+                    assertThrows(CredentialCryptoException.class, () -> empty.encryptText("dummy", type)).getReason());
+        }
+        CredentialCrypto managed = TestSupport.managedCrypto();
+        assertEquals(2, managed.keys().size());
+        assertEquals(KeyType.PASS, managed.keyType());
+        for (KeyInfo key : managed.keys()) {
+            assertTrue(key.isAvailable() && key.isTypeDefault());
+            assertFalse(key.isPublicDefault());
+            assertEquals(key.type() == KeyType.PASS, key.isEncryptionDefault());
+        }
+    }
 
-        List<KeyInfo> keys = crypto.keys();
-        assertEquals(2, keys.size(), keys.toString());
-        KeyInfo aes = keys.get(0);
-        KeyInfo passInfo = keys.get(1);
-        assertEquals("default", aes.keyId(), "crypto.key.* AES 키가 먼저");
-        assertEquals(KeyType.KEY, aes.type());
-        assertTrue(aes.isTypeDefault() && !aes.isEncryptionDefault() && aes.isPublicDefault() && aes.isAvailable());
-        assertEquals("pass-default", passInfo.keyId());
-        assertTrue(passInfo.isTypeDefault() && passInfo.isEncryptionDefault() && passInfo.isPublicDefault());
-        assertEquals("3dca588c78a1...94453656", passInfo.fingerprint());
-        assertNull(passInfo.failureReason());
-        assertFalse(keys.toString().contains(TestSupport.publicKeyBase64()), "키 정보에 키 값은 없다");
+    @Test
+    void managedKeySelectionDistinguishesMissingIdAndTypeInBothLanguages() throws Exception {
+        for (String lang : new String[] {"ko", "en"}) {
+            Path config = TestSupport.writeConfig(dir, "empty-" + lang + ".properties", "crypto.lang=" + lang);
+            CredentialCrypto empty = CredentialCrypto.fromConfigFile(config);
+            CredentialCryptoException unspecified = assertThrows(CredentialCryptoException.class, () -> empty.encryptText("dummy"));
+            assertEquals(CredentialCryptoException.Reason.CONFIGURATION, unspecified.getReason());
+            assertTrue(unspecified.getMessage().contains("PASS (Passphrase)") && unspecified.getMessage().contains("KEY (AES Key)")
+                    && unspecified.getMessage().contains("admin setup"), unspecified.getMessage());
+            CredentialCryptoException missingId = assertThrows(CredentialCryptoException.class, () -> empty.withKeyId("missing-id"));
+            assertEquals(CredentialCryptoException.Reason.CONFIGURATION, missingId.getReason());
+            assertTrue(missingId.getMessage().contains("missing-id"), missingId.getMessage());
+            for (KeyType type : KeyType.values()) {
+                CredentialCryptoException missingType = assertThrows(CredentialCryptoException.class,
+                        () -> empty.encryptText("dummy", type));
+                assertEquals(CredentialCryptoException.Reason.CONFIGURATION, missingType.getReason());
+                assertTrue(missingType.getMessage().contains(type == KeyType.PASS ? "PASS (Passphrase)" : "KEY (AES Key)"));
+                assertTrue(missingType.getMessage().contains("admin setup"), missingType.getMessage());
+            }
+            Path keyFile = TestSupport.writeRandomKeyFile(dir, "managed-" + lang + ".key");
+            Path external = TestSupport.writeConfig(dir, "one-key-" + lang + ".properties", "crypto.lang=" + lang,
+                    "crypto.key.id=example-key", "crypto.key.source=file",
+                    "crypto.key.file=" + TestSupport.propertiesPath(keyFile));
+            CredentialCrypto oneKey = CredentialCrypto.fromConfigFile(external);
+            CredentialCryptoException noPass = assertThrows(CredentialCryptoException.class,
+                    () -> oneKey.encryptText("dummy", KeyType.PASS));
+            assertEquals(CredentialCryptoException.Reason.CONFIGURATION, noPass.getReason());
+            assertTrue(noPass.getMessage().contains("PASS (Passphrase)") && noPass.getMessage().contains("crypto.key.active.pass"),
+                    noPass.getMessage());
+            CredentialCryptoException otherId = assertThrows(CredentialCryptoException.class,
+                    () -> oneKey.withKeyId("other-id"));
+            assertEquals(CredentialCryptoException.Reason.CONFIGURATION, otherId.getReason());
+            assertTrue(otherId.getMessage().contains("other-id"), otherId.getMessage());
+            CredentialCryptoException mismatch = assertThrows(CredentialCryptoException.class,
+                    () -> oneKey.encryptText("dummy", KeyType.PASS, "example-key"));
+            assertEquals(CredentialCryptoException.Reason.CONFIGURATION, mismatch.getReason());
+            assertTrue(mismatch.getMessage().contains("example-key") && mismatch.getMessage().contains("pass"), mismatch.getMessage());
+            assertTrue(oneKey.encryptText("dummy", KeyType.KEY).startsWith("ENC[v1:example-key:"));
+        }
     }
 
     @Test
     void keyIdSelectsTheKeyWithItsOwnTypeAndTypeIsCheckedWhenGiven() throws Exception {
-        CredentialCrypto crypto = TestSupport.jarDefaults();
+        CredentialCrypto crypto = TestSupport.managedCrypto();
         CredentialCrypto aes = crypto.withKeyId("default");
         assertEquals("default", aes.keyId());
         assertEquals(KeyType.KEY, aes.keyType());
@@ -98,11 +133,11 @@ class KeyringTest {
         assertTrue(aes.encryptText("x", KeyType.KEY).startsWith("ENC[v1:default:"), "유형이 같으면 사용");
         assertEquals(CredentialCryptoException.Reason.CONFIGURATION,
                 assertThrows(CredentialCryptoException.class, () -> aes.encryptText("x", KeyType.PASS)).getReason());
-        assertTrue(crypto.encryptText("x", KeyType.PASS, "pass-default").startsWith("ENC[v1:pass-default:"));
+        assertTrue(crypto.encryptText("x", KeyType.PASS, "test-pass").startsWith("ENC[v1:test-pass:"));
         assertEquals(CredentialCryptoException.Reason.CONFIGURATION, assertThrows(CredentialCryptoException.class,
-                () -> crypto.encryptText("x", KeyType.KEY, "pass-default")).getReason());
+                () -> crypto.encryptText("x", KeyType.KEY, "test-pass")).getReason());
         // 원래 객체는 바뀌지 않는다. 미등록·빈 Key ID와 빈 유형은 다른 키로 바꾸지 않고 실패한다.
-        assertEquals("pass-default", crypto.keyId());
+        assertEquals("test-pass", crypto.keyId());
         assertEquals(CredentialCryptoException.Reason.CONFIGURATION,
                 assertThrows(CredentialCryptoException.class, () -> crypto.withKeyId("no-such-key")).getReason());
         assertEquals(CredentialCryptoException.Reason.INVALID_INPUT,
@@ -124,19 +159,57 @@ class KeyringTest {
         }
     }
 
+    // ===== 키 선택 실패 안내: 상황마다 원인·조치가 다르고 공개 사유(Reason)는 그대로 =====
+
+    @Test
+    void selectionFailuresNameTheSituationAndKeepTheirReasons() throws Exception {
+        CredentialCryptoException.Reason configuration = CredentialCryptoException.Reason.CONFIGURATION;
+        // 키 프로필이 하나도 없는 상태(최초 설정 전): 유형·Key ID 미지정, 유형만 지정, Key ID 지정, 복호화
+        CredentialCrypto empty = CredentialCrypto.fromDefaultConfiguration();
+        assertFailure(configuration, Messages.get("key.err.unconfigured"), () -> empty.encryptText("x"));
+        assertFailure(configuration, Messages.get("config.err.noActiveKey.initial", "KEY (AES Key)",
+                CryptoSettings.KEY_ACTIVE_KEY, "key"), () -> empty.encryptText("x", KeyType.KEY));
+        assertFailure(configuration, Messages.get("config.err.noActiveKey.initial", "PASS (Passphrase)",
+                CryptoSettings.KEY_ACTIVE_PASS, "pass"), () -> empty.encryptText("x", KeyType.PASS));
+        assertFailure(configuration, Messages.get("config.err.keyIdUnknown", "corp01"),
+                () -> empty.encryptText("x", KeyType.KEY, "corp01"));
+        String aesToken = TestSupport.managedCrypto().encryptText("x", KeyType.KEY);
+        assertFailure(configuration, Messages.get("key.err.unconfigured"), () -> empty.decryptText(aesToken));
+        // pass 키만 있는 상태: 없는 유형은 등록·선택 안내, 유형 불일치·미등록 Key ID는 각자의 안내, 미등록 Key ID 암호문은 KEY_ID_MISMATCH
+        Path passOnly = TestSupport.writeConfig(dir, "pass-only.properties",
+                without(Arrays.asList(TestSupport.managedSettings()), "crypto.key.embedded=").toArray(new String[0]));
+        CredentialCrypto pass = CredentialCrypto.fromConfigFile(passOnly);
+        assertTrue(pass.encryptText("x").startsWith("ENC[v1:test-pass:"));
+        assertFailure(configuration, Messages.get("config.err.noActiveKey", "KEY (AES Key)", CryptoSettings.KEY_ACTIVE_KEY,
+                "key"), () -> pass.encryptText("x", KeyType.KEY));
+        assertFailure(configuration, Messages.get("config.err.keyTypeMismatch", "test-pass", "pass", "key"),
+                () -> pass.encryptText("x", KeyType.KEY, "test-pass"));
+        assertFailure(configuration, Messages.get("config.err.keyIdUnknown", "no-such-key"),
+                () -> pass.encryptText("x", KeyType.PASS, "no-such-key"));
+        assertEquals(CredentialCryptoException.Reason.KEY_ID_MISMATCH,
+                assertThrows(CredentialCryptoException.class, () -> pass.decryptText(aesToken)).getReason());
+    }
+
+    private static void assertFailure(CredentialCryptoException.Reason reason, String message,
+            org.junit.jupiter.api.function.Executable call) {
+        CredentialCryptoException failure = assertThrows(CredentialCryptoException.class, call);
+        assertEquals(reason, failure.getReason());
+        assertTrue(failure.getMessage().contains(message), failure.getMessage());
+    }
+
     // ===== 외부 공급원 pass 키: 지문 고정과 Fail Closed =====
 
     @Test
     void passKeyFromAFileIsPinnedAndAChangedPassphraseFailsClosed() throws Exception {
         Path passFile = Files.write(dir.resolve("app.pass"), "dummy-app-passphrase\n".getBytes(StandardCharsets.UTF_8));
         byte[] salt = PassKdf.newSalt();
-        Path config = TestSupport.writeConfig(dir, "pass-file.properties", profileLines("app-pass", "file",
+        Path config = TestSupport.writeManagedConfig(dir, "pass-file.properties", profileLines("app-pass", "file",
                 "file=" + TestSupport.propertiesPath(passFile), salt, pin("dummy-app-passphrase", salt)).toArray(new String[0]));
         CredentialCrypto crypto = CredentialCrypto.fromConfigFile(config);
         String token = crypto.withKeyId("app-pass").encryptText("dummy-db-pw");
         assertTrue(token.startsWith("ENC[v1:app-pass:"));
         assertEquals("dummy-db-pw", crypto.decryptText(token));
-        assertEquals("pass-default", crypto.keyId(), "키를 추가해도 기본 키는 바뀌지 않는다");
+        assertEquals("test-pass", crypto.keyId(), "키를 추가해도 기본 키는 바뀌지 않는다");
 
         // 같은 Key ID로 Passphrase가 바뀌면 다른 키로 조용히 동작하지 않고 실패한다(값을 바꾸려면 새 Key ID로 회전).
         Files.write(passFile, "dummy-changed-passphrase\n".getBytes(StandardCharsets.UTF_8));
@@ -168,27 +241,41 @@ class KeyringTest {
     }
 
     @Test
-    void publicPassphraseSuppliedFromAFileIsStillThePublicKeyAndWarnsOnce() throws Exception {
-        Path passFile = Files.write(dir.resolve("public.pass"), PassKdf.PUBLIC_PASSPHRASE.getBytes(StandardCharsets.UTF_8));
-        byte[] salt = PassKdf.publicSalt();
-        List<String> lines = profileLines("moved", "file", "file=" + TestSupport.propertiesPath(passFile), salt,
-                KeyResolver.fingerprint(PassKdf.derive(PassKdf.normalize(PassKdf.PUBLIC_PASSPHRASE.toCharArray()), salt, ITERATIONS)));
-        Path config = TestSupport.writeConfig(dir, "moved.properties", lines.toArray(new String[0]));
-        try (TestSupport.LogCapture log = new TestSupport.LogCapture()) {
-            CredentialCrypto crypto = CredentialCrypto.fromConfigFile(config);
-            crypto.decryptText(crypto.withKeyId("moved").encryptText("x"));
-            // 반복 횟수가 다르면 다른 키다(공개 키 아님). 같은 반복(600,000)·Salt면 공개 키로 판정된다.
-            assertTrue(log.warnings().isEmpty(), log.warnings().toString());
-        }
-        List<String> same = profileLines("moved2", "file", "file=" + TestSupport.propertiesPath(passFile), salt,
-                "3dca588c78a17aad886e9403e8743990d79d479bbe610664adc3ff7e94453656");
-        same.replaceAll(line -> line.replace("kdf.iterations=" + ITERATIONS, "kdf.iterations=600000"));
-        Path publicConfig = TestSupport.writeConfig(dir, "moved2.properties", same.toArray(new String[0]));
-        try (TestSupport.LogCapture log = new TestSupport.LogCapture()) {
-            CredentialCrypto crypto = CredentialCrypto.fromConfigFile(publicConfig);
-            crypto.decryptText(crypto.withKeyId("moved2").encryptText("x"));
-            crypto.decryptText(crypto.withKeyId("moved2").encryptText("y"));
-            assertEquals(1, log.warnings().size(), "공급 방식과 관계없이 키 값으로 판정, JVM당 1회: " + log.warnings());
+    void publicPassphraseIsRejectedRegardlessOfKdfSettings() throws Exception {
+        String publicPassphrase = "java-crypto-kit-public-passphrase-v1";
+        Path passFile = Files.write(dir.resolve("public.pass"), publicPassphrase.getBytes(StandardCharsets.UTF_8));
+        byte[] originalSalt = Base64.getDecoder().decode("Bt9HhTFtDOVUgGsvFtnzMw==");
+        byte[] changedSalt = originalSalt.clone();
+        changedSalt[0] ^= 1;
+        char[] passphrase = publicPassphrase.toCharArray();
+        try {
+            for (byte[] salt : new byte[][] {originalSalt, changedSalt}) {
+                for (int iterations : new int[] {600_000, ITERATIONS}) {
+                    byte[] key = PassKdf.derive(passphrase, salt, iterations);
+                    List<String> lines;
+                    try {
+                        lines = profileLines("moved", "file", "file=" + TestSupport.propertiesPath(passFile),
+                                salt, KeyResolver.fingerprint(key));
+                    } finally {
+                        Arrays.fill(key, (byte) 0);
+                    }
+                    lines.replaceAll(line -> line.replace("kdf.iterations=" + ITERATIONS, "kdf.iterations=" + iterations));
+                    lines.add("crypto.warning.enabled=false");
+                    Path config = TestSupport.writeConfig(dir, "moved.properties", lines.toArray(new String[0]));
+                    CredentialCrypto managed = CredentialCrypto.fromConfigFile(config).withKeyId("moved");
+                    CredentialCryptoException failure = assertThrows(CredentialCryptoException.class,
+                            () -> managed.encryptText("x"));
+                    assertEquals(CredentialCryptoException.Reason.KEY_SOURCE, failure.getReason());
+                    assertTrue(failure.getMessage().contains(Messages.get("key.err.publicPassphrase")));
+                    assertFalse(failure.getMessage().contains(publicPassphrase));
+                    assertFalse(failure.getMessage().contains(passFile.toString()));
+                }
+            }
+
+            CredentialCrypto independent = CredentialCrypto.fromPassphrase("caller-key", passphrase, changedSalt, ITERATIONS);
+            assertEquals("x", independent.decryptText(independent.encryptText("x")));
+        } finally {
+            Arrays.fill(passphrase, '\0');
         }
     }
 
@@ -214,7 +301,7 @@ class KeyringTest {
         assertInvalid("wrong-location-item", "crypto.keys.k1.type=key", "crypto.keys.k1.source=file",
                 "crypto.keys.k1.env=SOME_ENV", "crypto.keys.k1.fingerprint=" + fp);
         // 템플릿 Key ID가 crypto.key.*의 Key ID와 같으면 같은 Key ID가 두 키를 가리키게 되므로 거부한다.
-        assertInvalid("id-conflict", "crypto.keys.default.type=key", "crypto.keys.default.source=embedded",
+        assertInvalid("id-conflict", "crypto.key.embedded=" + TestSupport.publicKeyBase64(), "crypto.keys.default.type=key", "crypto.keys.default.source=embedded",
                 "crypto.keys.default.embedded=" + Base64.getEncoder().encodeToString(new byte[32]));
         // 기본 키 지정: 없는 Key ID, 다른 유형
         assertInvalid("active-missing", "crypto.key.active.pass=nope");
@@ -254,7 +341,7 @@ class KeyringTest {
         CryptoSettings switched = CryptoSettings.load(config.toString(), active::get, n -> null, active.keySet());
         assertEquals(KeyType.KEY, switched.defaultType());
         assertEquals("app", switched.activeProfile(KeyType.PASS).id());
-        assertEquals("default", switched.activeProfile(KeyType.KEY).id());
+        assertNull(switched.activeProfile(KeyType.KEY));
     }
 
     // ===== 한 JAR 안의 pass·key 동시·독립 동작 =====
@@ -271,7 +358,7 @@ class KeyringTest {
         lines.add("crypto.key.file=" + TestSupport.propertiesPath(aesKey));
         lines.add("crypto.key.active.pass=biz-pass");
         lines.add("crypto.warning.enabled=false");
-        Path config = TestSupport.writeConfig(dir, "both.properties", lines.toArray(new String[0]));
+        Path config = TestSupport.writeManagedConfig(dir, "both.properties", lines.toArray(new String[0]));
         CredentialCrypto crypto = CredentialCrypto.fromConfigFile(config);
         assertEquals("biz-pass", crypto.keyId(), "유형 미지정 = pass 기본 키");
         assertEquals("file", crypto.keySource());
@@ -297,10 +384,10 @@ class KeyringTest {
             pool.shutdownNow();
         }
         // 한 유형의 기본 키를 바꿔도 다른 유형은 그대로다.
-        lines.set(lines.indexOf("crypto.key.active.pass=biz-pass"), "crypto.key.active.pass=pass-default");
+        lines.set(lines.indexOf("crypto.key.active.pass=biz-pass"), "crypto.key.active.pass=test-pass");
         CredentialCrypto changed = CredentialCrypto.fromConfigFile(
-                TestSupport.writeConfig(dir, "both2.properties", lines.toArray(new String[0])));
-        assertEquals("pass-default", changed.keyId());
+                TestSupport.writeManagedConfig(dir, "both2.properties", lines.toArray(new String[0])));
+        assertEquals("test-pass", changed.keyId());
         assertTrue(changed.encryptText("x", KeyType.KEY).startsWith("ENC[v1:biz-aes:"), "key 유형 기본은 그대로");
     }
 
@@ -324,7 +411,7 @@ class KeyringTest {
         assertTrue(newAes.startsWith("ENC[v1:key01:"), newAes);
         assertFalse(crypto.keys().get(0).isPublicDefault(), "crypto.key.* 키는 사용자 지정 키");
         // 유형 미지정 기본은 pass(승인된 기본값). 이전처럼 AES 키를 기본으로 쓰려면 crypto.key.type=key.
-        assertEquals("pass-default", crypto.keyId());
+        assertNull(crypto.keyId());
         Path migrated = TestSupport.writeConfig(dir, "migrated.properties", "crypto.key.type=key", "crypto.key.source=file",
                 "crypto.key.id=key01", "crypto.key.file=" + TestSupport.propertiesPath(key));
         assertEquals("key01", CredentialCrypto.fromConfigFile(migrated).keyId());
@@ -344,6 +431,7 @@ class KeyringTest {
                 jar.remove(name);
             }
         }
+        jar.setProperty("crypto.key.embedded", TestSupport.managedSettings()[0].split("=", 2)[1]);
         CryptoSettings settings = CryptoSettings.fromEmbeddedDefaults(jar);
         assertEquals(KeyType.KEY, settings.defaultType());
         assertEquals(1, settings.profiles().size());

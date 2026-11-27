@@ -227,6 +227,53 @@ class JwtTest {
     }
 
     @Test
+    void signedClaimsObeyParserLimitsAfterAddingStandardClaims() throws Exception {
+        JwtKey key = JwtKey.hs256(Hmac.generateKey());
+        Jwt.Builder builder = Jwt.builder(CLOCK).expiresIn(Duration.ofMinutes(1));
+        for (int i = 0; i < 998; i++) builder.claim("c" + i, i);
+        String token = builder.sign(key);
+        assertEquals(997L, Jwt.parseUnverified(token).claims().getLong("c997").longValue());
+        JwtVerifier.builder().key(key).clock(CLOCK).build().verify(token);
+        assertThrows(IllegalArgumentException.class, () -> builder.claim("overflow", 1).sign(key));
+
+        Map<String, ?> nested = java.util.Collections.singletonMap("leaf", 1);
+        for (int i = 1; i < 15; i++) nested = java.util.Collections.singletonMap("next", nested);
+        Jwt.parseUnverified(Jwt.builder(CLOCK).claim("nested", nested).sign(key));
+        Map<String, ?> tooDeep = java.util.Collections.singletonMap("next", nested);
+        assertThrows(IllegalArgumentException.class, () -> Jwt.builder(CLOCK).claim("nested", tooDeep).sign(key));
+        Map<String, ?> tooLargeInteger = java.util.Collections.singletonMap("num",
+                java.math.BigInteger.valueOf(Long.MAX_VALUE).add(java.math.BigInteger.ONE));
+        assertThrows(IllegalArgumentException.class, () -> Jwt.builder(CLOCK).claim("nested", tooLargeInteger).sign(key));
+        Map<String, ?> tooLongDecimal = java.util.Collections.singletonMap("num",
+                new java.math.BigDecimal("0." + String.join("", java.util.Collections.nCopies(64, "1"))));
+        assertThrows(IllegalArgumentException.class, () -> Jwt.builder(CLOCK).claim("nested", tooLongDecimal).sign(key));
+    }
+
+    @Test
+    void timeOverflowUsesInputAndJwtExceptions() throws Exception {
+        JwtKey key = JwtKey.hs256(Hmac.generateKey());
+        Duration excessive = Duration.ofSeconds(Long.MAX_VALUE);
+        assertThrows(IllegalArgumentException.class, () -> Jwt.builder(CLOCK).expiresIn(excessive).sign(key));
+        Instant last = Instant.ofEpochSecond(Times.MAX_SECONDS);
+        assertThrows(IllegalArgumentException.class,
+                () -> Jwt.builder(CLOCK).issuedAt(last).expiresIn(Duration.ofSeconds(1)).sign(key));
+        Instant finalSecond = Jwt.parseUnverified(
+                Jwt.builder(CLOCK).issuedAt(last.minusSeconds(1)).expiresIn(Duration.ofSeconds(1)).sign(key))
+                .claims().getInstant("exp");
+        assertEquals(last, finalSecond);
+        assertThrows(IllegalArgumentException.class,
+                () -> Jwt.builder(Clock.fixed(Instant.MAX, ZoneOffset.UTC)).issuedAt(null)
+                        .expiresIn(Duration.ofSeconds(1)).sign(key));
+        String token = Jwt.builder(CLOCK).expiresIn(Duration.ofMinutes(1)).notBefore(NOW).sign(key);
+        JwtVerifier tooLarge = JwtVerifier.builder().key(key).clock(CLOCK).maxAge(excessive).build();
+        assertEquals(JwtException.Reason.INVALID_CLAIM, reason(tooLarge, token));
+        String withoutExpiry = Jwt.builder(CLOCK).notBefore(NOW).sign(key);
+        JwtVerifier maxClock = JwtVerifier.builder().key(key).clock(Clock.fixed(Instant.MAX, ZoneOffset.UTC))
+                .requireExpiration(false).clockSkew(Duration.ofSeconds(300)).build();
+        maxClock.verify(withoutExpiry);
+    }
+
+    @Test
     void keyRulesIssuerBindingAndUnverifiedParsing() throws Exception {
         assertThrows(IllegalArgumentException.class, () -> JwtKey.hs256(new byte[31]));
         assertThrows(IllegalArgumentException.class, () -> JwtVerifier.builder().build());

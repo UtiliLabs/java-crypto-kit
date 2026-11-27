@@ -3,15 +3,15 @@ java-crypto-kit CLI {version} - Java security toolkit
 Usage: java [-D...] -jar {jar} <command> [options]
 
 Admin (set once before using the CLI)
-  admin setup              Set the admin password (new JAR)
-  admin password change    Change the admin password (new JAR)
+  admin setup              Set the admin password (in place)
+  admin password change    Change the admin password (in place)
 Values
-  encrypt                  Encrypt a value
-  decrypt *                Decrypt a value
+  enc (encrypt)            Encrypt a value
+  dec (decrypt) *          Decrypt a value
   verify                   Check a ciphertext (no plaintext output)
 Files
-  file encrypt             Encrypt a file
-  file decrypt *           Decrypt a file
+  file enc (file encrypt)  Encrypt a file
+  file dec * (file decrypt)  Decrypt a file
 Keys
   keygen *                 Create an AES key file
   fingerprint              Show the key fingerprint
@@ -20,11 +20,11 @@ Keys
 Settings and checks
   config show *            JAR built-in settings and key list
   config history *         Settings change history
-  config set *             Change JAR settings (new JAR)
-  config embed-key *       Embed an AES key in the JAR (new JAR)
-  config key add *         Add a key (new JAR)
-  config key use *         Change the default key (new JAR)
-  config key remove *      Remove a key (new JAR)
+  config set *             Change JAR settings (in place)
+  config embed-key *       Embed an AES key in the JAR (in place)
+  config key add *         Add a key (in place)
+  config key use *         Change the default key (in place)
+  config key remove *      Remove a key (in place)
   config key show *        Key management info and value (--show, --export)
   info                     Settings in effect
   doctor                   Check settings and functions
@@ -34,9 +34,9 @@ Independent API
 
 * Asks the admin password on every run (unattended: --admin-pass-file <file>).
   The Java API and Tomcat decrypt without the admin password.
-Key types: pass (passphrase, default), key (AES key). Encryption picks a key
-with --type or --key-id; decryption finds it by the key ID in the ciphertext.
-Details: help <command>   (e.g. help config set, decrypt --help)
+Key types: PASS (Passphrase) and KEY (AES Key). Default: PASS.
+Encrypt with --type pass|key or --key-id. Decrypt by ciphertext key ID.
+Details: help <command>   (e.g. help config set, dec --help)
 Examples: <command> --examples (e.g. file --examples)
 Settings: help config    Key list: help config key
 Integration: help tomcat / help vault / help aws-kms

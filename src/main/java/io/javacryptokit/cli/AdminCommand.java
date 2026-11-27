@@ -11,12 +11,11 @@ import java.util.List;
  * <b>내부 구현 클래스</b>: CLI 관리자 비밀번호의 실행 전 확인과 {@code admin setup}·{@code admin password change}.
  *
  * <ul>
- *   <li><b>실행 전 확인</b>({@link #enter}): 관리자 비밀번호를 설정하지 않은 JAR는 어떤 명령이든 실행하지 않는다. 대화형 터미널이면
- *       바로 최초 설정(작업자 ID → 새 비밀번호 → 확인)을 진행해 설정된 새 JAR를 만들고, 요청한 명령은 실행하지 않은 채 새 JAR로
- *       다시 실행하라고 안내한다(새 JAR로 몰래 이어 실행하지 않음). 비대화형이면 아무것도 바꾸지 않고 실패한다. 검증값이 손상됐으면
- *       Fail Closed다.</li>
- *   <li><b>설정·변경</b>: 결과는 늘 새 JAR다(실행 중인 JAR는 바꾸지 않음). 원본 JAR는 그대로 남으므로 이전 상태(미설정·이전
- *       비밀번호)로 계속 쓸 수 있다. 키·Key ID·KDF·이력은 바뀌지 않고, 이력에 관리자 기록 1건(비밀번호·검증값 없음)이 더해진다.</li>
+ *   <li><b>실행 전 확인</b>({@link #enter}): 공개 Help·Examples·버전 조회는 최초 설정 전에도 가능하다. 실제 명령의 실행에는
+ *       관리자 설정이 필요하다. 미설정 상태에서 대화형으로 요청하면 새 비밀번호를 두 번 받아 현재 JAR에서 등록하고, 같은 JAR로
+ *       요청한 명령을 다시 실행하도록 안내한다. 비대화형 최초 설정은 보호된 비밀번호 파일을 사용한다.</li>
+ *   <li><b>설정·변경</b>: 최초 설정은 작업자를 기본 SYSTEM으로 기록하고 독립 랜덤 PASS (Passphrase)·KEY (AES Key)를 자동
+ *       생성한다. 최초 설정과 비밀번호 변경은 모두 동일 경로의 JAR를 갱신하고 관리자 이력을 남긴다. 변경 시 기존 키를 보존한다.</li>
  * </ul>
  */
 final class AdminCommand {
@@ -87,12 +86,12 @@ final class AdminCommand {
     // ===================================================================================================
 
     /**
-     * 최초 설정: 작업자 ID → 새 비밀번호 2회(또는 비밀번호 파일) → 설정된 새 JAR. 취소·규칙 위반·불일치·파일 충돌이면 아무것도 만들지
+     * 최초 설정: 새 비밀번호 2회(또는 비밀번호 파일) → 현재 JAR에 검증값과 생성된 키 저장. 취소·규칙 위반·충돌이면 갱신하지
      * 않는다.
      *
      * @param parsed    {@code admin setup}의 인자(다른 명령에서 들어온 최초 설정이면 null: 그 명령의 옵션은 쓰지 않음)
      * @param requested 다른 명령에서 들어왔으면 그 명령 이름, 아니면 null
-     * @return 만든 JAR
+     * @return 갱신한 JAR
      */
     private static Path setup(CliCommands.Parsed parsed, CryptoCli.TerminalProvider terminals, PrintStream out, AdminGate admin,
                               String requested) throws Exception {
@@ -103,11 +102,17 @@ final class AdminCommand {
         if (file == null && terminal == null) {
             throw new CryptoCli.CliException("ADMIN_SETUP", Messages.get("admin.err.setupNeedsFile", AdminPassword.FILE_OPTION));
         }
-        if (operator == null && terminal == null) throw new CryptoCli.CliException(Messages.get("admin.err.operatorNeeded"));
-        if (operator != null) JarConfigEditor.checkOperator(operator);
-        // 결과 경로는 입력을 받기 전에 정한다(이미 있으면 바로 알림).
-        Path output = parsed != null ? ConfigCommand.outputJar(parsed, cliJar) : implicitOutput(cliJar, requested);
-        if (terminal != null && (file == null || operator == null)) {
+        if (operator == null) operator = "SYSTEM";
+        JarConfigEditor.checkOperator(operator);
+        // 비밀번호 입력 전에 갱신 대상의 경로를 검사한다.
+        ConfigCommand.checkUpdatePath(cliJar);
+        Path output = cliJar;
+        String backup = parsed == null ? null : parsed.value("--pass-export");
+        Path export = backup == null ? null : KeyringCommand.newFilePath(backup, "--pass-export");
+        if (export != null && export.toAbsolutePath().normalize().equals(output.toAbsolutePath().normalize())) {
+            throw new CryptoCli.CliException(Messages.get("admin.err.sameExport"));
+        }
+        if (terminal != null && file == null) {
             terminal.println(Messages.get(requested != null ? "admin.setup.titleRequired" : "admin.setup.title"));
             if (requested != null) {
                 terminal.println(Messages.get("admin.setup.blocked"));
@@ -116,33 +121,25 @@ final class AdminCommand {
             if (file == null) terminal.println(Messages.get("admin.rules", AdminPassword.MIN_LENGTH, AdminPassword.MAX_LENGTH));
             terminal.println("");
         }
-        if (operator == null) operator = readOperator(terminal);
         char[] password = file != null ? newFromFile(file) : readNew(terminal, null);
         try {
             byte[] entry = AdminPassword.create(password);
-            JarConfigEditor.Result result = JarConfigEditor.applyAdmin(cliJar, output, ConfigCommand.runningJar(), entry, operator,
-                    ConfigHistory.ADMIN_SETUP, Messages.get("admin.reason.setup"), Instant.now());
+            JarConfigEditor.Result result = JarConfigEditor.applyAdmin(admin.snapshot(cliJar), entry, operator,
+                    ConfigHistory.ADMIN_SETUP, Messages.get("admin.reason.setup"), Instant.now(), export);
             if (terminal != null && file == null) terminal.println("");
             out.println(Messages.get("admin.result.setup"));
-            out.println(Messages.get("cfg.result.created", result.output.toAbsolutePath()));
+            io.javacryptokit.config.CryptoSettings settings = io.javacryptokit.config.CryptoSettings.fromEmbeddedDefaults(result.after.settings);
+            String activeLabel = Messages.get("admin.result.keys", "");
+            CliHelp.printItems(out, activeLabel, Arrays.asList(KeyringView.actives(settings).split(", ")));
+            if (export != null) out.println(Messages.get("admin.result.backup", KeyringCommand.display(export)));
+            out.println(Messages.get("cfg.result.replaced", result.output.toAbsolutePath()));
             if (JarConfigEditor.posix()) out.println(Messages.get("cfg.result.permission"));
-            out.println(Messages.get("admin.result.original.setup", JarConfigEditor.name(cliJar)));
             out.println(Messages.get("admin.result.operator", operator));
             out.println(Messages.get("admin.result.next.setup"));
             out.flush();
             return result.output;
         } finally {
             Arrays.fill(password, '\0');
-        }
-    }
-
-    /** 다른 명령에서 들어온 최초 설정의 결과 경로: 원본 옆 기본 이름(이미 있으면 그 JAR가 설정된 JAR일 수 있음을 알림). */
-    private static Path implicitOutput(Path cliJar, String requested) throws CryptoCli.CliException {
-        try {
-            return ConfigCommand.defaultOutputJar(cliJar);
-        } catch (CryptoCli.CliException e) {
-            String taken = ConfigCommand.defaultOutputName(JarConfigEditor.name(cliJar));
-            throw new CryptoCli.CliException("ADMIN_SETUP", Messages.get("admin.err.implicitOutExists", taken, requested));
         }
     }
 
@@ -160,32 +157,29 @@ final class AdminCommand {
         String operator = parsed.value("--operator");
         if (operator != null) JarConfigEditor.checkOperator(operator);
         JarConfigEditor.checkReason(parsed.value("--reason"));
-        ConfigCommand.outputJar(parsed, parsed.admin.cliJar());
+        ConfigCommand.checkUpdatePath(parsed.admin.cliJar());
         terminal.println(Messages.get("admin.change.title"));
     }
 
     /**
-     * 변경: (사전 검사·현재 비밀번호 확인 뒤) 작업자 ID·사유(옵션이 없으면 질문) → 새 비밀번호 2회 → 새 JAR. 대화형 전용이다.
+     * 변경: (사전 검사·현재 비밀번호 확인 뒤) 작업자 ID·사유(옵션이 없으면 질문) → 새 비밀번호 2회 → 현재 JAR 갱신. 대화형 전용이다.
      */
     private static int change(CliCommands.Parsed parsed, CryptoCli.TerminalProvider terminals, PrintStream out, AdminGate admin)
             throws Exception {
         CryptoCli.Terminal terminal = CryptoCli.interactive(terminals);
         String operator = parsed.value("--operator");
         Path cliJar = admin.cliJar();
-        Path output = ConfigCommand.outputJar(parsed, cliJar);
         if (operator == null) operator = readOperator(terminal);
         String reason = CryptoCli.reasonOption(parsed, terminals);
         terminal.println(Messages.get("admin.rules", AdminPassword.MIN_LENGTH, AdminPassword.MAX_LENGTH));
         char[] password = readNew(terminal, admin.verifiedPassword());
         try {
             byte[] entry = AdminPassword.create(password);
-            JarConfigEditor.Result result = JarConfigEditor.applyAdmin(cliJar, output, ConfigCommand.runningJar(), entry, operator,
-                    ConfigHistory.ADMIN_CHANGE, reason, Instant.now());
+            JarConfigEditor.Result result = JarConfigEditor.applyAdmin(admin.snapshot(cliJar), entry, operator,
+                    ConfigHistory.ADMIN_CHANGE, reason, Instant.now(), null);
             terminal.println("");
             out.println(Messages.get("admin.result.change"));
-            out.println(Messages.get("cfg.result.created", result.output.toAbsolutePath()));
-            if (JarConfigEditor.posix()) out.println(Messages.get("cfg.result.permission"));
-            out.println(Messages.get("admin.result.original.change", JarConfigEditor.name(cliJar)));
+            out.println(Messages.get("cfg.result.replaced", result.output.toAbsolutePath()));
             out.println(Messages.get("admin.result.operator", operator));
             out.println(Messages.get("admin.result.reason", reason));
             out.println(Messages.get("admin.result.next.change"));

@@ -3,6 +3,7 @@ package io.javacryptokit.key;
 import io.javacryptokit.CredentialCrypto;
 
 import io.javacryptokit.CredentialCryptoException;
+import io.javacryptokit.KeyType;
 
 import io.javacryptokit.TestSupport;
 
@@ -59,7 +60,7 @@ class KeyModeWarningMatrixTest {
             assertTrue(crypto.verify(token));
             assertEquals(source, crypto.keySource());
             // embedded 기본 키는 공개 키이므로 경고 대상이고, file/env의 난수 키는 경고 대상이 아니다.
-            int expected = warningEnabled && "embedded".equals(source) ? 1 : 0;
+            int expected = 0;
             assertEquals(expected, log.warnings().size(), log.warnings().toString());
         }
     }
@@ -70,16 +71,9 @@ class KeyModeWarningMatrixTest {
         Path config = configFor(source, warningEnabled, true);
         try (TestSupport.LogCapture log = new TestSupport.LogCapture()) {
             CredentialCrypto crypto = CredentialCrypto.fromConfigFile(config);
-            assertEquals("dummy", crypto.decryptText(crypto.encryptText("dummy")));
-            List<String> warnings = log.warnings();
-            if (warningEnabled) {
-                // 공급 방식과 관계없이 같은 한 줄 경고(키 값으로 판정)
-                assertEquals(1, warnings.size(), warnings.toString());
-                assertTrue(warnings.get(0).contains("공개 기본 키 사용 중"), warnings.get(0));
-                assertFalse(warnings.get(0).contains(TestSupport.publicKeyBase64()), "키 값이 로그에 나오면 안 된다");
-            } else {
-                assertTrue(warnings.isEmpty(), warnings.toString());
-            }
+            assertEquals(CredentialCryptoException.Reason.KEY_SOURCE, assertThrows(CredentialCryptoException.class,
+                    () -> crypto.encryptText("dummy")).getReason());
+            assertTrue(log.warnings().isEmpty());
         }
     }
 
@@ -111,7 +105,7 @@ class KeyModeWarningMatrixTest {
             assertTrue(log.warnings().isEmpty(), log.warnings().toString());
             // 범위를 벗어난 실제 사용에서는 JVM당 한 번 정상적으로 나온다("이미 경고함"을 소모하지 않음).
             crypto.decryptText(crypto.encryptText("dummy"));
-            assertEquals(1, log.warnings().size(), log.warnings().toString());
+            assertEquals(0, log.warnings().size(), log.warnings().toString());
         }
     }
 
@@ -128,7 +122,15 @@ class KeyModeWarningMatrixTest {
         assertFalse(external.contains(randomKey), "키 값은 표시하지 않는다");
         String builtIn = io.javacryptokit.core.CryptoService.of(CryptoSettings.load(null, name -> null, name -> null))
                 .describeKeyLocation();
-        assertTrue(builtIn.contains("JAR 내장"), builtIn);
+        assertTrue(builtIn.contains("PASS (Passphrase)") && builtIn.contains("KEY (AES Key)"), builtIn);
+        CredentialCrypto empty = CredentialCrypto.fromDefaultConfiguration();
+        for (KeyType type : KeyType.values()) {
+            CredentialCryptoException error = assertThrows(CredentialCryptoException.class,
+                    () -> empty.encryptText("dummy", type));
+            assertEquals(CredentialCryptoException.Reason.CONFIGURATION, error.getReason());
+            assertTrue(error.getMessage().contains(type == KeyType.PASS
+                    ? "PASS (Passphrase)" : "KEY (AES Key)"));
+        }
     }
 
     @Test
@@ -139,7 +141,7 @@ class KeyModeWarningMatrixTest {
                 CredentialCrypto crypto = CredentialCrypto.fromConfigFile(config);
                 for (int i = 0; i < 5; i++) crypto.decryptText(crypto.encryptText("dummy-" + i));
             }
-            assertEquals(1, log.warnings().size(), "같은 JVM에서 같은 경고는 한 번만 나와야 한다");
+            assertEquals(0, log.warnings().size(), "같은 JVM에서 같은 경고는 한 번만 나와야 한다");
         }
     }
 
@@ -153,19 +155,19 @@ class KeyModeWarningMatrixTest {
             // 이후 경고를 켠 설정에서는 경고가 정상적으로 나와야 한다.
             CredentialCrypto loud = CredentialCrypto.fromConfigFile(configFor("embedded", true, false));
             loud.decryptText(loud.encryptText("dummy"));
-            assertEquals(1, log.warnings().size());
+            assertEquals(0, log.warnings().size());
         }
     }
 
     @Test
     void missingWarningPropertyKeepsDefaultTrue() throws Exception {
         // 이 항목이 없는 이전 외부 설정 파일은 JAR 기본값(true)을 그대로 쓴다.
-        Path config = TestSupport.writeConfig(dir, "old.properties", "crypto.key.source=embedded");
+        Path config = TestSupport.writeManagedConfig(dir, "old.properties", "crypto.key.source=embedded");
         assertTrue(TestSupport.isolatedSettings(config).warningEnabled());
         try (TestSupport.LogCapture log = new TestSupport.LogCapture()) {
             CredentialCrypto crypto = CredentialCrypto.fromConfigFile(config);
             crypto.decryptText(crypto.encryptText("dummy"));
-            assertEquals(1, log.warnings().size());
+            assertEquals(0, log.warnings().size());
         }
     }
 
@@ -220,18 +222,19 @@ class KeyModeWarningMatrixTest {
         List<String> lines = new ArrayList<>();
         if (!"-".equals(fileValue)) lines.add("crypto.warning.enabled=" + fileValue);
         if (!"-".equals(policy)) lines.add("crypto.jvm.override.enabled=" + policy);
-        Path config = lines.isEmpty() ? null : TestSupport.writeConfig(dir, "w.properties", lines.toArray(new String[0]));
+        Path config = lines.isEmpty() ? null : TestSupport.writeManagedConfig(dir, "w.properties", lines.toArray(new String[0]));
         String[] jvm = "-".equals(jvmValue) ? new String[0] : new String[]{"crypto.warning.enabled=" + jvmValue};
         try (AutoCloseable paths = isolateConfigPaths();
              AutoCloseable props = TestSupport.jvmSettings(jvm);
              TestSupport.LogCapture log = new TestSupport.LogCapture()) {
             CredentialCrypto crypto = config == null
-                    ? CredentialCrypto.fromDefaultConfiguration() : CredentialCrypto.fromConfigFile(config);
+                    ? TestSupport.managedCrypto() : CredentialCrypto.fromConfigFile(config);
             String token = crypto.encryptText("dummy-경고-값");
             // 8. 경고 정책은 표시 여부만 바꾸고 암복호화 결과에는 영향을 주지 않는다.
             assertEquals("dummy-경고-값", crypto.decryptText(token));
             assertTrue(crypto.verify(token));
-            assertEquals(expected, log.warnings().size(), log.warnings().toString());
+            assertEquals(expected == 1, CryptoSettings.load(config == null ? null : config.toString()).warningEnabled());
+            assertTrue(log.warnings().isEmpty());
         }
     }
 
@@ -253,15 +256,9 @@ class KeyModeWarningMatrixTest {
              TestSupport.LogCapture log = new TestSupport.LogCapture()) {
             CredentialCrypto crypto = CredentialCrypto.fromDefaultConfiguration();
             assertEquals(source, crypto.keySource());
-            assertEquals("dummy", crypto.decryptText(crypto.encryptText("dummy")));
-            List<String> warnings = log.warnings();
-            if (warningEnabled) {
-                assertEquals(1, warnings.size(), warnings.toString());
-                assertTrue(warnings.get(0).contains("공개 기본 키 사용 중"), warnings.get(0));
-                assertFalse(warnings.get(0).contains(TestSupport.publicKeyBase64()), "키 값이 로그에 나오면 안 된다");
-            } else {
-                assertTrue(warnings.isEmpty(), "false이면 우회 안내문도 남기지 않는다: " + warnings);
-            }
+            assertEquals(CredentialCryptoException.Reason.KEY_SOURCE, assertThrows(CredentialCryptoException.class,
+                    () -> crypto.encryptText("dummy")).getReason());
+            assertTrue(log.warnings().isEmpty());
         }
     }
 
@@ -271,7 +268,7 @@ class KeyModeWarningMatrixTest {
         try (AutoCloseable paths = isolateConfigPaths();
              AutoCloseable props = TestSupport.jvmSettings("crypto.warning.enabled=false");
              TestSupport.LogCapture log = new TestSupport.LogCapture()) {
-            CredentialCrypto crypto = CredentialCrypto.fromDefaultConfiguration();
+            CredentialCrypto crypto = TestSupport.managedCrypto();
             String token = crypto.encryptText("dummy");
             String tampered = token.substring(0, token.length() - 3)
                     + (token.charAt(token.length() - 3) == 'A' ? 'B' : 'A') + token.substring(token.length() - 2);
@@ -346,7 +343,7 @@ class KeyModeWarningMatrixTest {
     private Path configFor(String source, boolean warningEnabled, boolean usePublicKey) throws Exception {
         switch (source) {
             case "embedded":
-                return TestSupport.writeConfig(dir, "embedded-" + warningEnabled + ".properties", "crypto.key.type=key",
+                return TestSupport.writeManagedConfig(dir, "embedded-" + warningEnabled + ".properties", "crypto.key.type=key",
                         "crypto.key.source=embedded", "crypto.warning.enabled=" + warningEnabled);
             case "file":
                 Path key = usePublicKey

@@ -3,9 +3,7 @@ package io.javacryptokit.cli;
 import io.javacryptokit.config.LightObfuscation;
 import io.javacryptokit.config.SettingCatalog;
 import io.javacryptokit.i18n.Messages;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -21,9 +19,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
-import java.util.jar.Attributes;
-import java.util.jar.JarFile;
-import java.util.jar.Manifest;
 import java.util.regex.Pattern;
 
 /**
@@ -31,7 +26,7 @@ import java.util.regex.Pattern;
  * {@code config embed-key}·{@code config key add|use|remove}와 {@code admin setup}·{@code admin password change}가 성공한 변경만
  * 기록하고, {@code config history}가 관리자 인증 뒤 처음부터 끝까지 보여 준다.
  *
- * <p><b>기록 내용</b>(변경 1건 = 항목 1개, 개수 제한 없음, 새 JAR·{@code --replace}에서도 이전 기록을 모두 옮긴다)</p>
+ * <p><b>기록 내용</b>(변경 1건 = 항목 1개, 저장 용량 한도 내에서 이전 기록을 보존한다)</p>
  * <ul>
  *   <li>순번, UTC 수정 시각(초 단위 ISO 8601), 수정자({@code --operator}), 명령, 사유</li>
  *   <li>바꾼 설정마다 이름·이전 값·변경 후 값. 없던 항목·제거한 항목은 {@value #ABSENT}로 남긴다. 비밀 항목(내장 키)은 값 대신
@@ -300,11 +295,18 @@ final class ConfigHistory {
             String name = KEY_SUMMARY_PREFIX + keyId;
             for (int i = entries.size() - 1; i >= 0; i--) {
                 List<Change> changes = entries.get(i).changes;
+                boolean slotIdAssigned = false;
                 for (int j = changes.size() - 1; j >= 0; j--) {
                     Change change = changes.get(j);
-                    if (!change.key.equals(name)) continue;
-                    return KeyRecord.parse(ABSENT.equals(change.after) ? change.before : change.after);
+                    if (change.key.equals(name)) {
+                        return KeyRecord.parse(ABSENT.equals(change.after) ? change.before : change.after);
+                    }
+                    if (change.key.equals(io.javacryptokit.config.CryptoSettings.KEY_ID) && change.after.equals(keyId)) {
+                        slotIdAssigned = true;
+                    }
                 }
+                // Older config set entries could assign an ID without establishing the slot's fingerprint.
+                if (slotIdAssigned) return null;
             }
             return null;
         }
@@ -441,7 +443,8 @@ final class ConfigHistory {
         String keys = require(history, prefix + "keys");
         List<Change> changes = new ArrayList<>();
         for (String key : keys.split(",")) {
-            if (!NAME.matcher(key).matches()) throw new IllegalStateException("key");
+            // 일반 설정 이름(80자 상한)과 키 프로필 설정 이름(crypto.keys.<1~64자 Key ID>.<항목>)을 구분해 받는다.
+            if (!NAME.matcher(key).matches() && SettingCatalog.parseProfileName(key) == null) throw new IllegalStateException("key");
             String before = history.getProperty(prefix + "before." + key);
             String after = history.getProperty(prefix + "after." + key);
             if (before == null || after == null) throw new IllegalStateException("change");
@@ -458,7 +461,9 @@ final class ConfigHistory {
         boolean adminLine = false;
         for (Change change : changes) adminLine |= ADMIN_SUMMARY.equals(change.key);
         if (admin) {
-            Change only = changes.size() == 1 ? changes.get(0) : null;
+            boolean initial = ADMIN_SETUP.equals(command) && changes.size() == 3
+                    && initialKey(changes.get(1), TYPE_PASS) && initialKey(changes.get(2), TYPE_KEY);
+            Change only = changes.size() == 1 || initial ? changes.get(0) : null;
             boolean valid = only != null && ADMIN_SUMMARY.equals(only.key) && (ADMIN_SETUP.equals(command)
                     ? ABSENT.equals(only.before) && SECRET_BEFORE.equals(only.after)
                     : SECRET_BEFORE.equals(only.before) && SECRET_AFTER.equals(only.after));
@@ -472,6 +477,13 @@ final class ConfigHistory {
             throw new IllegalStateException("hash");
         }
         return new Entry(number, time, operator, command, reason, changes, settings, hash);
+    }
+
+    private static boolean initialKey(Change change, String type) {
+        KeyRecord record = KeyRecord.parse(change.after);
+        return change.key.matches("key\\." + type + "-[0-9a-f]{32}") && ABSENT.equals(change.before)
+                && record != null && type.equals(record.type) && "generated".equals(record.origin)
+                && "embedded".equals(record.source) && record.fingerprint != null && record.format().equals(change.after);
     }
 
     private static String require(Properties history, String key) {
@@ -668,36 +680,20 @@ final class ConfigHistory {
     }
 
     /**
-     * 실행 중인 JAR의 이력 요약({@code info}용). 클래스패스의 설정·이력 리소스와(있으면) 실행 중인 JAR의 Manifest만 읽는다.
+     * 실행 중인 JAR의 이력 요약({@code info}용). 활성 설정 상태의 검증 결과를 사용한다.
      *
      * @return 예: "최초 기본 상태(변경 이력 없음)" 또는 "변경됨 - 3회, 마지막 ... 수정자 ..."
      */
     static String describeRunningJar() {
         try {
-            byte[] settings = resource("/java-crypto-kit.properties");
-            if (settings == null) return Messages.get("history.summary.none");
-            byte[] history = resource("/" + ENTRY);
-            String manifestFingerprint = null;
-            String buildTime = null;
-            String version = null;
             Path running = ConfigCommand.runningJar();
-            if (running != null) {
-                try (JarFile jar = new JarFile(running.toFile(), false)) {
-                    Manifest manifest = jar.getManifest();
-                    if (manifest != null) {
-                        Attributes main = manifest.getMainAttributes();
-                        manifestFingerprint = main.getValue(SETTINGS_FINGERPRINT);
-                        buildTime = main.getValue(BUILD_TIME);
-                        version = main.getValue(Attributes.Name.IMPLEMENTATION_VERSION);
-                    }
-                }
-            }
-            Log log = read(history == null ? null : parse(history), settings, manifestFingerprint, buildTime, version);
+            if (running == null) return Messages.get("history.summary.none");
+            Log log = JarConfigEditor.read(running).history;
             if (log.problem != null) return Messages.get("history.summary.invalid");
             if (!log.present) return Messages.get("history.summary.none");
             Entry last = log.last();
             return Messages.get("history.summary.changed", log.entries.size(), last.time, last.operator);
-        } catch (IOException | RuntimeException e) {
+        } catch (CryptoCli.CliException | RuntimeException e) {
             return Messages.get("history.summary.unreadable", e.getClass().getSimpleName());
         }
     }
@@ -710,20 +706,6 @@ final class ConfigHistory {
             properties.load(reader);
         }
         return properties;
-    }
-
-    private static byte[] resource(String name) throws IOException {
-        try (InputStream in = ConfigHistory.class.getResourceAsStream(name)) {
-            if (in == null) return null;
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = in.read(buffer)) != -1) {
-                out.write(buffer, 0, read);
-                if (out.size() > MAX_STORED_BYTES) throw new IOException("too large");
-            }
-            return out.toByteArray();
-        }
     }
 
     /** @return 표시용 값(비밀 표시는 현재 언어로 바꾸고, 빈 값은 "(비어 있음)") */

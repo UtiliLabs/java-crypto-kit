@@ -21,6 +21,22 @@ class EncodingRandomTest {
     private static final String[] B64 = {"", "Zg==", "Zm8=", "Zm9v", "Zm9vYg==", "Zm9vYmE=", "Zm9vYmFy"};
 
     @Test
+    void longBase32PaddingIsRejectedWithoutDecoding() {
+        // 정상 Base32의 패딩은 최대 6자다. 길게 이어진 '='는 실행 시간과 관계없이 형식 오류로 거부되어야 한다.
+        for (int length : new int[] {7, 8, 10_000, 300_000}) {
+            StringBuilder padding = new StringBuilder();
+            for (int i = 0; i < length; i++) padding.append('=');
+            for (String text : new String[] {padding.toString(), "MY" + padding, "MZXW6YTB" + padding}) {
+                assertThrows(IllegalArgumentException.class, () -> Encoding.BASE32.decode(text), "길이 " + text.length());
+            }
+        }
+        // 허용되는 패딩(0·1·3·4·6자)과 소문자 입력은 그대로 복원한다.
+        assertArrayEquals("f".getBytes(StandardCharsets.US_ASCII), Encoding.BASE32.decode("my======"));
+        assertArrayEquals("foob".getBytes(StandardCharsets.US_ASCII), Encoding.BASE32.decode("MZXW6YQ="));
+        assertThrows(IllegalArgumentException.class, () -> Encoding.BASE32.decode("MY====="));
+    }
+
+    @Test
     void rfc4648VectorsEncodeAndDecode() {
         for (int i = 0; i < PLAIN.length; i++) {
             byte[] raw = PLAIN[i].getBytes(StandardCharsets.US_ASCII);

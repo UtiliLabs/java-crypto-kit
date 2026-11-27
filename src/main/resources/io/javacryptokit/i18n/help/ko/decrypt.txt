@@ -1,7 +1,7 @@
 decrypt - 암호문 복호화(평문 표시, 대화형 터미널 전용)
 
 사용법
-  java [-D...] -jar {jar} decrypt
+  java [-D...] -jar {jar} dec
        [--config <파일>] [--admin-pass-file <파일>] [--lang en|ko]
 
 옵션

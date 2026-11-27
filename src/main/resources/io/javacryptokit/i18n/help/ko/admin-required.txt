@@ -1,15 +1,14 @@
 java-crypto-kit CLI {version} - 관리자 비밀번호 최초 설정 필요
 
 실제 CLI 명령을 실행하려면 관리자 비밀번호를 먼저 설정하세요.
-먼저 설정하면 관리자 비밀번호가 들어간 새 JAR이 만들어집니다:
-  {configured}
+랜덤 PASS (Passphrase)·KEY (AES Key)를 생성해 현재 JAR에 저장합니다.
 
-  java -jar {jar} admin setup --operator <작업자ID>
+  {update} admin setup
 
-입력      작업자 ID → 새 비밀번호 → 비밀번호 확인(화면 비표시)
-비대화형  admin setup --operator <ID> --admin-pass-file <파일>
+입력      새 비밀번호 → 비밀번호 확인(화면 비표시)
+비대화형  admin setup --admin-pass-file <파일>
 규칙      10~128자, 영문자·숫자·특수문자 각 1자 이상(공백·한글 불가)
-그다음    생성된 JAR로 실행합니다(원본 JAR은 미설정 그대로 남음).
+그다음    같은 JAR로 업무 명령을 실행합니다.
 범위      CLI 전용입니다. Java API·Tomcat 자동 복호화는 비밀번호 없이 동작.
 상세: admin setup --help, docs/user-guide.md 1.4절
 

@@ -193,7 +193,13 @@ public final class StrictJson {
             }
             if (c < 0x20) throw error();
             if (c != '\\') {
-                out.append(c);
+                if (Character.isHighSurrogate(c)) {
+                    if (pos >= text.length() || !Character.isLowSurrogate(text.charAt(pos))) throw error();
+                    out.append(c).append(text.charAt(pos++));
+                } else {
+                    if (Character.isLowSurrogate(c)) throw error();
+                    out.append(c);
+                }
                 continue;
             }
             if (pos >= text.length()) throw error();

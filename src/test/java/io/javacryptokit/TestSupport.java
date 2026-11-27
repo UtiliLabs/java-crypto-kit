@@ -63,7 +63,7 @@ public final class TestSupport {
      */
     public static String publicKeyBase64() throws IOException {
         Properties defaults = new Properties();
-        try (InputStream in = TestSupport.class.getResourceAsStream("/java-crypto-kit.properties");
+        try (InputStream in = TestSupport.class.getResourceAsStream("/legacy-public.properties");
              Reader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
             defaults.load(reader);
         }
@@ -76,14 +76,42 @@ public final class TestSupport {
         return CryptoSettings.load(config == null ? null : config.toString(), name -> null, name -> null);
     }
 
-    /**
-     * JAR 기본값(공개 내장 키, 키ID default)으로 동작하는 공개 API 객체. 빈 외부 설정 파일을 지정해 실제 환경의
-     * 설정 경로(JVM 속성·환경변수)에 영향을 받지 않게 한다.
-     */
-    public static CredentialCrypto jarDefaults() throws IOException, CredentialCryptoException {
-        Path empty = Files.createTempFile("java-crypto-kit-empty", ".properties");
-        empty.toFile().deleteOnExit();
-        return CredentialCrypto.fromConfigFile(empty);
+    // Independent non-public test keys. The stable IDs let separate consumers share one test configuration.
+    private static final String TEST_AES = randomMaterial(32);
+    private static final String TEST_PASS = randomMaterial(32);
+    private static final String TEST_SALT = randomMaterial(16);
+
+    private static String randomMaterial(int length) {
+        byte[] value = new byte[length];
+        new SecureRandom().nextBytes(value);
+        return Base64.getEncoder().encodeToString(value);
+    }
+
+    public static String[] managedSettings() {
+        return new String[]{"crypto.key.embedded=" + TEST_AES, "crypto.key.active.pass=test-pass",
+                "crypto.keys.test-pass.type=pass", "crypto.keys.test-pass.source=embedded",
+                "crypto.keys.test-pass.embedded=" + TEST_PASS, "crypto.keys.test-pass.kdf=pbkdf2-sha256",
+                "crypto.keys.test-pass.kdf.iterations=600000", "crypto.keys.test-pass.salt=" + TEST_SALT};
+    }
+
+    public static Path writeManagedConfig(Path dir, String name, String... overrides) throws IOException {
+        java.util.List<String> settings = new java.util.ArrayList<>(java.util.Arrays.asList(managedSettings()));
+        settings.addAll(java.util.Arrays.asList(overrides));
+        return writeConfig(dir, name, settings.toArray(new String[0]));
+    }
+
+    public static Path managedConfig() {
+        try {
+            Path file = Files.createTempFile("j", ".cfg");
+            file.toFile().deleteOnExit();
+            return writeManagedConfig(file.getParent(), file.getFileName().toString());
+        } catch (IOException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
+    public static CredentialCrypto managedCrypto() throws CredentialCryptoException {
+        return CredentialCrypto.fromConfigFile(managedConfig());
     }
 
     /** 테스트를 실행하는 환경에 설정 경로 환경변수(CRYPTO_CONFIG_FILE)가 없을 때만 기본 탐색 시험을 의미 있게 수행할 수 있다. */

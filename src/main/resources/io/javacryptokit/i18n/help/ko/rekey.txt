@@ -25,8 +25,9 @@ rekey - 기존 암호문을 다른 키(새 키 ID)로 다시 암호화(평문 �
   ENC[v1:key02:...]      (표준 출력에 새 암호문 한 줄만)
   이전 키는 기존 암호문의 키 ID로 고르고, 새 암호문이 대상 키로 복호화되는
   것을 확인한 뒤 출력합니다. 같은 키 ID·같은 키로는 바꾸지 않습니다.
-  대상 키가 공개 기본 키이면 표준 오류에 경고 한 줄이 함께 나옵니다.
+  공개된 기본 키를 선택하면 실패합니다.
 
-예제(new.jar: config embed-key로 만든 새 키 JAR)
+예제(backup/old.jar, new.jar에 각 키가 설정되어 있음)
+  java -jar {jar} rekey --from-jar backup/old.jar
   java -jar {jar} rekey --to-jar new.jar
   java -jar {jar} rekey --key-id app-pass

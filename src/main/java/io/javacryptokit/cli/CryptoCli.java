@@ -43,10 +43,10 @@ import java.util.Set;
  * 정상 실행에는 안내·권고·다음 단계 문구를 붙이지 않는다(운영·보안 참고는 사용자 가이드). 오류는
  * {@code [java-crypto-kit] [사유: 코드] 원인 조치: ...} 한 줄이며 코드는 언어와 관계없이 같다. 종료 코드는 성공 0, 실패 1이다.</p>
  *
- * <p><b>자동 경고</b>: 공개 기본 키를 실제로 쓸 때의 {@code [WARN]} 한 줄(표준 오류, JVM당 1회, {@code crypto.warning.enabled=false}면
- * 없음)뿐이다. 키 상태를 직접 보여 주는 {@code info}·{@code doctor}·{@code fingerprint}는 경고 대신 상태값을 출력한다.</p>
+ * <p><b>키 유형</b>: 관리형 암복호화는 PASS (Passphrase)와 KEY (AES Key)를 지원한다. 이전 공개 키는 로딩 시 거부한다.
+ * {@code info}·{@code doctor}·{@code fingerprint}는 키 상태 또는 실패 원인을 출력한다.</p>
  *
- * <p><b>CLI 관리자 비밀번호</b>: 관리자 비밀번호를 설정하지 않은 JAR는 최초 설정({@code admin setup}) 외의 명령을 실행하지 않고,
+ * <p><b>CLI 관리자 비밀번호</b>: 관리자 비밀번호의 최초 설정({@code admin setup})과 공개 조회는 미설정 JAR에서 가능하며,
  * 복호화·키 생성/등록/변경/삭제·키 조회 같은 민감 명령은 실행할 때마다 관리자 비밀번호를 확인한다({@link AdminAccess}). CLI에만
  * 적용되며 Java API·Tomcat은 비밀번호 없이 그대로 동작한다. JAR 자체의 키 추출을 막는 수단은 아니다.</p>
  *
@@ -115,6 +115,8 @@ public final class CryptoCli {
     public static void main(String[] args) {
         useOneLineLibraryLog(System.err);
         int exitCode = execute(args, CryptoCli::systemTerminal, System.out, System.err, true, AdminAccess.forRunningJar());
+        Console console = System.console();
+        if (console != null && isInteractiveTerminal(console)) console.printf("%n");
         if (exitCode != 0) System.exit(exitCode);
     }
 
@@ -124,7 +126,7 @@ public final class CryptoCli {
     private static java.util.logging.Handler oneLineHandler;
 
     /**
-     * CLI로 실행할 때만({@link #main}): 이 라이브러리의 로그(공개 기본 키 경고)를 JDK 기본 형식(시각·클래스 이름이 붙은 두 줄) 대신
+     * CLI로 실행할 때만({@link #main}): 이 라이브러리의 경고 로그를 JDK 기본 형식(시각·클래스 이름이 붙은 두 줄) 대신
      * 한 줄로 표준 오류에 쓴다. 경고는 WAS 로그용 태그를 떼고 {@code [WARN] <문구>}로 쓴다(표준 출력의 암호문·평문과 섞이지 않음).
      * WAS(Tomcat)에서는 실행되지 않으며 루트 로거·다른 라이브러리 로거는 건드리지 않는다. 경고 정책(crypto.warning.enabled)과
      * 출력 횟수(JVM당 1회)도 그대로다.
@@ -185,7 +187,7 @@ public final class CryptoCli {
             return run(rest, terminals, out, err, admin);
         } catch (CliException ex) {
             // 명령 사용 방법 문제(인자·터미널·대상 파일). 메시지에 원인과 해결 방법이 함께 들어 있다.
-            err.println(Messages.error(ex.code, ex.getMessage()));
+            err.println(Messages.error(ex.code, withCleanupMessage(ex)));
             return 1;
         } catch (CredentialCryptoException ex) {
             // 사유 코드는 공개 API Reason 이름과 같고 원인·조치 문구도 공개 예외의 메시지 그대로다(Java API·Tomcat과 같은 의미).
@@ -199,6 +201,14 @@ public final class CryptoCli {
             admin.close();
             Messages.setProcessLanguage(previous);
         }
+    }
+
+    private static String withCleanupMessage(Exception failure) {
+        StringBuilder message = new StringBuilder(failure.getMessage());
+        for (Throwable additional : failure.getSuppressed()) {
+            if (additional instanceof CliException) message.append(' ').append(additional.getMessage());
+        }
+        return message.toString();
     }
 
     /** 정리 오류가 겹쳐도 사유 코드와 첫 번째 메시지는 최초 오류의 것이다. */
@@ -301,7 +311,7 @@ public final class CryptoCli {
             String sub = args.length > 1 ? args[1] : null;
             start = 2;
             String nestedTopic = CliCommands.NESTED_GROUPS.get(command + " " + sub);
-            if (nestedTopic != null) {
+            if (nestedTopic != null && args.length > 2) {
                 String third = args[2];
                 sub = sub + " " + third;
                 start = 3;

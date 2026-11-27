@@ -26,11 +26,11 @@ public final class JwtClaims {
     }
 
     /**
-     * JSON 객체 문자열을 엄격하게 읽어 보기 객체를 만든다(중복 멤버·형식 오류 거부, JWT와 같은 상한). 서명 검증이 아니다.
+     * JSON 객체 문자열을 엄격하게 읽어 보기 객체를 만든다(중복 멤버·짝 없는 서로게이트·형식 오류 거부, JWT와 같은 상한). 서명 검증이 아니다.
      *
      * @param json JSON 객체 문자열
      * @return 보기 객체
-     * @throws IllegalArgumentException JSON 객체가 아니거나 상한 초과
+     * @throws IllegalArgumentException JSON 객체 형식 오류 또는 상한 초과
      */
     @SuppressWarnings("unchecked")
     public static JwtClaims parse(String json) {
@@ -161,8 +161,9 @@ public final class JwtClaims {
 
     /**
      * @param name 이름
-     * @return NumericDate(정수 초)를 시각으로(없으면 null)
-     * @throws IllegalArgumentException 0 이상 정수가 아님
+     * @return 0~253402300799 범위의 NumericDate(정수 또는 유한 소수 초)를 Instant로 변환. 없거나 JSON null이면 null.
+     *         소수 부분은 나노초로 변환한다.
+     * @throws IllegalArgumentException 숫자 타입이 아니거나 범위를 벗어남
      */
     public Instant getInstant(String name) {
         Object value = values.get(name);

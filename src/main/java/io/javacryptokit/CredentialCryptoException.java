@@ -104,7 +104,8 @@ public final class CredentialCryptoException extends GeneralSecurityException {
      */
     private static String buildMessage(Reason reason, String safeDetail, Throwable cause) {
         // 원인과 조치를 모두 제공한 작업별 메시지에는 포괄적인 Reason 안내를 다시 붙이지 않는다.
-        if ((reason == Reason.INVALID_INPUT || reason == Reason.INVALID_TOKEN || reason == Reason.INTEGRITY)
+        if ((reason == Reason.INVALID_INPUT || reason == Reason.INVALID_TOKEN || reason == Reason.INTEGRITY
+                || reason == Reason.CONFIGURATION || reason == Reason.KEY_SOURCE)
                 && safeDetail != null && safeDetail.contains(Messages.get("exception.action", ""))) {
             return safeDetail;
         }

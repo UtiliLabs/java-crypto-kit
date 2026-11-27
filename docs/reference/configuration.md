@@ -25,14 +25,14 @@
 
 | 설정 | 기본값 / 허용값 | 언제 쓰나 | 잘못 쓰면 |
 |---|---|---|---|
-| `crypto.key.type` | `pass` / `pass`·`key` | 유형·키 ID를 정하지 않은 새 암호화의 유형. JAR 설정에 없으면(이전 형식 JAR) `key` | 다른 값은 오류. 바꾸면 이후 새 암호화의 키가 바뀜(기존 암호문 복호화는 영향 없음) |
-| `crypto.key.active.pass` | `pass-default` / 등록된 pass 키의 키 ID | `--type pass`와 기본 유형 pass가 쓰는 키 | 없는 키 ID·key 유형 키면 오류. 다른 키로 바꾸지 않음 |
-| `crypto.key.active.key` | 빈 값(= `crypto.key.*` AES 키) / 등록된 key 키의 키 ID | `--type key`가 쓰는 키 | 없는 키 ID·pass 유형 키면 오류 |
-| `crypto.key.source` | `embedded` / `embedded`·`file`·`env`·`vault`·`aws-kms` | `crypto.key.*` AES 키를 JAR에 둘지, 파일·환경변수·원격에서 받을지 **공급원 선택** | 외부 키가 없으면 오류(Fail Closed), 내장 키로 자동 전환 없음 |
-| `crypto.key.id` | `default` / 영문·숫자·`_`·`-`, 1~64자 | 암호문이 어떤 키로 만들어졌는지 구별. **새 키마다 새 ID** | 암호문의 키ID와 다르면 복호화 실패 |
+| `crypto.key.type` | `pass` / `pass`·`key` | 유형·키 ID를 정하지 않은 새 암호화의 유형. JAR 설정에 없으면 `key` | 다른 값은 오류. 바꾸면 이후 새 암호화의 키가 바뀜(기존 암호문 복호화는 영향 없음) |
+| `crypto.key.active.pass` | 빈 값 / 등록된 pass 키의 키 ID | `--type pass`와 기본 유형 pass가 쓰는 키 | 없는 키 ID·key 유형 키면 오류. 다른 키로 바꾸지 않음 |
+| `crypto.key.active.key` | 빈 값(= `crypto.key.*` AES 키) / 등록된 key 키의 키 ID | `--type key`(또는 `crypto.key.type=key`에서 유형 생략)가 쓰는 키. 다른 키 ID가 지정되어 있으면 외부 `crypto.key.*` 키는 선택되지 않으므로 그 키 ID로 바꾸거나 `--key-id`를 씀 | 없는 키 ID·pass 유형 키면 오류 |
+| `crypto.key.source` | `embedded` / `embedded`·`file`·`env`·`vault`·`aws-kms` | `crypto.key.*` AES 키를 JAR에 둘지, 파일·환경변수·원격에서 받을지 **공급원 선택** | 외부 키가 없으면 오류. `config set`으로 같은 ID의 활성 공급원·재료를 변경할 때 이력 지문이 있으면 후보 키가 일치해야 함 |
+| `crypto.key.id` | `default` / 영문·숫자·`_`·`-`, 1~64자 | AES 슬롯의 ID. 기본값 `default`는 이전 설정을 읽기 위한 자리표시자 | `config set`으로 바꿀 때 예약·등록된 ID는 거부. 이력 ID는 지문으로 같은 재료가 확인될 때만 복원. 이전 암호문은 원래 ID의 키로 복호화 |
 | `crypto.key.file` | 없음 / 키 파일 경로 | `crypto.key.source=file`일 때 | 파일·권한·Base64 키(32바이트) 확인 |
 | `crypto.key.env` | `CRYPTO_KEY` / 환경변수 이름 | `crypto.key.source=env`일 때 WAS에 전달할 변수 이름 | 키 값을 적는 항목이 아님. 서비스 계정 환경에 실제 값 필요 |
-| `crypto.key.embedded` | 공개 예제 키 / 32바이트 표준 Base64(44자) | **사용자 지정 키를 JAR에 넣을 때**(`crypto.key.source=embedded`). JAR 내장값은 `config embed-key`로 바꿈. 현행 JAR 내부의 `obf1:` 표현은 CLI에 입력할 키 파일 형식과 다름 | `config set`으로는 못 바꾸고 `-D`는 오류. 외부 Properties에도 둘 수 있으나 키 원문이 파일에 남으므로 비권장(`file`·`env` 권장). 키 원문은 이력·로그·진단에 나오지 않음 |
+| `crypto.key.embedded` | 없음 (배포 상태) | **사용자 지정 키를 JAR에 넣을 때**(`crypto.key.source=embedded`). JAR 내장값은 `config embed-key`로 바꿈. 현행 JAR 내부의 `obf1:` 표현은 CLI에 입력할 키 파일 형식과 다름 | `config set`으로는 못 바꾸고 `-D`는 오류. 외부 Properties에도 둘 수 있으나 키 원문이 파일에 남으므로 비권장(`file`·`env` 권장). 키 원문은 이력·로그·진단에 나오지 않음 |
 | `crypto.algorithm` | `AES/GCM/NoPadding`만 | 알고리즘 확인(고정) | 다른 알고리즘 선택 불가 |
 
 ## 10.2 동작과 Tomcat 정책
@@ -40,7 +40,7 @@
 | 설정 | 기본값 / 허용값 | 언제 쓰나 | 주의 |
 |---|---|---|---|
 | `crypto.lang` | `ko` / `ko`·`en`·`auto` | 메시지 언어. `auto`는 JVM Locale(한국어가 아니면 영어) | 외부 제품(Tomcat·JDBC 드라이버 등) 메시지는 번역하지 않음 |
-| `crypto.warning.enabled` | `true` / `true`·`false` | 공개 기본 키를 쓸 때의 WARN 한 줄(공급 방식 무관, JVM당 1회) 출력 여부. 이 경고 하나만 제어 | **`false`여도 오류·FAIL·`info`·`doctor`의 키 상태는 그대로이고 공개 키 위험도 그대로**([12.1절](security.md#121-공개-기본-키-경고)) |
+| `crypto.warning.enabled` | `true` / `true`·`false` | 이전 설정 호환 | 알려진 공개 키는 true·false 모두 거부 |
 | `crypto.output.encoding` | `enc` / `enc`·`base64` | 암호화 결과를 `ENC[...]` 또는 `B64[...]`로 출력 | `B64[...]`는 ENC의 추가 포장이지 추가 암호화가 아님 |
 | `crypto.jvm.override.enabled` | `true` / `true`·`false` | 허용된 `-Dcrypto.*`가 설정을 덮어쓰게 할지 | 이 항목 자체는 `-D`로 바꿀 수 없음. `-Dcrypto.config.file`은 항상 동작 |
 | `crypto.pool.factory` | DBCP2 / 공식 Factory 클래스 2종 | XML에서 `cryptoPool`을 생략한 Tomcat Resource의 기본 Pool | 두 Factory 외 임의 클래스 불가 |

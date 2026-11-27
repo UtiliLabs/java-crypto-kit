@@ -12,11 +12,13 @@ on:
     branches: [main]
     paths:
       - 'README.md'
+      - 'CHANGELOG.md'
       - 'AGENTS.md'
       - 'docs/**'
   pull_request:
     paths:
       - 'README.md'
+      - 'CHANGELOG.md'
       - 'AGENTS.md'
       - 'docs/**'
   workflow_dispatch:

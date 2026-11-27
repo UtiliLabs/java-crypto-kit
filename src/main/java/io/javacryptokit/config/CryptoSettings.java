@@ -35,7 +35,7 @@ import java.util.function.Function;
  *
  * <p><b>설정을 읽는 순서</b></p>
  * <ol>
- *   <li>JAR 내부 기본값 {@code /java-crypto-kit.properties}를 항상 먼저 읽는다("기본 모드": 공개 내장 키).</li>
+ *   <li>JAR의 활성 예약 영역을 읽고, 미설정 배포본이면 기본 {@code /java-crypto-kit.properties}를 사용한다.</li>
  *   <li>외부 설정 파일이 지정되어 있으면 그 파일에 적힌 항목만 기본값을 덮어쓴다. 외부 파일을 쓴다고 외부 키가 강제되지는
  *       않는다. 경로는 ① 직접 지정(CLI {@code --config}, 공개 API {@code fromConfigFile}) ② JVM 속성
  *       {@code -Dcrypto.config.file} ③ 환경변수 {@code CRYPTO_CONFIG_FILE} 순서로 처음 값이 있는 단계 하나만 쓴다(별칭 없음).
@@ -99,7 +99,7 @@ public final class CryptoSettings {
     public static final String POOL_FACTORY = "crypto.pool.factory";
     /** [Tomcat] 평문 비밀번호 거부 정책(true 고정). */
     public static final String REQUIRE_ENCRYPTED_PASSWORD = "crypto.require.encrypted.password";
-    /** 공개 기본 키 경고(WARN 한 줄, JVM당 1회) 표시 정책. */
+    /** 이전 설정 호환용 경고 정책. 관리형 공개 키 차단에는 영향이 없다. */
     public static final String WARNING_ENABLED = "crypto.warning.enabled";
     /** 암호문 출력 표현(enc/base64). */
     public static final String OUTPUT_ENCODING = "crypto.output.encoding";
@@ -340,14 +340,15 @@ public final class CryptoSettings {
             this.warningEnabled = parseStrictBoolean(properties.getProperty(WARNING_ENABLED), WARNING_ENABLED);
             this.outputFormat = parseOutputFormat();
             // [8] Keyring: 레거시 AES 슬롯 + 템플릿 프로필(계층 간 합집합), 유형별 기본 키.
-            KeyProfile legacy = legacyProfile(properties);
+            KeyProfile legacy = "embedded".equals(get(KEY_SOURCE)) && get(KEY_EMBEDDED).isEmpty()
+                    ? null : legacyProfile(properties);
             java.util.Map<String, KeyProfile> byId = new java.util.LinkedHashMap<>();
-            byId.put(legacy.id(), legacy);
+            if (legacy != null) byId.put(legacy.id(), legacy);
             java.util.TreeMap<String, KeyProfile> templates = new java.util.TreeMap<>();
             for (String id : profileIds(merged)) {
                 checkProfileLayers(id, defaults, external);
                 KeyProfile profile = templateProfile(id);
-                if (profile.id().equals(legacy.id())) {
+                if (legacy != null && profile.id().equals(legacy.id())) {
                     throw new SafeMessageException(Messages.get("config.err.profileIdConflict", id, KEY_ID));
                 }
                 templates.put(id, profile);
@@ -362,10 +363,6 @@ public final class CryptoSettings {
                     : io.javacryptokit.KeyType.fromCode(typeValue.trim());
             this.activePass = activeFor(io.javacryptokit.KeyType.PASS, get(KEY_ACTIVE_PASS), null);
             this.activeKey = activeFor(io.javacryptokit.KeyType.KEY, get(KEY_ACTIVE_KEY), legacy);
-            if (activeProfile(defaultType) == null) {
-                throw new SafeMessageException(Messages.get("config.err.noDefaultKey", defaultType.code(),
-                        defaultType == io.javacryptokit.KeyType.PASS ? KEY_ACTIVE_PASS : KEY_ACTIVE_KEY));
-            }
         } finally {
             scope.close();
         }
@@ -531,8 +528,8 @@ public final class CryptoSettings {
         }
     }
 
-    /** @return 위치·내장 항목이 그 공급원에서 쓰이면 true */
-    private static boolean belongsTo(String item, String source) {
+    /** @return 위치·내장 항목이 그 공급원에서 쓰이면 true(설정 검증과 CLI의 위치 항목 지정이 같은 규칙을 쓴다) */
+    public static boolean belongsTo(String item, String source) {
         switch (item) {
             case KeyProfile.EMBEDDED: return "embedded".equals(source);
             case KeyProfile.FILE: return "file".equals(source);
@@ -692,7 +689,7 @@ public final class CryptoSettings {
 
     /**
      * JAR 내부 기본 설정(Properties) "그 자체"만으로 검증된 설정 객체를 만든다. 외부 설정 파일·JVM 속성·환경변수는 전혀
-     * 읽지 않는다. CLI {@code config show}(JAR 내부 원본 조회), {@code config set}·{@code config embed-key}(새 JAR에 넣을
+     * 읽지 않는다. CLI {@code config show}(JAR 내부 원본 조회), {@code config set}·{@code config embed-key}(대상 JAR에 갱신할
      * 설정의 재검증), {@code rekey --from-jar/--to-jar}가 실행 환경의 설정과 섞이지 않게 하기 위한 진입점이다.
      *
      * @param embeddedDefaults JAR 안의 {@code java-crypto-kit.properties} 내용(지원 항목 목록도 이 이름들로 정해진다)
@@ -737,7 +734,7 @@ public final class CryptoSettings {
         Properties cached = cachedDefaults;
         if (cached == null) {
             Properties defaults = new Properties();
-            try (InputStream in = CryptoSettings.class.getResourceAsStream(DEFAULT_CONFIG_RESOURCE)) {
+            try (InputStream in = defaultsStream()) {
                 if (in == null) throw new IOException("java-crypto-kit.properties");
                 // Properties.load(InputStream)는 기본 ISO-8859-1이므로 Reader를 명시한다.
                 try (Reader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
@@ -750,6 +747,28 @@ public final class CryptoSettings {
         Properties copy = new Properties();
         copy.putAll(cached);
         return copy;
+    }
+
+    private static InputStream defaultsStream() throws IOException {
+        java.security.CodeSource source = CryptoSettings.class.getProtectionDomain().getCodeSource();
+        if (source != null && "file".equals(source.getLocation().getProtocol())) {
+            try {
+                Path path = Paths.get(source.getLocation().toURI());
+                if (java.nio.file.Files.isRegularFile(path)) {
+                    try (java.util.jar.JarFile jar = new java.util.jar.JarFile(path.toFile(), false)) {
+                        java.util.jar.Manifest manifest = jar.getManifest();
+                        String format = manifest == null ? null : manifest.getMainAttributes().getValue(JarState.ATTRIBUTE);
+                        if (format != null) {
+                            JarState.State state = JarState.read(path, format);
+                            if (state != null) return new java.io.ByteArrayInputStream(state.settings);
+                        }
+                    }
+                }
+            } catch (java.net.URISyntaxException e) {
+                throw new IOException("jar location", e);
+            }
+        }
+        return CryptoSettings.class.getResourceAsStream(DEFAULT_CONFIG_RESOURCE);
     }
 
     /** {@link #readDefaults()}와 같지만 실패하면 null(언어 결정용). */
@@ -907,7 +926,7 @@ public final class CryptoSettings {
 
     /**
      * 모호한 키 설정 검사: 외부 설정이나 JVM 속성에 외부 키를 쓰려는 흔적이 있는데 {@code crypto.key.source}를 어디에도 적지
-     * 않았으면, 기본값 embedded(공개 키)로 조용히 동작하지 않도록 오류로 중단한다. JAR 내부 값(config set 포함)은 사용자가
+     * 않았으면, 기본값 embedded로 조용히 동작하지 않도록 오류로 중단한다. JAR 내부 값(config set 포함)은 사용자가
      * 실행 환경에서 지정한 값이 아니므로 흔적으로 보지 않는다.
      */
     private void validateKeySourceIntent() {
@@ -1086,7 +1105,8 @@ public final class CryptoSettings {
     public KeyProfile profile(String id) { return id == null ? null : profilesById.get(id); }
 
     /** @return 레거시 AES 슬롯 프로필({@code crypto.key.*}) */
-    public KeyProfile legacyProfile() { return profilesById.get(keyId()); }
+    public KeyProfile legacyProfile() { KeyProfile slot = profilesById.get(keyId());
+        return slot != null && slot.legacy() ? slot : null; }
 
     /** @return 유형을 생략한 새 암호화의 유형({@code crypto.key.type}, 이전 형식 설정은 key) */
     public io.javacryptokit.KeyType defaultType() { return defaultType; }
@@ -1120,8 +1140,11 @@ public final class CryptoSettings {
         io.javacryptokit.KeyType chosen = type == null ? defaultType : type;
         KeyProfile active = activeProfile(chosen);
         if (active == null) {
-            throw new SafeMessageException(Messages.get("config.err.noActiveKey", chosen.code(),
-                    chosen == io.javacryptokit.KeyType.PASS ? KEY_ACTIVE_PASS : KEY_ACTIVE_KEY));
+            boolean pass = chosen == io.javacryptokit.KeyType.PASS;
+            String label = pass ? "PASS (Passphrase)" : "KEY (AES Key)";
+            String setting = pass ? KEY_ACTIVE_PASS : KEY_ACTIVE_KEY;
+            String message = profilesById.isEmpty() ? "config.err.noActiveKey.initial" : "config.err.noActiveKey";
+            throw new SafeMessageException(Messages.get(message, label, setting, chosen.code()));
         }
         return active;
     }
@@ -1167,7 +1190,7 @@ public final class CryptoSettings {
     /** @return 외부 설정 파일 이름(경로 제외). 외부 설정이 없으면 null */
     public String configFileName() { return configFileName; }
 
-    /** @return 공개 기본 키 경고(비차단 WARN 한 줄) 표시 여부(crypto.warning.enabled) */
+    /** @return 이전 설정 호환용 경고 옵션(crypto.warning.enabled) */
     public boolean warningEnabled() { return warningEnabled; }
 
     /** @return 암호문 출력 표현(crypto.output.encoding) */

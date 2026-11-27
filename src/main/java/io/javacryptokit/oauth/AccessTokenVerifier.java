@@ -64,6 +64,7 @@ public final class AccessTokenVerifier {
     private final String scopeClaim;
     private final String rolesClaim;
     private final boolean requirePermission;
+    private final boolean rfc9068;
     private final Set<String> requiredScopes;
     private final Set<String> requiredRoles;
     private final List<String> forbiddenClaims;
@@ -71,6 +72,7 @@ public final class AccessTokenVerifier {
     private AccessTokenVerifier(Builder b, JwtVerifier jwt) {
         this.jwt = jwt;
         this.clientIdClaim = b.clientIdClaim;
+        this.rfc9068 = b.rfc9068;
         this.scopeClaim = b.scopeClaim;
         this.rolesClaim = b.rolesClaim;
         this.requirePermission = b.requirePermission;
@@ -108,6 +110,11 @@ public final class AccessTokenVerifier {
             clientId = string(claims, clientIdClaim);
             if (clientId == null || clientId.isEmpty()) throw OAuthText.fail(JwtException.Reason.MISSING_CLAIM, "oauth.err.missing", clientIdClaim);
         }
+        if (clientId != null) requireIdentifier(clientId, clientIdClaim);
+        if (rfc9068) {
+            requireIdentifier(string(claims, "sub"), "sub");
+            requireIdentifier(string(claims, "jti"), "jti");
+        }
         Set<String> scopes = scopes(claims);
         List<String> roles = roles(claims);
         if (requirePermission && scopes.isEmpty() && roles.isEmpty()) {
@@ -122,23 +129,38 @@ public final class AccessTokenVerifier {
         return new AccessToken(verified, clientId, scopes, roles);
     }
 
+    private static void requireIdentifier(String value, String claim) throws JwtException {
+        if (!OAuthText.validIdentifier(value)) {
+            throw OAuthText.fail(JwtException.Reason.INVALID_CLAIM, "oauth.err.claimType", claim);
+        }
+    }
+
     private Set<String> scopes(JwtClaims claims) throws JwtException {
         String value = string(claims, scopeClaim);
         Set<String> out = new LinkedHashSet<>();
         if (value != null) {
             for (String part : value.split(" ")) {
-                if (!part.isEmpty()) out.add(part);
+                if (part.isEmpty()) continue;
+                // 공백으로 나눈 각 이름은 scope 규칙을 따라야 한다(탭·제어문자 등이 섞인 값을 권한으로 인정하지 않음).
+                if (!OAuthText.validScope(part)) throw OAuthText.fail(JwtException.Reason.INVALID_CLAIM, "oauth.err.claimType", scopeClaim);
+                out.add(part);
             }
         }
         return Collections.unmodifiableSet(out);
     }
 
     private List<String> roles(JwtClaims claims) throws JwtException {
+        List<String> roles;
         try {
-            return claims.getStringList(rolesClaim);
+            roles = claims.getStringList(rolesClaim);
         } catch (IllegalArgumentException e) {
             throw OAuthText.fail(JwtException.Reason.INVALID_CLAIM, "oauth.err.claimType", rolesClaim);
         }
+        // 빈 문자열·공백만 있는 이름·제어문자가 든 이름은 역할로 인정하지 않는다(목록에 값이 있다는 것만으로 권한이 아님).
+        for (String role : roles) {
+            if (!OAuthText.validIdentifier(role)) throw OAuthText.fail(JwtException.Reason.INVALID_CLAIM, "oauth.err.claimType", rolesClaim);
+        }
+        return roles;
     }
 
     /** 클라이언트 ID·권한 클레임이 명시적 JSON null이면 "없음"과 구분해 형식 오류로 거부한다. */
@@ -280,14 +302,20 @@ public final class AccessTokenVerifier {
         /** @param scopes 모두 있어야 하는 위임 권한(누적) @return this */
         public Builder requireScopes(String... scopes) {
             if (scopes == null) throw OAuthText.invalid("oauth.err.required", "scopes");
-            for (String scope : scopes) requiredScopes.add(OAuthText.require(scope, "scope"));
+            for (String scope : scopes) {
+                if (!OAuthText.validScope(OAuthText.require(scope, "scope"))) throw OAuthText.invalid("oauth.err.scopeFormat");
+                requiredScopes.add(scope);
+            }
             return this;
         }
 
         /** @param roles 모두 있어야 하는 역할(누적) @return this */
         public Builder requireRoles(String... roles) {
             if (roles == null) throw OAuthText.invalid("oauth.err.required", "roles");
-            for (String role : roles) requiredRoles.add(OAuthText.require(role, "role"));
+            for (String role : roles) {
+                if (!OAuthText.validIdentifier(OAuthText.require(role, "role"))) throw OAuthText.invalid("oauth.err.roleFormat");
+                requiredRoles.add(role);
+            }
             return this;
         }
 

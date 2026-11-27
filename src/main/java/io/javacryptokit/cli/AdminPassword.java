@@ -116,6 +116,9 @@ final class AdminPassword {
      */
     static Status statusOf(JarConfigEditor.Snapshot snap) {
         // 변경 이력의 무결성(해시 체인·설정 지문·이력 없는 설정 변경)은 모든 JAR에서 먼저 본다(이전 버전 JAR 포함).
+        if (snap.supportsAdmin() && snap.adminBytes != null && !snap.history.present) {
+            return new Status(State.DAMAGED, Messages.get("admin.damaged.noHistory"));
+        }
         if (snap.history.problem != null) return new Status(State.DAMAGED, snap.history.problem);
         if (!snap.supportsAdmin()) return new Status(State.LEGACY, null);
         if (snap.adminBytes != null) {
@@ -125,7 +128,6 @@ final class AdminPassword {
                 return new Status(State.DAMAGED, e.getMessage());
             }
             // 검증값은 admin setup으로만 생기므로 이력과 그 안의 최초 설정 기록이 함께 있어야 한다(이력만 지운 JAR가 새 이력을 시작하지 못하게).
-            if (!snap.history.present) return new Status(State.DAMAGED, Messages.get("admin.damaged.noHistory"));
             if (!snap.history.adminRecordsValid()) return new Status(State.DAMAGED, Messages.get("admin.damaged.records"));
             return new Status(State.INITIALIZED, null);
         }

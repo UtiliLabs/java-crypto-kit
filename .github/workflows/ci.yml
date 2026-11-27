@@ -1,4 +1,6 @@
 # java-crypto-kit CI
+# 개발 Harness 필수 규칙은 AGENTS.md §9를 따른다. 로컬은 변경 영향에 따른 표적 시험을 기본으로 하고
+# 유효한 기존 PASS 증거를 재사용한다. 정규 CI의 매트릭스와 품질 게이트는 유지한다.
 # - main Push: 소스·빌드·CI 관련 파일이 변경된 경우에만 전체 빌드·테스트 실행.
 # - README·AGENTS·docs만 변경한 Push·PR은 전체 빌드를 생략하고 docs.yml(문서 정합성 시험만, 한 작업)이 실행된다.
 # - Pull Request: 소스·빌드·CI 관련 파일이 변경된 경우에만 전체 빌드·테스트 실행.
@@ -118,6 +120,23 @@ jobs:
           mkdir -p ci-tmp
           trap 'rm -rf ci-tmp' EXIT
 
+          update_jar() {
+            local before after
+            before=$(find ci-tmp -mindepth 1 | LC_ALL=C sort)
+            java -jar "$@" || return $?
+            after=$(find ci-tmp -mindepth 1 | LC_ALL=C sort)
+            if [[ "$before" != "$after" ]]; then
+              echo "::error::An internal update changed the file list."
+              return 1
+            fi
+          }
+
+          if grep -rE -i 'jck[.]ps1|WindowsLauncher|cli[.]updateTarget' \
+              src/main README.md AGENTS.md CHANGELOG.md docs build.gradle; then
+            echo "::error::A retired launcher is referenced in a product file."
+            exit 1
+          fi
+
           # 빌드 JAR은 CLI 관리자 비밀번호 미설정: 전체 도움말은 공개, 실제 명령은 설정 전 실패(비대화형)
           java -jar "$JAR" help --lang en | grep -F "Admin (set once before using the CLI)" > /dev/null || { echo "::error::미설정 JAR의 공개 도움말에 관리자 초기 설정 안내가 없음"; exit 1; }
           rc=0
@@ -126,22 +145,31 @@ jobs:
           grep -q "ADMIN_SETUP" <<< "$msg" || { echo "::error::미설정 오류 코드 아님"; exit 1; }
           # CI 관리자 비밀번호: 실행할 때마다 임의 값의 권한 600 임시 파일(값을 명령 줄·로그·Git·산출물에 남기지 않음)
           (umask 077 && printf 'Ci-%s@1\n' "$(od -An -tx1 -N12 /dev/urandom | tr -d ' \n')" > ci-tmp/admin.pw)
-          java -jar "$JAR" admin setup --operator ci --admin-pass-file ci-tmp/admin.pw --out ci-tmp/base.jar > /dev/null
+          cp "$JAR" ci-tmp/base.jar
+          update_jar ci-tmp/base.jar admin setup --admin-pass-file ci-tmp/admin.pw > /dev/null
           ADM="--admin-pass-file ci-tmp/admin.pw"
           BASE=ci-tmp/base.jar
-          admin_payload=$(unzip -p "$BASE" META-INF/java-crypto-kit/admin.properties)
-          if grep -F "$(cat ci-tmp/admin.pw)" <<< "$admin_payload" > /dev/null; then echo "::error::관리자 비밀번호 원문이 JAR에 있음"; exit 1; fi
-          grep '^kdf=PBKDF2WithHmacSHA256$' <<< "$admin_payload" > /dev/null || { echo "::error::관리자 검증값 형식 아님"; exit 1; }
+          unzip -t "$BASE" > /dev/null
+          grep -aFq 'kdf=PBKDF2WithHmacSHA256' "$BASE"
+          if grep -aFq "$(cat ci-tmp/admin.pw)" "$BASE"; then
+            echo "::error::The administrator password appears in the JAR."
+            exit 1
+          fi
 
           java -jar "$BASE" help > /dev/null
           java -jar "$BASE" help --lang en | grep "Usage" > /dev/null
           java -jar "$BASE" config help --lang en | grep "crypto.lang" > /dev/null
           java -jar "$BASE" doctor --lang en
 
-          # 공개 예제 키(pass-default, default)만 포함됐는지 확인(설정 조회는 관리자 인증 필요, 인증 없으면 실패)
+          # 원본의 키 슬롯은 비어 있고 최초 설정 JAR만 고유 키 두 개를 갖는다.
           java -jar "$BASE" config history --all --lang en $ADM | grep "admin setup  \[admin\]" > /dev/null
-          java -jar "$BASE" config show --lang en $ADM | grep "pass-default: pass, embedded, public default key" > /dev/null
-          java -jar "$BASE" config show --lang en $ADM | grep "Default keys : pass=pass-default, key=default" > /dev/null
+          original=$(unzip -p "$JAR" java-crypto-kit.properties | tr -d '\r')
+          grep -x 'crypto.key.embedded=' <<< "$original" > /dev/null
+          if grep -E '^crypto\.keys\.|^crypto\.key\.active\.pass=.+' <<< "$original" > /dev/null; then exit 1; fi
+          keys=$(java -jar "$BASE" config show --lang en $ADM)
+          grep -E 'pass-[0-9a-f]{32}: pass, embedded, custom key' <<< "$keys" > /dev/null
+          grep -E 'Default keys : pass=pass-[0-9a-f]{32}' <<< "$keys" > /dev/null
+          grep -E "^ +key=key-[0-9a-f]{32}$" <<< "$keys" > /dev/null
           if java -jar "$BASE" config show > /dev/null 2>&1; then echo "::error::인증 없이 config show 성공"; exit 1; fi
 
           # 테스트·웹·외부 라이브러리의 기본 JAR 혼입 방지
@@ -153,16 +181,17 @@ jobs:
 
           # 사용자 지정 키 내장과 변경 이력 검증(키 생성·변경에는 관리자 인증과 사유 필수, AES 키 이력은 --type key로 조회)
           java -jar "$BASE" keygen --out ci-tmp/ci.key --reason "CI smoke" $ADM
-          java -jar "$BASE" config embed-key --from-file ci-tmp/ci.key --key-id ci01 --operator ci --reason "CI smoke" --yes --out ci-tmp/company.jar $ADM
-          java -jar ci-tmp/company.jar config history --type key --lang en $ADM | grep "crypto.key.id: default -> ci01" > /dev/null
+          cp "$BASE" ci-tmp/company.jar
+          update_jar ci-tmp/company.jar config embed-key --from-file ci-tmp/ci.key --key-id ci01 --operator ci --reason "CI smoke" --yes $ADM
+          java -jar ci-tmp/company.jar config history --type key --lang en $ADM | grep -E "crypto.key.id: key-[0-9a-f]{32} -> ci01" > /dev/null
           java -jar ci-tmp/company.jar config show --lang en $ADM | grep "crypto.key.id = ci01" > /dev/null
-          # JAR 안 내장 키·이력은 obf1(경량 난독화)로 저장: 키 파일 원문·이력 본문이 글자 그대로 보이면 안 됨
-          unzip -p ci-tmp/company.jar java-crypto-kit.properties | grep '^crypto.key.embedded=obf1:' > /dev/null || { echo "::error::내장 키가 obf1이 아님"; exit 1; }
-          company_settings=$(unzip -p ci-tmp/company.jar java-crypto-kit.properties)
-          if grep -F "$(cat ci-tmp/ci.key)" <<< "$company_settings" > /dev/null; then echo "::error::키 원문이 JAR에 있음"; exit 1; fi
-          history_payload=$(unzip -p ci-tmp/company.jar META-INF/java-crypto-kit/config-history.properties)
-          [[ "$history_payload" == obf1:* ]] || { echo "::error::이력이 obf1이 아님"; exit 1; }
-          if grep 'ci01' <<< "$history_payload" > /dev/null; then echo "::error::이력 본문이 평문"; exit 1; fi
+          # The immutable resources keep their CRC and the active reservation stores obf1.
+          unzip -t ci-tmp/company.jar > /dev/null
+          grep -aFq 'crypto.key.embedded=obf1:' ci-tmp/company.jar
+          if grep -aFq "$(cat ci-tmp/ci.key)" ci-tmp/company.jar; then
+            echo "::error::The clear key appears in the JAR."
+            exit 1
+          fi
 
           # 키 지문 일치 확인(fingerprint는 관리자 비밀번호 없이 64자 전체 지문을 출력)
           fp_jar=$(java -jar ci-tmp/company.jar fingerprint --type key | grep -oE '[0-9a-f]{64}')
@@ -174,20 +203,25 @@ jobs:
           cmp ci-tmp/ci.key ci-tmp/ci01.export || { echo "::error::내보낸 키가 원래 키 파일과 다름"; exit 1; }
 
           # pass 키 추가(비대화형 생성은 --export 필수, 내보낸 파일 = 복원 백업)·기본 키 지정과 키 목록 확인
-          java -jar "$BASE" config key add --key-id ci-pass --generate --export ci-tmp/ci.pass --active --operator ci --reason "CI smoke" --yes --out ci-tmp/pass.jar $ADM > /dev/null
-          java -jar ci-tmp/pass.jar config show --lang en $ADM | grep "Default keys : pass=ci-pass, key=default" > /dev/null
+          cp "$BASE" ci-tmp/pass.jar
+          java -jar ci-tmp/pass.jar config key add --key-id ci-pass --generate --export ci-tmp/ci.pass --active --operator ci --reason "CI smoke" --yes $ADM > /dev/null
+          java -jar ci-tmp/pass.jar config show --lang en $ADM | grep -E "Default keys : pass=ci-pass" > /dev/null
           java -jar ci-tmp/pass.jar fingerprint --lang en | grep "Key ID     : ci-pass" > /dev/null
           java -jar ci-tmp/pass.jar doctor > /dev/null
           head -1 ci-tmp/ci.pass | grep -x '# java-crypto-kit pass-key-backup v1' > /dev/null || { echo "::error::pass 복원 백업 형식 아님"; exit 1; }
           ci_pass=$(sed -n 's/^passphrase=//p' ci-tmp/ci.pass)
           [ "${#ci_pass}" = 32 ] || { echo "::error::백업의 Passphrase 길이 이상"; exit 1; }
-          pass_settings=$(unzip -p ci-tmp/pass.jar java-crypto-kit.properties)
-          if grep -F "$ci_pass" <<< "$pass_settings" > /dev/null; then echo "::error::Passphrase 원본이 JAR에 있음"; exit 1; fi
+          if grep -aFq "$ci_pass" ci-tmp/pass.jar; then echo "::error::Passphrase 원본이 JAR에 있음"; exit 1; fi
           # 복원 백업으로 원본 JAR 없이 같은 키 복원(같은 64자 지문)
-          java -jar "$BASE" config key add --key-id ci-pass --from-file ci-tmp/ci.pass --operator ci --reason "CI restore" --yes --out ci-tmp/restored.jar $ADM > /dev/null
+          cp "$BASE" ci-tmp/restored.jar
+          update_jar ci-tmp/restored.jar config key add --key-id ci-pass --from-file ci-tmp/ci.pass --operator ci --reason "CI restore" --yes $ADM > /dev/null
           fp_a=$(java -jar ci-tmp/pass.jar fingerprint --key-id ci-pass | grep -oE '[0-9a-f]{64}')
           fp_b=$(java -jar ci-tmp/restored.jar fingerprint --key-id ci-pass | grep -oE '[0-9a-f]{64}')
           [ -n "$fp_a" ] && [ "$fp_a" = "$fp_b" ] || { echo "::error::복원 키 지문 불일치"; exit 1; }
+          # Internal rotation and removal may not produce any side files.
+          update_jar ci-tmp/restored.jar config key use --key-id ci-pass --operator ci --reason rotate --yes $ADM > /dev/null
+          update_jar ci-tmp/pass.jar config key add --key-id ci-aes --type key --from-file ci-tmp/ci.key --operator ci --reason add --yes $ADM > /dev/null
+          update_jar ci-tmp/pass.jar config key remove --key-id ci-aes --operator ci --reason revoke --yes $ADM > /dev/null
           # 사유 없는 키 생성, 관리자 인증 없는 키 생성은 비대화형에서 아무것도 만들기 전에 실패
           if java -jar "$BASE" keygen --out ci-tmp/no-reason.key $ADM 2>/dev/null; then echo "::error::사유 없는 keygen 성공"; exit 1; fi
           test ! -e ci-tmp/no-reason.key
@@ -195,11 +229,11 @@ jobs:
           test ! -e ci-tmp/no-auth.key
 
           # 연속 설정 변경 시 JAR 이름 검증
-          java -jar ci-tmp/company.jar config set crypto.lang=en --operator ci $ADM > /dev/null
-          java -jar ci-tmp/company-cfg.jar config set crypto.warning.enabled=false --operator ci $ADM > /dev/null
-          test -f ci-tmp/company-cfg-2.jar
+          update_jar ci-tmp/company.jar config set crypto.lang=en --operator ci $ADM > /dev/null
+          update_jar ci-tmp/company.jar config set crypto.warning.enabled=false --operator ci $ADM > /dev/null
+          test ! -e ci-tmp/company-cfg.jar
           if ls ci-tmp | grep -E '(cfg|configured)-.*(cfg|configured)' > /dev/null; then echo "::error::JAR 이름 접미사 누적"; exit 1; fi
-          java -jar ci-tmp/company-cfg-2.jar config history --all --lang en $ADM | grep "crypto.warning.enabled: true -> false" > /dev/null
+          java -jar ci-tmp/company.jar config history --all --lang en $ADM | grep "crypto.warning.enabled: true -> false" > /dev/null
 
           # 파일 암복호화 왕복(복호화만 관리자 인증)
           printf 'hello\n한글 파일\n' > "ci-tmp/in put.txt"
@@ -234,8 +268,22 @@ jobs:
         if: matrix.publish
         shell: bash
         run: |
-          mkdir -p dist
-          cp build/libs/java-crypto-kit-*.jar build/distributions/java-crypto-kit-aws-kms-lib-*.zip dist/
+          shopt -s nullglob dotglob
+          if [[ -e jck.ps1 ]]; then
+            echo "::error::Distribution requires the direct java -jar entry point."
+            exit 1
+          fi
+          jars=(build/libs/java-crypto-kit-*.jar)
+          bundles=(build/distributions/java-crypto-kit-aws-kms-lib-*.zip)
+          library_files=(build/libs/*)
+          distribution_files=(build/distributions/*)
+          if (( ${#jars[@]} != 1 || ${#bundles[@]} != 1 ||
+                ${#library_files[@]} != 1 || ${#distribution_files[@]} != 1 )); then
+            echo "::error::Release assembly requires one executable JAR and the optional AWS KMS ZIP. Check for extra launchers or files."
+            exit 1
+          fi
+          mkdir dist
+          cp "${jars[0]}" "${bundles[0]}" dist/
           (cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
 
       - name: Upload build artifacts (not a Release)

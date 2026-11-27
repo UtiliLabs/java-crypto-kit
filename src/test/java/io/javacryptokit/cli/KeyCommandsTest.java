@@ -81,9 +81,9 @@ class KeyCommandsTest {
         assertFalse(cli.out().contains("인증") || cli.out().contains("참고"), "결과 외 안내 문구 없음: " + cli.out());
         // 기본 공개 키는 경고 대신 키 상태로 표시(공급원·키 ID·유형 포함). 옵션이 없으면 새 암호화의 기본 키(pass).
         assertEquals(0, cli.run("fingerprint"));
-        assertTrue(cli.out().contains("키 공급원 : embedded") && cli.out().contains("키 ID     : pass-default")
-                && cli.out().contains("키 유형   : pass") && cli.out().contains("키 상태   : 공개 기본 키"), cli.out());
-        assertTrue(cli.out().contains("키 지문   : 3dca588c78a17aad886e9403e8743990d79d479bbe610664adc3ff7e94453656"), cli.out());
+        assertTrue(cli.out().contains("키 공급원 : embedded") && cli.out().contains("키 ID     : test-pass")
+                && cli.out().contains("키 유형   : pass") && cli.out().contains("키 상태   : 사용자 지정"), cli.out());
+        assertTrue(cli.out().matches("(?s).*키 지문   : [0-9a-f]{64}.*"), cli.out());
         assertFalse(cli.out().contains("[WARN]"), cli.out());
         // --type key: crypto.key.* AES 키, --key-id: 그 키
         String aesPrint = fingerprintOf("fingerprint", "--type", "key");
@@ -124,7 +124,7 @@ class KeyCommandsTest {
 
     /** @return 공개 기본 키 경고 기록 수 */
     private static long publicKeyWarnings(TestSupport.LogCapture log) {
-        return log.warnings().stream().filter(message -> message.contains("공개 기본 키 사용 중")).count();
+        return log.warnings().stream().filter(message -> message.contains("공개된 기본 키 사용 중")).count();
     }
 
     @Test
@@ -152,9 +152,9 @@ class KeyCommandsTest {
             newToken = cli.out().trim();
             assertTrue(newToken.startsWith("ENC[v1:default:"), cli.out());
             assertEquals(1, cli.out().trim().split("\\r?\\n").length, "표준 출력에는 새 암호문 한 줄만");
-            assertEquals(1, publicKeyWarnings(log), log.warnings().toString());
+            assertEquals(0, publicKeyWarnings(log), log.warnings().toString());
         }
-        assertEquals("dummy-pw", TestSupport.jarDefaults().decryptText(newToken));
+        assertEquals("dummy-pw", TestSupport.managedCrypto().decryptText(newToken));
     }
 
     @Test
@@ -190,7 +190,7 @@ class KeyCommandsTest {
         Path company = TestSupport.writeRandomKeyFile(dir, "company.key");
         Path companyConfig = fileConfig("company.properties", "prod01", company);
         // 공개 AES 키(default)로 만든 암호문 → 대상 유형을 정하지 않으면 같은 유형(key)의 기본 키(회사 AES 키 prod01)
-        String publicToken = TestSupport.jarDefaults().encryptText("dummy-pw", io.javacryptokit.KeyType.KEY);
+        String publicToken = TestSupport.managedCrypto().encryptText("dummy-pw", io.javacryptokit.KeyType.KEY);
         try (TestSupport.LogCapture log = new TestSupport.LogCapture()) {
             assertEquals(0, cli.run("rekey", "--to-config", companyConfig.toString(), "--value", publicToken), cli.err());
             assertTrue(cli.out().trim().startsWith("ENC[v1:prod01:"), cli.out());

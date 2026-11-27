@@ -46,7 +46,7 @@ CLI에서 정리 실패는 종료 코드 1이며, 파일명의 제어문자는 `
 
 CLI는 암호화와 복호화 모두 `--out <경로>`를 요구합니다. 생략하거나 빈 값을 주면 `USAGE`로 종료하며 작업 파일을 만들지 않습니다. 스크립트의 기존 자동 이름은 `--out`에 직접 지정하세요.
 
-파일 형식은 JCKF이며 관리형·직접 키 주입 모두 AES-256-GCM입니다. `pass`와 `key`는 키 준비 방법이며 CSV·PDF·ZIP 등 파일 종류와 무관합니다. JAR 자체의 공개 키 두 개는 시험용입니다.
+파일 형식은 JCKF이며 관리형·직접 키 주입 모두 AES-256-GCM입니다. `pass`와 `key`는 키 준비 방법이며 CSV·PDF·ZIP 등 파일 종류와 무관합니다. 배포 원본에는 키가 없습니다. 내장 키는 설정 JAR에서 사용합니다.
 
 | 입력 상황 | 선택 |
 |---|---|
@@ -69,12 +69,15 @@ CLI는 암호화와 복호화 모두 `--out <경로>`를 요구합니다. 생략
 
 | 하려는 작업 | 명령 | 기본 결과·주의 |
 |---|---|---|
-| 파일 암호화 | `file encrypt --in <원본> --out <암호화 파일>` | 명시한 경로에 JCKF v2 생성. 키 옵션을 생략하면 기본 유형의 기본 키 |
-| 파일 복호화 | `file decrypt --in <암호화 파일> --out <복원 파일>` | 인증이 모두 끝나면 지정한 경로에 복원. 기존 출력 파일 보호 |
+| 파일 암호화 | `file enc --in <원본> --out <암호화 파일>` | 명시한 경로에 JCKF v2 생성. 키 옵션을 생략하면 기본 유형의 기본 키 |
+| 파일 복호화 | `file dec --in <암호화 파일> --out <복원 파일>` | 인증이 모두 끝나면 지정한 경로에 복원. 기존 출력 파일 보호 |
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar file enc --in 'C:/data/report.pdf' --out 'C:/data/report.pdf.jck'
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar file dec --in 'C:/data/report.pdf.jck' --out 'C:/restore/report.pdf'
+# 입력 파일을 암호화하여 새 파일로 저장
+java -jar .\java-crypto-kit-0.2.1.jar file enc --in 'C:/data/report.pdf' --out 'C:/data/report.pdf.jck'
+
+# 파일 무결성을 확인하고 새 평문 파일로 복호화
+java -jar .\java-crypto-kit-0.2.1.jar file dec --in 'C:/data/report.pdf.jck' --out 'C:/restore/report.pdf'
 ```
 
 복호화는 파일 헤더의 키 ID로 키를 고르며, 전체 인증이 끝나기 전에는 최종 평문 파일을 만들지 않습니다. 실패하면 `INTEGRITY`(변조·키 불일치), `KEY_ID_MISMATCH`(다른 키ID), 파일 존재 오류(다른 출력 경로 지정)를 확인합니다.
@@ -89,7 +92,7 @@ java -jar .\java-crypto-kit-0.2.0-cfg-2.jar file dec --in 'C:/data/report.pdf.jc
 **사용 상황:** CSV·PDF·JSON·이미지·압축 파일 등 내용 형식과 관계없이 파일 전체를 암호화할 때. 자세한 형식은 [7장](#topic-file-encryption--7-파일-암복호화).
 
 ```text
-java -jar <JAR> file encrypt --in <원본 파일> --out <출력 파일> [--type pass|key] [--key-id <키 ID>]
+java -jar <JAR> file enc --in <원본 파일> --out <출력 파일> [--type pass|key] [--key-id <키 ID>]
     [--config <외부 Properties>] [--lang ko|en]
 ```
 
@@ -105,15 +108,19 @@ java -jar <JAR> file encrypt --in <원본 파일> --out <출력 파일> [--type 
 **예제**
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar file enc --in 'C:/data/report.pdf' --out 'C:/data/report.pdf.jck'
+# 입력 파일을 암호화하여 새 파일로 저장
+java -jar .\java-crypto-kit-0.2.1.jar file enc --in 'C:/data/report.pdf' --out 'C:/data/report.pdf.jck'
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar file enc --in /data/export/users.csv --out /secure/users.csv.jck
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar file enc --in /data/export/users.csv --out /secure/users-aes.jck --type key
+# 입력 파일을 암호화하여 새 파일로 저장
+java -jar ./java-crypto-kit-0.2.1.jar file enc --in /data/export/users.csv --out /secure/users.csv.jck
+
+# 입력 파일을 암호화하여 새 파일로 저장
+java -jar ./java-crypto-kit-0.2.1.jar file enc --in /data/export/users.csv --out /secure/users-aes.jck --type key
 ```
 
-정식 명령으로 실행하려면 `java -jar ./java-crypto-kit-0.2.0-cfg-2.jar file encrypt --in /data/export/users.csv --out /secure/users.csv.jck`를 사용합니다.
+정식 명령으로 실행하려면 `java -jar ./java-crypto-kit-0.2.1.jar file encrypt --in /data/export/users.csv --out /secure/users.csv.jck`를 사용합니다.
 
 **결과:** 예를 들어 `report.pdf.jck`가 만들어지고 원본 `report.pdf`는 그대로 남습니다.
 
@@ -131,7 +138,7 @@ java -jar ./java-crypto-kit-0.2.0-cfg-2.jar file enc --in /data/export/users.csv
 기존 v1 파일도 읽을 수 있습니다. v1의 청크 인증은 같은 키를 쓴 다른 파일의 청크를 구분하지 못합니다. 출처와 무결성을 별도로 확인한 v1 파일만 복호화하고, 기존 파일과 다른 경로에 다시 암호화하면 v2가 생성됩니다. v1 전용 이전 JAR는 새 v2 파일을 읽을 수 없습니다.
 
 ```text
-java -jar <JAR> file decrypt --in <암호화 파일> --out <복원 파일> [--config <외부 Properties>] [--admin-pass-file <파일>] [--lang ko|en]
+java -jar <JAR> file dec --in <암호화 파일> --out <복원 파일> [--config <외부 Properties>] [--admin-pass-file <파일>] [--lang ko|en]
 ```
 
 | 옵션 | 필수 | 의미·기본값 |
@@ -146,14 +153,15 @@ java -jar <JAR> file decrypt --in <암호화 파일> --out <복원 파일> [--co
 
 ```powershell
 # 원본 report.pdf가 같은 폴더에 아직 있으면 실패하므로 다른 복원 경로를 지정합니다.
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar file dec --in 'C:/data/report.pdf.jck' --out 'C:/restore/report.pdf'
+java -jar .\java-crypto-kit-0.2.1.jar file dec --in 'C:/data/report.pdf.jck' --out 'C:/restore/report.pdf'
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar file dec --in /secure/users.csv.jck --out /restore/users.csv
+# 파일 무결성을 확인하고 새 평문 파일로 복호화
+java -jar ./java-crypto-kit-0.2.1.jar file dec --in /secure/users.csv.jck --out /restore/users.csv
 ```
 
-정식 명령으로 실행하려면 `java -jar ./java-crypto-kit-0.2.0-cfg-2.jar file decrypt --in /secure/users.csv.jck --out /restore/users.csv`를 사용합니다.
+정식 명령으로 실행하려면 `java -jar ./java-crypto-kit-0.2.1.jar file decrypt --in /secure/users.csv.jck --out /restore/users.csv`를 사용합니다.
 
 **결과:** 먼저 관리자 비밀번호를 확인합니다(`--admin-pass-file`이면 묻지 않음, 실패하면 키를 읽거나 파일을 만들지 않음). 파일 헤더의 키 ID로 등록된 키(pass·key 모두)를 고르고, 모든 청크의 인증이 끝난 파일만 최종 경로에 만들어 `복호화 완료: report.pdf.jck -> report.pdf (1048576바이트)` 한 줄을 출력합니다.
 
@@ -167,12 +175,18 @@ java -jar ./java-crypto-kit-0.2.0-cfg-2.jar file dec --in /secure/users.csv.jck 
 ### 파일 암복호화 (A.13)
 
 ```powershell
+# 입력 파일을 암호화하여 새 파일로 저장
 java -jar .\app-pass.jar file enc --in .\report.csv --out .\report.csv.jck
+
+# 파일 무결성을 확인하고 새 평문 파일로 복호화
 java -jar .\app-pass.jar file dec --in .\report.csv.jck --out .\report-restored.csv
 ```
 
 ```bash
+# 입력 파일을 암호화하여 새 파일로 저장
 java -jar ./app-pass.jar file enc --in ./report.csv --out ./report.csv.jck
+
+# 파일 무결성을 확인하고 새 평문 파일로 복호화
 java -jar ./app-pass.jar file dec --in ./report.csv.jck --out ./report-restored.csv
 ```
 

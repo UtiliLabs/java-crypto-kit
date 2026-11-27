@@ -1,7 +1,7 @@
 file encrypt - 파일 암호화(내용 형식 무관, JCKF v2, 큰 파일도 스트리밍)
 
 사용법
-  java [-D...] -jar {jar} file encrypt --in <파일>
+  java [-D...] -jar {jar} file enc --in <파일>
        --out <파일> [--type pass|key] [--key-id <ID>]
        [--config <파일>] [--lang en|ko]
 

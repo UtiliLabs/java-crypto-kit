@@ -150,7 +150,7 @@ public static RequestAuth.Result requestAuth(byte[] sharedKey, String method, St
 |---|---|
 | `RequestAuth.of(hmac)` | 시스템 UTC, 허용 오차 5분 |
 | `RequestAuth.of(hmac, maxSkew, clock)` | `Duration` 1초~15분, 검증용 `Clock` 지정 가능(초 단위 적용) |
-| `sign(request)` | `Signed` 반환: `timestamp()`(Unix 초 문자열), `nonce()`(Base64URL 22자), `mac()`(Base64URL) |
+| `sign(request)` | `Signed` 반환: `timestamp()`(0~999,999,999,999 범위의 Unix 초 문자열), `nonce()`(Base64URL 22자), `mac()`(Base64URL) |
 | `verify(request, timestamp, nonce, mac)` | `Result` 반환. `isValid()`로 성공 여부 확인 |
 | 수신 형식 | 시각 숫자 1~12자, Nonce URL 안전 문자 16~128자, MAC URL 안전 문자(알고리즘의 MAC 길이 검증) |
 
@@ -348,9 +348,14 @@ true
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api keygen --type hmac --out hmac.key --reason 'HMAC interop'
-java -jar java-crypto-kit-0.2.0-cfg.jar api hmac sign --key-file hmac.key --in request.json --out request.mac
-java -jar java-crypto-kit-0.2.0-cfg.jar api hmac verify --key-file hmac.key --in request.json --expected-file request.mac
+# HMAC 키 생성
+java -jar java-crypto-kit-0.2.1.jar api keygen --type hmac --out hmac.key --reason 'HMAC interop'
+
+# 공유 키로 메시지 인증값 생성
+java -jar java-crypto-kit-0.2.1.jar api hmac sign --key-file hmac.key --in request.json --out request.mac
+
+# 메시지의 HMAC 인증값 검증
+java -jar java-crypto-kit-0.2.1.jar api hmac verify --key-file hmac.key --in request.json --expected-file request.mac
 ```
 
 <a name="api-hash"></a>
@@ -379,8 +384,11 @@ java -jar java-crypto-kit-0.2.0-cfg.jar api hmac verify --key-file hmac.key --in
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api hash gen --in application.jar --out application.sha
-java -jar java-crypto-kit-0.2.0-cfg.jar api hash verify --in application.jar --expected-file application.sha
+# 입력 파일의 해시 계산
+java -jar java-crypto-kit-0.2.1.jar api hash gen --in application.jar --out application.sha
+
+# 저장한 해시와 현재 파일 대조
+java -jar java-crypto-kit-0.2.1.jar api hash verify --in application.jar --expected-file application.sha
 ```
 
 <a name="api-signature"></a>
@@ -411,15 +419,20 @@ RSA 서명의 기본 표현은 Base64입니다. ECDSA의 일반 서명은 DER로
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api keygen --type ec --out ec --reason 'signature test'
-java -jar java-crypto-kit-0.2.0-cfg.jar api sig sign --alg ecdsa-sha256 --priv-key ec-private.pem --in sample.txt --out sample.sig
-java -jar java-crypto-kit-0.2.0-cfg.jar api sig verify --alg ecdsa-sha256 --pub-key ec-public.pem --in sample.txt --sig-file sample.sig
+# EC 키 생성
+java -jar java-crypto-kit-0.2.1.jar api keygen --type ec --out ec --reason 'signature test'
+
+# 개인 키로 데이터 서명
+java -jar java-crypto-kit-0.2.1.jar api sig sign --alg ecdsa-sha256 --priv-key ec-private.pem --in sample.txt --out sample.sig
+
+# 공개 키로 데이터 서명 검증
+java -jar java-crypto-kit-0.2.1.jar api sig verify --alg ecdsa-sha256 --pub-key ec-public.pem --in sample.txt --sig-file sample.sig
 ```
 
 <a name="api-request-auth"></a>
 ### RequestAuth
 
-서명 결과의 JSON은 timestamp(Unix 초 문자열), nonce(Base64URL), mac(Base64URL)입니다. 그대로 `--auth-file`로 전달하거나 세 필드를 각각 지정합니다. `--at`은 시계를 고정하고 Nonce는 API가 생성합니다. 결과 파일과 리다이렉션에서는 JSON 한 줄, 실제 터미널에서는 필드별로 정렬한 JSON을 출력합니다. 별도 요청 정규화와 재사용 상태 저장은 호출자가 관리합니다.
+서명 결과의 JSON은 timestamp(Unix 초 문자열), nonce(Base64URL), mac(Base64URL)입니다. 그대로 `--auth-file`로 전달하거나 세 필드를 각각 지정합니다. `--at`은 시계를 고정하고 Nonce는 API가 생성합니다. 결과 파일과 리다이렉션에서는 JSON 한 줄, 실제 터미널에서는 필드별로 정렬한 JSON을 출력합니다. Java API도 같은 시각 범위를 적용합니다. 범위 밖의 값을 반환하는 `Clock`으로 서명하면 `IllegalArgumentException`이 발생합니다. 별도 요청 정규화와 재사용 상태 저장은 호출자가 관리합니다.
 
 | 명령 | 관리자 인증 | 명령별 옵션 |
 |---|---|---|
@@ -448,9 +461,14 @@ java -jar java-crypto-kit-0.2.0-cfg.jar api sig verify --alg ecdsa-sha256 --pub-
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api keygen --type hmac --out hmac.key --reason 'request test'
-java -jar java-crypto-kit-0.2.0-cfg.jar api req-auth sign --key-file hmac.key --in request.json --out request.sig.json
-java -jar java-crypto-kit-0.2.0-cfg.jar api req-auth verify --key-file hmac.key --in request.json --auth-file request.sig.json
+# HMAC 키 생성
+java -jar java-crypto-kit-0.2.1.jar api keygen --type hmac --out hmac.key --reason 'request test'
+
+# HTTP 요청 인증값 생성
+java -jar java-crypto-kit-0.2.1.jar api req-auth sign --key-file hmac.key --in request.json --out request.sig.json
+
+# HTTP 요청 인증값 검증
+java -jar java-crypto-kit-0.2.1.jar api req-auth verify --key-file hmac.key --in request.json --auth-file request.sig.json
 ```
 
 ---

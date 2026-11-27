@@ -36,7 +36,8 @@ import java.util.List;
  * crypto.decryptFile(Paths.get("report.csv.jck"), Paths.get("report-restored.csv"));
  * }</pre>
  *
- * <p><b>키 선택</b>: 새 암호화는 다음 순서로 키를 고르고, 고르지 못하면 다른 키로 바꾸지 않고 실패한다(CONFIGURATION).</p>
+ * <p><b>키 선택</b>: PASS (Passphrase)와 KEY (AES Key)를 지원한다. 새 암호화는 아래 순서로 선택하며, 기본 키 미설정이나
+ * 등록되지 않은 Key ID는 {@code CONFIGURATION}으로 보고한다.</p>
  * <ul>
  *   <li>유형·Key ID를 정하지 않음: 설정 {@code crypto.key.type}(기본 {@code pass})의 기본 키</li>
  *   <li>{@link KeyType}만 정함: 그 유형의 기본 키({@code pass}는 {@code crypto.key.active.pass}, {@code key}는
@@ -51,9 +52,8 @@ import java.util.List;
  * <p><b>설정과 수명</b></p>
  * <ul>
  *   <li>{@link #fromDefaultConfiguration()}: JVM 속성 {@code -Dcrypto.config.file} → 환경변수 {@code CRYPTO_CONFIG_FILE}
- *       순서로 외부 설정을 찾고, 없으면 JAR 내부 설정을 쓴다. 공식 JAR의 내장 키는 공개 예제 키 두 개({@code pass-default},
- *       {@code default})로 개발·테스트용이다({@code config set}·{@code config embed-key}·{@code config key}로 바꾼 JAR면 그 값).
- *       Tomcat 어댑터와 같은 규칙이다.</li>
+ *       순서로 외부 설정을 찾고, 없으면 JAR 내부 설정을 쓴다. 공식 배포 JAR의 키 슬롯은 비어 있다. {@code admin setup}으로 같은
+ *       JAR에 생성한 키 또는 관리형 외부 키를 사용할 수 있다. Tomcat 어댑터와 같은 규칙이다.</li>
  *   <li>{@link #fromConfigFile(Path)}: 지정한 외부 설정 파일을 사용한다(CLI {@code --config}와 같은 의미).</li>
  *   <li>{@link #fromRawKey(String, byte[])}·{@link #fromPassphrase(String, char[], byte[], int)}: 개발자가 직접 준 키 하나만 쓴다.
  *       JAR 내장 키·키 목록·외부 설정 파일·JVM 속성을 읽거나 바꾸지 않고, 변경 이력·CLI 관리자 비밀번호와 무관하다. 키는 그 객체만
@@ -399,24 +399,27 @@ public final class CredentialCrypto {
 
     /** @return 유형·Key ID를 정하지 않은 새 암호화({@code encryptText(value)})가 실제로 쓰는 키의 Key ID(비밀값 아님) */
     public String keyId() {
-        return selected().id();
+        KeyProfile profile = selected();
+        return profile == null ? null : profile.id();
     }
 
     /** @return {@code encryptText(value)}가 실제로 쓰는 키의 유형 */
     public KeyType keyType() {
-        return selected().type();
+        KeyProfile profile = selected();
+        return profile == null ? null : profile.type();
     }
 
     /** @return {@code encryptText(value)}가 실제로 쓰는 키의 공급 방식: embedded, file, env, vault, aws-kms, direct(직접 준 키) */
     public String keySource() {
-        return selected().source();
+        KeyProfile profile = selected();
+        return profile == null ? null : profile.source();
     }
 
     /**
      * 등록된 모든 키의 정보를 돌려준다({@code crypto.key.*}의 AES 키가 먼저, 그다음 {@code crypto.keys.<id>.*}를 Key ID 순서로).
-     * 각 키를 실제로 읽어 사용 가능 여부·공개 기본 키 여부·짧은 지문을 확인하며, 원격 키(vault·aws-kms)는 이때 처음 조회할 수 있다.
-     * 읽지 못한 키도 목록에 넣고 {@link KeyInfo#isAvailable()}과 사유로 알린다. 키 상태를 직접 돌려주는 조회이므로 공개 기본 키
-     * 자동 경고를 내지 않는다.
+     * 각 키를 실제로 읽어 사용 가능 여부·공개된 기본 키 여부·짧은 지문을 확인하며, 원격 키(vault·aws-kms)는 이때 처음 조회할 수 있다.
+     * 읽지 못한 키도 목록에 넣고 {@link KeyInfo#isAvailable()}과 사유로 알린다. 키 상태를 직접 돌려주는 조회이므로 공개된 기본
+     * 키 자동 경고를 내지 않는다.
      *
      * @return 키 정보 목록(변경 불가)
      */
@@ -429,7 +432,7 @@ public final class CredentialCrypto {
                 KeyProfile profile = check.profile();
                 KeyProfile active = settings.activeProfile(profile.type());
                 result.add(new KeyInfo(profile.id(), profile.type(), profile.source(),
-                        active != null && active.id().equals(profile.id()), chosen.id().equals(profile.id()),
+                        active != null && active.id().equals(profile.id()), chosen != null && chosen.id().equals(profile.id()),
                         check.publicDefaultKey(), check.available(), check.failureReason(), check.failure(),
                         check.available() ? KeyResolver.shortFingerprint(check.fingerprint()) : null));
             }

@@ -1,9 +1,9 @@
-config key use - change the default key of a type (creates a new JAR)
+config key use - change the default key of a type (updates the current JAR)
 
 Usage
-  java -jar {jar} config key use --key-id <ID>
+  {update} config key use --key-id <ID>
        --operator <ID> [--type pass|key] [--reason <text>] [--jar <jar>]
-       [--out <jar> | --replace] [--yes]
+       [--replace] [--yes]
        [--admin-pass-file <file>] [--lang en|ko]
 
 Options
@@ -13,8 +13,7 @@ Options
   --operator <ID>   Operator ID for the history (required)
   --reason <text>   Reason for the history (required, asked interactively)
   --jar <jar>       JAR to change (optional, default: the running JAR)
-  --out <jar>       Result JAR (optional, default <name>-cfg.jar)
-  --replace         Replace the original (backup first)
+  --replace           Compatibility flag. Updates the same path.
   --yes             Skip the CHANGE confirmation (not the reason)
   --admin-pass-file <file>
                     Admin password file (non-interactive, mode 600)
@@ -24,9 +23,9 @@ Options
   crypto.key.active.key). Existing ciphertext still decrypts (by key ID).
 
 Result
-  Created JAR : /opt/app/java-crypto-kit-{version}-cfg.jar
-  Changes     : crypto.key.active.pass (pass-default -> p2)
+  Updated JAR : /opt/app/java-crypto-kit-{version}.jar
+  Changes     : crypto.key.active.pass (app-pass -> p2)
   Default key : pass=p2
 
 Examples
-  java -jar {jar} config key use --key-id p2 --operator ops
+  {update} config key use --key-id p2 --operator ops

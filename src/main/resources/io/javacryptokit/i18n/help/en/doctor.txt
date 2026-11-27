@@ -12,7 +12,7 @@ Options
 
 Result
   [PASS] Settings loaded
-  [INFO] Key type pass, active pass pass-default, active key key01
+  [INFO] Key type pass, active pass app-pass, active key key01
   [INFO] Key key01 (key, default, crypto.key.*):
          embedded, JAR built-in (crypto.key.embedded)
   [PASS] Key loaded: key01, custom key, fingerprint ab12cd34ef56...7890abcd

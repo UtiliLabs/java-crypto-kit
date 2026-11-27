@@ -24,7 +24,8 @@
 3. Resource를 다시 만들거나 Tomcat을 재시작한 뒤 실제 SQL이 성공하는지 확인합니다.
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar encrypt
+# 입력한 값을 활성 키로 암호화
+java -jar .\java-crypto-kit-0.2.1.jar enc
 ```
 
 키를 그대로 쓰는 비밀번호 변경에는 `keygen`·`config embed-key`·`rekey`가 필요 없습니다.
@@ -35,7 +36,7 @@ java -jar .\java-crypto-kit-0.2.0-cfg-2.jar encrypt
 
 | 현상·오류 | 흔한 원인 | 우선 조치 |
 |---|---|---|
-| `ADMIN_SETUP` | CLI 관리자 비밀번호를 설정하지 않은 JAR로 실행함(비대화형), 이미 설정된 JAR에 `admin setup`, 대상 JAR(`--jar`·`--from-jar`)이 미설정, 클래스 폴더에서 CLI 실행 | 배포 JAR로 `admin setup`(비대화형은 `--operator`·`--admin-pass-file`) 뒤 생성 JAR로 실행([1.4절](../guide/cli.md#topic-admin--14-cli-관리자-비밀번호)). 설정 직후 "요청한 명령은 실행하지 않았습니다"는 생성 JAR로 다시 실행 |
+| `ADMIN_SETUP` | CLI 관리자 비밀번호를 설정하지 않은 JAR로 실행함(비대화형), 이미 설정된 JAR에 `admin setup`, 대상 JAR(`--jar`·`--from-jar`)이 미설정, 클래스 폴더에서 CLI 실행 | 배포 JAR로 `admin setup`(비대화형은 `--admin-pass-file`, 작업자 기본 `SYSTEM`) 뒤 같은 JAR로 실행([1.4절](../guide/cli.md#topic-admin--14-cli-관리자-비밀번호)). 설정 직후 "요청한 명령은 실행하지 않았습니다"는 같은 경로의 JAR로 다시 실행 |
 | `ADMIN_AUTH` | 관리자 비밀번호 3번 불일치·입력 취소, 비대화형인데 `--admin-pass-file` 없음, 비밀번호 파일 없음·내용 불일치·다른 사용자도 읽을 수 있는 권한(Linux·macOS), 대상 JAR의 비밀번호가 다름 | 비밀번호 확인. 비대화형은 `--admin-pass-file`(한 줄 파일, `chmod 600`). 다른 JAR의 비밀번호가 다르면 대화형으로 실행. 분실은 [12.8절](security.md#128-cli-관리자-인증의-범위와-한계) |
 | `ADMIN_PASSWORD` | 새 관리자 비밀번호가 규칙(10~128자, 영문자·숫자·특수문자 각 1자, ASCII만)에 맞지 않음, 두 입력 불일치, 현재와 같음, 3번 실패 | 오류의 위반 항목(예: `특수문자 없음`)을 고쳐 다시 실행([1.4절](../guide/cli.md#topic-admin--14-cli-관리자-비밀번호)) |
 | `PLAINTEXT_PASSWORD` | Resource에 평문 비밀번호를 넣음 | 키 내장 JAR로 `encrypt`한 `ENC[...]` 전체로 바꿈 |
@@ -54,8 +55,8 @@ java -jar .\java-crypto-kit-0.2.0-cfg-2.jar encrypt
 | `IO_ERROR` | 파일 잠금·권한·경로 | 실행 중인 JAR 교체 여부, 쓰기 권한 확인 |
 | JNDI 이름 오류·`NoInitialContextException` | 앱 밖에서 JNDI 호출, Context 등록 오류 | JNDI 이름·앱별 Context·`ResourceLink` 확인 |
 | Pool 소진·대기 지연 | 최대 연결 부족 또는 연결 누수 | `maxTotal`/`maxActive`, `maxWaitMillis`/`maxWait`, 앱의 `close()` 확인 |
-| `[WARN] 공개 기본 키 사용 중` (CLI 표준 오류·WAS 로그) | 실제로 쓰는 키가 공개 예제 키(내장 키를 키 파일·환경변수로 옮긴 경우 포함) | 사용자 지정 키로 바꾸고 기존 암호문은 `rekey`([12.1절](security.md#121-공개-기본-키-경고)) |
-| `doctor` 키 상태 `공개 기본 키` | `doctor`는 PASS지만 공개 예제 키 사용 | **사용자 지정 키 적용 후** 실제 DB 연결 확인 |
+| 공개된 기본 키 사용 거부 | 공개된 기본 AES 키, 공개된 기본 Passphrase로 파생한 키 또는 외부 공급원의 공개된 기본 Passphrase 선택 | 격리된 환경에서 이전 버전 JAR로 복호화한 뒤 새 키로 다시 암호화 |
+| 등록된 키 없음 | 원본 JAR 또는 선택 유형의 활성 키 미설정 | 설정 JAR를 배치하거나 유효한 외부 키 지정 |
 | `doctor`의 `[WARN] ... 무시된 -D` | `crypto.jvm.override.enabled=false`라 지정한 `-D`가 적용되지 않음 | 그 `-D`를 지우거나 값을 외부 Properties·JAR 설정에 지정 |
 
 **장애 확인 순서:** (1) 배포한 최종 JAR 확인 → (2) `config show`와 `info`의 값·출처 비교 → (3) `doctor` → (4) Tomcat·DB 로그의 오류 코드와 Pool 종류 확인 → (5) 실제 SQL로 재확인.
@@ -66,21 +67,22 @@ java -jar .\java-crypto-kit-0.2.0-cfg-2.jar encrypt
 
 | 상황 | 그대로 되는 것 | 바뀐 점·할 일 |
 |---|---|---|
-| 기존 암호문(`ENC[v1:default:...]`, `ENC[v1:key01:...]` 등)과 JAR·외부 Properties | **추가 설정 없이 복호화**(암호문의 키 ID로 `crypto.key.*` AES 키를 찾음). Tomcat Resource 변경 없음 | 없음 |
-| `crypto.key.*`에 사용자 지정 AES 키를 둔 외부 Properties | `--type key`(Java `KeyType.KEY`)는 그 사용자 지정 키를 씀(공개 키로 바뀌지 않음) | 유형을 정하지 않은 새 암호화는 이제 공식 JAR의 공개 `pass-default`를 씀(공개 키 경고). 이전처럼 AES 키를 기본으로 쓰려면 외부 Properties에 `crypto.key.type=key`를 추가하거나, 사용자 지정 pass 키를 등록해 기본으로 정함 |
-| `config embed-key`로 만든 이전 형식 키 내장 JAR | 그 JAR 자체는 이전 형식 동작 그대로(새 CLI로 `config show`·`history` 가능) | 새 기능(키 목록)을 쓰려면 새 버전 공식 JAR에서 다시 `config embed-key`(또는 `config key add --from-file`)로 만듦. 새 CLI는 이전 버전 JAR에 키 목록 항목을 쓰지 않음 |
+| 사용자 지정 키로 만든 기존 암호문 | 외부 설정이나 읽을 수 있는 이전 JAR에서 같은 키 재료와 ID를 공급하면 복호화 가능. 사용자 AES 키를 `default`에 등록했다면 ID만으로 공개 키로 판정하지 않음 | 외부 `crypto.key.*` 또는 기존 `crypto.keys.<ID>.*` 정의를 유지. PASS는 원래 키 ID·파생 키 또는 원 Passphrase·Salt·KDF·반복 횟수를 보존 |
+| 공개된 기본 키(AES 키·Passphrase)로 만든 기존 암호문 | 없음(복호화되지 않음). 암호문의 키 ID가 등록되어 있지 않으면 `KEY_ID_MISMATCH`, 그 키 ID로 실제 공급된 키가 차단 대상 공개 키이면 `KEY_SOURCE`로 실패 | 격리된 환경에서 이전 버전 JAR로 복호화한 뒤 새 키로 다시 암호화([12.1절](security.md#121-공개-기본-키-경고)) |
+| `crypto.key.*`에 사용자 지정 AES 키를 둔 외부 Properties | `--type key`(Java `KeyType.KEY`)와 `crypto.key.type=key`는 활성 KEY를 선택함 | 외부 AES 키를 기본으로 쓰려면 `crypto.key.type=key`를 설정하고 `crypto.key.active.key`를 외부 키 ID로 맞춤. 해당 키만 쓸 때는 `--key-id <외부 키 ID>` 또는 Java API의 `withKeyId(...)` 사용 |
+| 이전 키 내장 JAR | 이전 JAR는 키 조회 및 `rekey --from-jar`의 원본으로 사용. 내부 갱신은 예약 영역이 있는 지원 JAR에서만 가능 | 일반 ID는 대상에서 `config key add --from-jar <이전 JAR> --key-id <ID>`로 이관할 수 있음. `default`·`pass-default`는 신규 등록에 예약되어 있으므로 이미 그 ID로 쓰던 사용자 키는 기존 정의로 읽거나 `rekey`로 새 ID의 키에 이전 |
 | `rekey` 자동화 | 대상 유형을 정하지 않으면 **기존 암호문과 같은 유형**의 기본 키로 다시 암호화(AES 암호문 → AES 기본 키) | 유형을 바꾸려면 `--type`·`--key-id` |
-| CLI 키 생성·변경 자동화(`keygen`, `kms datakey`, `config embed-key`, 키 관련 `config set`) | 결과 줄의 형식은 같음(사유 등 줄이 추가됨) | 키를 만들거나 바꾸는 명령에는 `--reason`을 붙임(빠지면 아무것도 바꾸기 전에 `USAGE`). 새 JAR를 만들 때도 `CHANGE` 확인을 받으므로 무인 실행은 `--yes`를 붙임 |
+| CLI 키 생성·변경 자동화(`keygen`, `kms datakey`, `config embed-key`, 키 관련 `config set`) | 결과 줄의 형식은 같음(사유 등 줄이 추가됨) | 키를 만들거나 바꾸는 명령에는 `--reason`을 붙임(빠지면 아무것도 바꾸기 전에 `USAGE`). `CHANGE` 확인을 받으므로 무인 실행은 `--yes`를 붙임 |
 | `config history` | 이전 형식 이력을 그대로 읽고 검증 | 기본 조회가 pass 이력이므로 이전 형식의 `crypto.key.*` 변경은 `--type key`나 `--all`로 봄 |
-| CLI 관리자 비밀번호 | 이전 형식 JAR 자체는 관리자 비밀번호를 모르므로 그 JAR로 실행하는 CLI에는 이 규칙이 적용되지 않음(소급 적용 불가). Java API·Tomcat은 버전과 관계없이 비밀번호 없음 | 새 버전 CLI는 먼저 [`admin setup`](../guide/cli.md#topic-admin--222-admin-setup--관리자-비밀번호-최초-설정)으로 설정. 이전 형식 JAR에는 관리자 정보를 쓰지 않으며(새 CLI로 편집할 때는 실행 중인 CLI JAR의 비밀번호로 인증), 이관은 설정한 새 버전 JAR로 키를 옮김: `config embed-key --from-file` 또는 `config key add --from-jar <이전 형식 JAR> --key-id <ID>`(키·키 ID 보존). 이전 형식 JAR의 이력은 그 JAR에 그대로 남고 새 JAR에는 이관 기록부터 쌓임. 이관한 뒤 이전 형식 JAR은 관리자 비밀번호 없이 CLI를 쓸 수 있으므로 보관·폐기를 정함 |
+| CLI 관리자 비밀번호 | 이전 형식 JAR 자체는 관리자 비밀번호를 모르므로 그 JAR로 실행하는 CLI에는 이 규칙이 적용되지 않음(소급 적용 불가). Java API·Tomcat은 버전과 관계없이 비밀번호 없음 | 새 버전 CLI는 먼저 [`admin setup`](../guide/cli.md#topic-admin--222-admin-setup--관리자-비밀번호-최초-설정)으로 설정. 예약 영역이 없는 이전 형식 JAR는 읽기 및 이관의 원본으로 사용. 설정을 마친 새 버전 JAR에서 위의 ID별 이관 절차를 따름. 이전 형식 JAR의 이력은 그 JAR에 그대로 남고 새 JAR에는 이관 기록부터 쌓임. 이관한 뒤 이전 형식 JAR은 관리자 비밀번호 없이 CLI를 쓸 수 있으므로 보관·폐기를 정함 |
 | CLI 자동화(스크립트·CI) | 결과 형식은 같음 | 민감 명령(복호화·키 관리·`config show`·`config history` 등)에 `--admin-pass-file <파일>`을 붙이고, 설정된 JAR로 실행 |
-| JAR 안 내장 키·이력의 저장 형식 | 이전 형식의 평문 내장 키·이력을 그대로 읽음 | 새 버전 JAR를 편집하면 내장 키와 이력 본문을 `obf1`로 저장. 이전 형식 JAR를 새 CLI로 편집하면 그 JAR가 계속 동작하도록 기존 형식(평문)으로 씀([12.7절](security.md#127-jar-내장값의-경량-난독화obf1)) |
+| JAR 안 내장 키·이력의 저장 형식 | 이전 형식의 평문 내장 키·이력을 그대로 읽음 | 예약 영역이 있는 JAR를 갱신하면 내장 키와 이력 본문을 `obf1`로 저장([12.7절](security.md#127-jar-내장값의-경량-난독화obf1)) |
 
 올린 뒤에는 `info`의 `기본 유형`·`pass 기본`·`key 기본` 줄과 키 목록으로 새 암호화가 쓸 키를 확인하고, `doctor`로 모든 키가 `PASS`인지 봅니다.
 
 ## A.14 이전 형식 외부 설정을 그대로 쓰기
 
-이전 형식의 `crypto.key.*` 설정은 추가 설정 없이 기존 암호문을 복호화합니다. 새 암호화의 기본도 그 AES 키로 두려면 `crypto.key.type=key`를 더합니다([9.4절](#94-이전-형식-설정jar에서-올리기)).
+이전 형식의 `crypto.key.*` 설정은 추가 설정 없이 기존 암호문을 복호화합니다. 새 암호화에서 그 AES 키를 기본으로 쓰려면 `crypto.key.type=key`를 설정하고, 다른 활성 KEY가 이미 있으면 `crypto.key.active.key`를 외부 키 ID로 맞춥니다. 명령마다 고르려면 `--key-id`를 사용합니다([9.4절](#94-이전-형식-설정jar에서-올리기)).
 
 ```properties
 crypto.key.type=key
@@ -90,13 +92,19 @@ crypto.key.file=C:/Users/me/jck-secure/example.key
 ```
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar info --config "$SECURE\app.properties"
-java -jar .\java-crypto-kit-0.2.0-cfg.jar verify --config "$SECURE\app.properties" --value 'ENC[v1:key01:...]'
+# 적용된 설정과 활성 키 조회
+java -jar .\java-crypto-kit-0.2.1.jar info --config "$SECURE\app.properties"
+
+# 평문 표시 없이 암호문의 무결성 확인
+java -jar .\java-crypto-kit-0.2.1.jar verify --config "$SECURE\app.properties" --value 'ENC[v1:key01:...]'
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg.jar info --config "$SECURE/app.properties"
-java -jar ./java-crypto-kit-0.2.0-cfg.jar verify --config "$SECURE/app.properties" --value 'ENC[v1:key01:...]'
+# 적용된 설정과 활성 키 조회
+java -jar ./java-crypto-kit-0.2.1.jar info --config "$SECURE/app.properties"
+
+# 평문 표시 없이 암호문의 무결성 확인
+java -jar ./java-crypto-kit-0.2.1.jar verify --config "$SECURE/app.properties" --value 'ENC[v1:key01:...]'
 ```
 
 ```text
@@ -112,45 +120,95 @@ OK
 아래 첫 묶음은 오류 화면을 보여 주려고 일부러 틀리게 적은 **실패 시연**입니다(`'ENC[v1:file-pass:...]'`는 A.6의 `file-pass` 암호문으로 바꿔 실행).
 
 ```powershell
-java -jar .\app-aes.jar encrypt --key-id nope
-java -jar .\app-aes.jar encrypt --type pass --key-id key01
+# 입력한 값을 활성 키로 암호화
+java -jar .\app-aes.jar enc --key-id nope
+
+# 입력한 값을 활성 키로 암호화
+java -jar .\app-aes.jar enc --type pass --key-id key01
+
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar .\app-pass-v3.jar verify --value 'ENC[v1:file-pass:...]'
+
+# 설정 변경 이력과 작업 사유 확인
 java -jar .\use.jar config history --type key --all
-java -jar .\app-pass-v3.jar config key add --key-id app-pass --type key --from-file "$SECURE\example.key" --operator example-admin --reason "ID 재사용 시험" --yes --out reuse.jar
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\app-pass-v3.jar -Destination reuse.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar reuse.jar config key add --key-id app-pass --type key --from-file "$SECURE\example.key" --operator example-admin --reason "ID 재사용 시험" --yes
 ```
 
 ```bash
-java -jar ./app-aes.jar encrypt --key-id nope
-java -jar ./app-aes.jar encrypt --type pass --key-id key01
+# 입력한 값을 활성 키로 암호화
+java -jar ./app-aes.jar enc --key-id nope
+
+# 입력한 값을 활성 키로 암호화
+java -jar ./app-aes.jar enc --type pass --key-id key01
+
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar ./app-pass-v3.jar verify --value 'ENC[v1:file-pass:...]'
+
+# 설정 변경 이력과 작업 사유 확인
 java -jar ./use.jar config history --type key --all
-java -jar ./app-pass-v3.jar config key add --key-id app-pass --type key --from-file "$SECURE/example.key" --operator example-admin --reason "ID 재사용 시험" --yes --out reuse.jar
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./app-pass-v3.jar reuse.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar reuse.jar config key add --key-id app-pass --type key --from-file "$SECURE/example.key" --operator example-admin --reason "ID 재사용 시험" --yes
 ```
 
 ```text
-[java-crypto-kit] [사유: CONFIGURATION] ... 등록되지 않은 키 ID입니다: nope 조치: ...
+[java-crypto-kit] [사유: CONFIGURATION] ... 키 ID nope에 해당하는 PASS (Passphrase) 또는 KEY (AES Key) 프로필이 없습니다. ID와 설정을 확인하세요.
 [java-crypto-kit] [사유: CONFIGURATION] ... 키 ID key01는 key 유형 키입니다(--type pass와 다름). 조치: ...
-[java-crypto-kit] [사유: KEY_ID_MISMATCH] 암호문의 키 식별자에 해당하는 키가 이 설정에 등록되어 있지 않습니다. 조치: ...
+[java-crypto-kit] [사유: KEY_ID_MISMATCH] 암호문의 키 ID에 해당하는 PASS (Passphrase) 또는 KEY (AES Key) 프로필이 없습니다. 원래 키 ID와 키 재료를 사용하세요.
 [java-crypto-kit] [사유: USAGE] --type과 --all은 함께 쓸 수 없습니다(--type: 그 유형, --all: 전체).
 [java-crypto-kit] [사유: USAGE] 키 ID app-pass은(는) 이 JAR의 변경 이력(config history)에서 다른 키에 쓰였습니다(다른 항목: 유형, 키 지문). 같은 키를 되살릴 때만 다시 쓸 수 있으니 새 키에는 새 --key-id를 지정하세요.
 ```
 
-키 선택 오류는 평문을 묻기 전에 끝나고, 이력에 쓰인 키 ID에 다른 키를 넣으려 하면 결과 JAR를 만들지 않습니다. 아래는 스크립트·CI(대화형 터미널 아님)에서 실행했을 때의 실패 시연입니다.
+키 선택 오류는 평문을 묻기 전에 끝나고, 이력에 쓰인 키 ID에 다른 키를 넣으려 하면 JAR를 바꾸지 않습니다. 아래는 스크립트·CI(대화형 터미널 아님)에서 실행했을 때의 실패 시연입니다.
 
 모두 관리자 인증 실패나 키 생성·JAR 변경 전에 끝납니다(첫 줄은 비밀번호 파일 없음, 나머지는 A.1의 비밀번호 파일로 인증한 뒤의 오류).
 
 ```powershell
+# JAR에 저장된 키 목록과 설정 조회
 java -jar .\use.jar config show
-java -jar .\java-crypto-kit-0.2.0-cfg.jar keygen --out "$SECURE\ci.key" --admin-pass-file "$SECURE\admin.pw"
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id ci-pass --generate --operator example-admin --reason "CI 키" --yes --out ci.jar --admin-pass-file "$SECURE\admin.pw"
-java -jar .\use.jar config key use --key-id gen-pass --operator example-admin --reason "CI 전환" --out use2.jar --admin-pass-file "$SECURE\admin.pw"
+
+# 새 AES-256 키 생성
+java -jar .\java-crypto-kit-0.2.1.jar keygen --out "$SECURE\ci.key" --admin-pass-file "$SECURE\admin.pw"
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination ci.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar ci.jar config key add --key-id ci-pass --generate --operator example-admin --reason "CI 키" --yes --admin-pass-file "$SECURE\admin.pw"
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\use.jar -Destination use2.jar
+
+# 등록한 키를 해당 유형의 기본 키로 지정
+java -jar use2.jar config key use --key-id gen-pass --operator example-admin --reason "CI 전환" --admin-pass-file "$SECURE\admin.pw"
 ```
 
 ```bash
+# JAR에 저장된 키 목록과 설정 조회
 java -jar ./use.jar config show
-java -jar ./java-crypto-kit-0.2.0-cfg.jar keygen --out "$SECURE/ci.key" --admin-pass-file "$SECURE/admin.pw"
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id ci-pass --generate --operator example-admin --reason "CI 키" --yes --out ci.jar --admin-pass-file "$SECURE/admin.pw"
-java -jar ./use.jar config key use --key-id gen-pass --operator example-admin --reason "CI 전환" --out use2.jar --admin-pass-file "$SECURE/admin.pw"
+
+# 새 AES-256 키 생성
+java -jar ./java-crypto-kit-0.2.1.jar keygen --out "$SECURE/ci.key" --admin-pass-file "$SECURE/admin.pw"
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar ci.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar ci.jar config key add --key-id ci-pass --generate --operator example-admin --reason "CI 키" --yes --admin-pass-file "$SECURE/admin.pw"
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./use.jar use2.jar
+
+# 등록한 키를 해당 유형의 기본 키로 지정
+java -jar use2.jar config key use --key-id gen-pass --operator example-admin --reason "CI 전환" --admin-pass-file "$SECURE/admin.pw"
 ```
 
 ```text
@@ -163,7 +221,7 @@ java -jar ./use.jar config key use --key-id gen-pass --operator example-admin --
 관리자 비밀번호와 관련된 오류는 다음과 같습니다(코드별 조치: [9.3절](#93-오류-코드별-조치)).
 
 ```text
-[java-crypto-kit] [사유: ADMIN_SETUP] 이 JAR(java-crypto-kit-0.2.0.jar)은 관리자 비밀번호가 설정되지 않아 CLI 기능을 쓸 수 없습니다. 조치: ...
+[java-crypto-kit] [사유: ADMIN_SETUP] 이 JAR(java-crypto-kit-0.2.1.jar)은 관리자 비밀번호가 설정되지 않아 CLI 기능을 쓸 수 없습니다. 조치: ...
 [java-crypto-kit] [사유: ADMIN_AUTH] 관리자 비밀번호가 맞지 않습니다(3번 실패). 아무것도 하지 않았습니다. 분실했다면 사용자 가이드 12.8을 보세요.
 [java-crypto-kit] [사유: ADMIN_AUTH] --admin-pass-file 파일의 관리자 비밀번호가 맞지 않습니다. 아무것도 하지 않았습니다.
 [java-crypto-kit] [사유: ADMIN_AUTH] --admin-pass-file 파일을 다른 사용자도 읽거나 쓸 수 있습니다(권한 rw-r--r--). chmod 600 <파일>로 소유자만 읽게 한 뒤 다시 실행하세요. 아무것도 하지 않았습니다.

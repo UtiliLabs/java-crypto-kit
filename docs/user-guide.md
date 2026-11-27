@@ -2,7 +2,7 @@
 
 [프로젝트 소개](../README.md) · [JAR 다운로드](https://github.com/UtiliLabs/java-crypto-kit/releases)
 
-소스 버전 0.2.0 기준입니다. 처음 적용할 때는 아래에서 사용 방식을 고르세요. 이미 구현 중이라면 [CLI 옵션](guide/cli.md#topic-cli--22-명령-목록), [Java 메서드·Builder](reference/java-api-reference.md#api-members), [설정 기본값](reference/configuration.md), [오류 코드](reference/troubleshooting.md#93-오류-코드별-조치)로 바로 이동할 수 있습니다.
+소스 버전 0.2.1 기준입니다. 처음 적용할 때는 아래에서 사용 방식을 고르세요. 이미 구현 중이라면 [CLI 옵션](guide/cli.md#topic-cli--22-명령-목록), [Java 메서드·Builder](reference/java-api-reference.md#api-members), [설정 기본값](reference/configuration.md), [오류 코드](reference/troubleshooting.md#93-오류-코드별-조치)로 바로 이동할 수 있습니다.
 
 [독립 CLI 전체 명령·옵션·인증](guide/cli.md#api-cli) · [CLI 단축어](guide/cli.md#cli-aliases) · [버전별 변경 이력](../CHANGELOG.md)
 
@@ -19,7 +19,7 @@
 
 ## 키를 선택하는 기준
 
-관리형 암복호화는 `pass`(비밀 문자열에서 AES 키 파생)와 `key`(32바이트 AES 키 직접 사용)를 제공합니다. 둘 다 AES-256-GCM이며 공급원은 별도로 선택합니다. JAR의 공개 기본 키는 실습용이고 운영에는 사용자 지정 키가 필요합니다. 독립 CLI와 Java API에 사용하는 키는 호출자가 관리합니다.
+관리형 암복호화는 `pass`(비밀 문자열에서 AES 키 파생)와 `key`(32바이트 AES 키 직접 사용)를 제공합니다. 둘 다 AES-256-GCM이며 공급원은 별도로 선택합니다. 최초 설정은 JAR별 비밀 키 두 개를 생성합니다. 독립 CLI와 Java API에 사용하는 키는 호출자가 관리합니다.
 
 [키 유형·공급원 선택](guide/key-management.md#choose-key-material) · [Tomcat 연동 전 키 선택](guide/tomcat-jdbc.md#tomcat-key-choice)
 
@@ -75,7 +75,7 @@ CSV, PDF, JSON, 이미지 등 파일을 내용 형식에 관계없이 보호합�
 
 <a name="13-체험용-내장-키와-운영용-사용자-지정-키"></a><a name="a3-운영-passphrasepass-키를-jar에-넣고-기본-키로"></a><a name="a4-운영-aes-키key를-jar에-넣기"></a><a name="5-키-공급원과-설정-적용"></a><a name="51-키-공급원-선택"></a><a name="52-설정을-두는-곳과-우선순위"></a><a name="53-외부-properties-지정"></a><a name="54-지금-쓰는-키-확인"></a><a name="55-키-목록과-유형-선택"></a><a name="a12-지금-쓰는-키-확인"></a><a name="26-keygen--새-키-파일-만들기"></a><a name="27-config-embed-key--사용자-지정-키-내장"></a><a name="28-fingerprint--키가-같은지-비교"></a><a name="218-config-key-add--키-추가"></a><a name="a5-키-생성-화면에-한-번-보이는-생성값과---export"></a><a name="a6-서버의-passphrase-파일환경변수를-등록지문-고정"></a><a name="219-config-key-use--기본-키-변경"></a><a name="220-config-key-remove--키-제거"></a><a name="a7-기본-키기본-유형-바꾸기"></a><a name="224-config-key-show--키-관리정보원문-확인"></a><a name="a17-키-원문-확인내보내기와-복구"></a><a name="56-자동-생성한-passkey-보관재등록복구"></a><a name="a-keygen-키-파일로-다시-등록"></a><a name="a10-생성값으로-재등록예전-암호문-복구"></a><a name="a9-다른-jar에-같은-키-복사"></a><a name="b-화면의-base64를-파일로-저장해-다시-등록"></a><a name="c-passphrase를-한-줄-파일로-저장해-다시-등록새-키"></a><a name="d-예전-암호문-복구에-필요한-pass-복원-정보"></a><a name="e---export-백업으로-새-jar에-복원"></a><a name="f-원본-jar에서-그대로-옮기기--from-jar"></a><a name="g-같은-키인지-지문으로-확인"></a><a name="h-예전-암호문파일을-실제로-복호화"></a><a name="값과-파일의-형식"></a><a name="먼저-구분할-두-가지"></a><a name="보관-지침"></a><a name="이력이-있는-jar에-되살릴-때"></a><a name="29-rekey--기존-암호문을-새-키로-바꾸기"></a><a name="92-키-교체"></a><a name="a8-키-회전-새-키-추가--rekey--이전-키-제거"></a><a name="211-config-history--설정-변경-이력"></a><a name="a11-변경-이력-보기유형별"></a>
 
-**바로가기:** [공개 예제 키와 업무용 키 준비](guide/key-management.md#topic-key-selection) · [키 공급원과 설정 적용](guide/key-management.md#topic-key-management) · [AES 키 생성 및 내장](guide/key-management.md#topic-key-generation) · [새 키 및 기존 키 등록](guide/key-management.md#topic-key-registration) · [기본 키 선택 및 제거](guide/key-management.md#topic-key-defaults) · [키 관리정보 조회 및 백업](guide/key-management.md#topic-key-export) · [키 복구 및 다른 JAR로 이전](guide/key-management.md#topic-key-recovery) · [키 교체 및 암호문 이전](guide/key-management.md#topic-key-rotation) · [설정 변경 이력](guide/key-management.md#topic-history)
+**바로가기:** [최초 생성 키와 업무용 키 준비](guide/key-management.md#topic-key-selection) · [키 공급원과 설정 적용](guide/key-management.md#topic-key-management) · [AES 키 생성 및 내장](guide/key-management.md#topic-key-generation) · [새 키 및 기존 키 등록](guide/key-management.md#topic-key-registration) · [기본 키 선택 및 제거](guide/key-management.md#topic-key-defaults) · [키 관리정보 조회 및 백업](guide/key-management.md#topic-key-export) · [키 복구 및 다른 JAR로 이전](guide/key-management.md#topic-key-recovery) · [키 교체 및 암호문 이전](guide/key-management.md#topic-key-rotation) · [설정 변경 이력](guide/key-management.md#topic-history)
 
 ### [외부 키 관리 서비스 연동](guide/external-key-providers.md)
 
@@ -127,7 +127,7 @@ Java API와 독립 CLI로 일회용 코드·서비스 토큰을 생성하고 검
 | [설정 사전](reference/configuration.md) | 설정명, 허용값, 기본값 |
 | [지원 환경 및 배포 점검](reference/compatibility.md) | JDK·Tomcat·외부 서비스 호환성 |
 | [오류 해결](reference/troubleshooting.md) | CLI·Java·Tomcat 오류와 조치 |
-| [보안 및 운영 참고](reference/security.md) | 키 보관, 공개 기본 키, CLI 인증의 범위 |
+| [보안 및 운영 참고](reference/security.md) | 키 보관, 공개된 기본 키 차단, CLI 인증의 범위 |
 | [기술 명세](reference/technical-specification.md) | 구현 계약, 데이터 호환 규격, 요구사항 추적 |
 
 CLI 도움말의 기존 장·절 번호는 상세 가이드의 괄호 안 번호와 연결됩니다. 각 문서의 상세 목차에서도 바로 해당 절로 이동할 수 있습니다.

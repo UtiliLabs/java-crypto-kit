@@ -70,7 +70,7 @@ class CredentialCryptoApiTest {
         assertFalse(crypto.verify("not-a-token"));
         assertFalse(crypto.verify(token.replace("ENC[v1:api01:", "ENC[v1:other:")));
         // 이 설정에 없는 Key ID(공개 AES 키 default)로 만든 암호문은 "토큰 문제"(false)다.
-        assertFalse(crypto.verify(TestSupport.jarDefaults().encryptText("dummy", KeyType.KEY)));
+        assertFalse(crypto.verify(TestSupport.managedCrypto().encryptText("dummy", KeyType.KEY)));
         // 키 공급원 자체의 문제는 "검증 실패"로 숨기지 않고 예외로 알린다.
         Files.delete(keyFile);
         CredentialCryptoException ex = assertThrows(CredentialCryptoException.class, () -> crypto.verify(token));
@@ -80,7 +80,7 @@ class CredentialCryptoApiTest {
     @Test
     void distinguishesKeyIdMismatchAndIntegrityFailure() throws Exception {
         String token = crypto.encryptText("dummy");
-        CredentialCrypto jarDefaults = TestSupport.jarDefaults();
+        CredentialCrypto jarDefaults = TestSupport.managedCrypto();
         assertEquals(CredentialCryptoException.Reason.KEY_ID_MISMATCH,
                 assertThrows(CredentialCryptoException.class, () -> jarDefaults.decryptText(token)).getReason());
         // 같은 키ID에 다른 키를 쓰면 인증 태그 검증에서 실패한다.

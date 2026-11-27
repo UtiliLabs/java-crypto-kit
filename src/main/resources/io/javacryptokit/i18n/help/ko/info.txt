@@ -10,7 +10,7 @@ info - 실제 적용 설정과 출처, 등록된 키 확인(키 원문 미표시
 
 결과(일부)
   기본 유형 : pass [JAR 기본값]
-  pass 기본 : pass-default [JAR 기본값]
+  pass 기본 : app-pass [JAR 기본값]
   key 기본  : key01 [JAR 기본값]
 
   키 key01 (key, 기본, crypto.key.*)

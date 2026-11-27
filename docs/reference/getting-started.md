@@ -10,18 +10,17 @@
 
 **문서의 표기와 예제 읽는 법**
 
-- `java-crypto-kit-0.2.0.jar`: 공개 배포 JAR(체험용 내장 예제 키가 들어 있고 CLI 관리자 비밀번호는 미설정). 실제로 받은 파일 이름으로 바꿔 실행합니다. CLI 도움말·예제·버전을 먼저 조회할 수 있습니다. 업무 명령을 실행하려면 [1.4절](../guide/cli.md#topic-admin--14-cli-관리자-비밀번호)에 따라 관리자 비밀번호를 설정합니다.
-- `java-crypto-kit-0.2.0-cfg.jar`: 관리자 비밀번호를 설정한 JAR(`admin setup` 결과, 키는 배포 JAR와 같음). 이 문서의 CLI 예제는 이 JAR로 실행합니다.
-- `java-crypto-kit-0.2.0-cfg-2.jar`, `-cfg-3.jar`: 위 JAR를 `config embed-key`·`config key add`·`config set` 등으로 다시 바꾼 결과 JAR(사용자 지정 키 등 내장, 관리자 비밀번호는 그대로 이어짐). 같은 계열 JAR를 바꿀 때마다 번호가 올라갑니다.
+- `java-crypto-kit-0.2.1.jar`: 공개 배포 JAR(암호화 키와 CLI 관리자가 모두 미설정). 실제로 받은 파일 이름으로 바꿔 실행합니다. CLI 도움말·예제·버전을 먼저 조회할 수 있습니다. 업무 명령을 실행하려면 [1.4절](../guide/cli.md#topic-admin--14-cli-관리자-비밀번호)에 따라 관리자 비밀번호를 설정합니다.
+- 최초 설정은 독립 랜덤 pass·AES 키를 자동 생성해 같은 파일명과 경로의 JAR에 저장합니다.
 - **관리자 인증:** 복호화·키 관리·설정 조회 같은 민감 명령([2.2절](../guide/cli.md#topic-cli--22-명령-목록)의 `*`)은 실행할 때마다 `관리자 비밀번호(입력 숨김):`를 먼저 묻습니다. 예제 화면에 이 줄이 있으면 관리자 비밀번호를 입력하는 자리입니다.
 - **최초 관리자 설정:** 실행형 CLI에서만 요구합니다. Java API와 Tomcat은 같은 JAR를 그대로 사용합니다. [CLI 최초 사용](../../README.md#api-cli-빠른-시작)
-- **이 문서의 버전:** 소스 버전 0.2.0 기준입니다. [GitHub Releases](https://github.com/UtiliLabs/java-crypto-kit/releases)에 게시된 바이너리는 같은 버전 번호라도 이 소스와 기능이 다를 수 있습니다.
+- **이 문서의 버전:** 소스 버전 0.2.1 기준입니다. [GitHub Releases](https://github.com/UtiliLabs/java-crypto-kit/releases)에 게시된 바이너리는 같은 버전 번호라도 이 소스와 기능이 다를 수 있습니다.
 
   같은 버전 이름만으로 동일한 JAR라고 판단하지 말고 배포된 파일의 해시와 기능을 확인하세요. 현재 소스 기능을 체험하려면 저장소에서 빌드한 JAR를 씁니다.
 
   **이전 형식**은 관리자 인증 및 이중 키 체계가 도입되기 전의 JAR와 그 설정을 말합니다(`crypto.key.type`·pass 키·키 목록·CLI 관리자 비밀번호·`obf1` 저장이 없는 JAR). 이 문서의 호환 설명([9.4절](troubleshooting.md#94-이전-형식-설정jar에서-올리기))은 그 JAR·설정·암호문에 대한 것입니다.
 - **키 유형:** `pass`(Passphrase에서 AES 키를 파생)와 `key`(32바이트 AES 키). CLI `--type pass|key`, 설정 `crypto.key.type=pass|key`, Java `KeyType.PASS`/`KeyType.KEY`로 적습니다.
-- `<JAR>`: 위 둘 중 지금 쓰는 JAR. 예제는 현재 폴더의 JAR를 `.\`(PowerShell)·`./`(Linux)로 적었지만 `java -jar` 뒤에서는 생략해도 됩니다(도움말 예제는 생략).
+- `<JAR>`: 사용할 JAR 파일의 이름 또는 경로. 예제는 현재 폴더의 JAR를 `.\`(PowerShell)·`./`(Linux)로 적었지만 `java -jar` 뒤에서는 생략해도 됩니다(도움말 예제는 생략).
 - 예제의 키ID(`key01`·`app-pass`), 키 파일(`example.key`), Passphrase 파일(`app.pass`), 수정자 ID(`example-admin`), 경로·URL은 모두 예시 값입니다.
 
 <a name="topic-getting-started--11-지원-기능"></a>
@@ -72,15 +71,25 @@ sha256sum --ignore-missing -c SHA256SUMS.txt
 
 ```powershell
 # Windows PowerShell: $jar를 실제 JAR 이름으로 바꿉니다.
-$jar = 'java-crypto-kit-0.2.0.jar'
+$jar = 'java-crypto-kit-0.2.1.jar'
+
+# 체크섬 목록에서 JAR 항목 검색
 $line = Get-Content .\SHA256SUMS.txt | Where-Object { $_ -match ('(?i)^[0-9a-f]{64}\s+\*?' + [regex]::Escape($jar) + '$') } | Select-Object -First 1
+
+# JAR 체크섬 항목의 존재 확인
 if (-not $line) { throw '해당 JAR 해시 없음' }
+
+# 예상 SHA-256 추출
 $expected = ($line -split '\s+')[0]
+
+# 로컬 JAR와 배포 SHA-256 비교
 if ((Get-FileHash -LiteralPath $jar -Algorithm SHA256).Hash -ine $expected) { throw 'SHA256 FAIL' }
+
+# 체크섬 검증 성공 표시
 'SHA256 PASS'
 ```
 
-사용자 지정 키를 내장한 JAR는 공개 원본과 해시가 다른 것이 정상이므로 사용 환경의 배포 정책에 따라 따로 관리합니다.
+공식 배포 SHA-256은 최초 설정 전에 확인합니다. 최초 관리자 등록이나 이후 내부 변경을 하면 같은 JAR의 내용이 바뀌므로 공식 배포본과 해시가 달라지는 것이 정상입니다. 설정한 JAR의 해시는 운영 환경의 배포 정책에 따라 관리합니다.
 
 **소스에서 빌드:** 저장소 루트에서 Windows `gradlew.bat clean build`, Linux `./gradlew clean build`를 실행하면 `build/libs/java-crypto-kit-<버전>.jar`와 `build/distributions/java-crypto-kit-aws-kms-lib-<버전>.zip`이 만들어집니다(테스트 포함). Gradle Wrapper 8.14.8의 공식 빌드 JDK는 8~24입니다(JDK 25는 빌드가 아니라 실행만 확인, [11.1절](compatibility.md#111-검증-상태)).
 

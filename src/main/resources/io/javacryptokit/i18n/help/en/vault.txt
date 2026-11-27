@@ -9,12 +9,15 @@ Prepare
 
 Settings (config set or external Properties)
   crypto.key.source=vault          crypto.key.id=prod02
+  crypto.key.type=key              (to use this key when no type is given)
   crypto.vault.url=https://vault.example.internal:8200
   crypto.vault.mount=secret        crypto.vault.path=java-crypto-kit/prod
   crypto.vault.field=key           crypto.vault.ver=1
   crypto.vault.token.file=/run/secrets/vault-token
   (or crypto.vault.token.env=VAULT_TOKEN; no token in settings or -D)
   crypto.vault.ca.file=/etc/java-crypto-kit/vault-ca.pem   (for a private CA)
+  If crypto.key.active.key names another key ID, set it to prod02 or add
+  --key-id prod02 to the command.
 
 Check (--offline: settings, token and CA file only, no connection)
   java -jar {jar} doctor --offline

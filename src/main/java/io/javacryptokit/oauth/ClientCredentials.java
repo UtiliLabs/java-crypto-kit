@@ -32,7 +32,8 @@ import javax.net.ssl.SSLContext;
  *       Basic, 기본) 또는 {@code client_secret_post}(본문에 {@code client_id}·{@code client_secret}). 둘을 함께 쓰거나 실패 시 다른
  *       방식으로 바꿔 시도하지 않는다. 비밀을 URL에 넣지 않는다.</li>
  *   <li>응답: {@code access_token}(비어 있지 않은 문자열)·{@code token_type}({@code Bearer}만, 대소문자 무시) 필수,
- *       {@code expires_in}(0 이상 정수 초, 10년 이하)·{@code scope} 선택. 형식이 맞지 않으면 INVALID_RESPONSE.</li>
+ *       {@code expires_in}(0 이상 정수 초, 10년 이하)·{@code scope} 선택. 명시된 scope에는 RFC 6749 구문을 적용한다.
+ *       형식이 맞지 않으면 INVALID_RESPONSE.</li>
  *   <li>오류: 인증 서버의 OAuth 오류 응답(400 등)은 OAUTH_ERROR + 표준 코드({@code invalid_client}·{@code invalid_scope}·
  *       {@code unauthorized_client} 등, {@code error_description}은 전달하지 않음). 401·403은 CLIENT_AUTH다(요청을 고정 길이 스트리밍으로
  *       보내 JVM 전역 {@code Authenticator}가 다른 자격 증명을 자동으로 보내지 않게 하며, 이때 JDK는 401 본문을 주지 않으므로 오류 코드를
@@ -102,7 +103,10 @@ public final class ClientCredentials {
             JwtClaims claims = response.json();
             String accessToken = claims.getString("access_token");
             String tokenType = claims.getString("token_type");
-            if (accessToken == null || accessToken.isEmpty()) throw failure(OAuthClientException.Reason.INVALID_RESPONSE, "oauth.err.accessToken", status, null);
+            // Authorization 헤더에 그대로 쓸 수 있는 Bearer 토큰 형식(RFC 6750 b64token)만 받는다(JWT·opaque 모두 해당).
+            if (accessToken == null || !BEARER_TOKEN.matcher(accessToken).matches()) {
+                throw failure(OAuthClientException.Reason.INVALID_RESPONSE, "oauth.err.accessToken", status, null);
+            }
             if (tokenType == null || !"bearer".equalsIgnoreCase(tokenType)) {
                 throw failure(OAuthClientException.Reason.INVALID_RESPONSE, "oauth.err.tokenType", status, null);
             }
@@ -110,8 +114,8 @@ public final class ClientCredentials {
             if (expiresIn != null && (expiresIn < 0 || expiresIn > MAX_EXPIRES_IN)) {
                 throw failure(OAuthClientException.Reason.INVALID_RESPONSE, "oauth.err.expiresIn", status, null);
             }
-            String scope = claims.getString("scope");
-            return new TokenResponse(accessToken, expiresIn, receivedAt, Collections.unmodifiableSet(requested), split(scope), scope != null);
+            Set<String> granted = OAuthText.responseScopes(claims);
+            return new TokenResponse(accessToken, expiresIn, receivedAt, Collections.unmodifiableSet(requested), granted, claims.has("scope"));
         } catch (IllegalArgumentException e) {
             throw failure(OAuthClientException.Reason.INVALID_RESPONSE, "oauth.err.response", status, null);
         }
@@ -132,22 +136,11 @@ public final class ClientCredentials {
         return failure(OAuthClientException.Reason.HTTP_STATUS, "oauth.err.status", status, null);
     }
 
-    private static Set<String> split(String scope) {
-        Set<String> out = new LinkedHashSet<>();
-        if (scope != null) {
-            for (String part : scope.split(" ")) {
-                if (!part.isEmpty()) out.add(part);
-            }
-        }
-        return Collections.unmodifiableSet(out);
-    }
+    /** RFC 6750 b64token: 1*(영문 / 숫자 / "-" / "." / "_" / "~" / "+" / "/") *"=". */
+    private static final java.util.regex.Pattern BEARER_TOKEN = java.util.regex.Pattern.compile("[A-Za-z0-9._~+/-]+=*");
 
     private static String checkScope(String scope) {
-        if (scope == null || scope.isEmpty()) throw OAuthText.invalid("oauth.err.scopeFormat");
-        for (int i = 0; i < scope.length(); i++) {
-            char c = scope.charAt(i);
-            if (c < 0x21 || c > 0x7e || c == '"' || c == '\\') throw OAuthText.invalid("oauth.err.scopeFormat");
-        }
+        if (!OAuthText.validScope(scope)) throw OAuthText.invalid("oauth.err.scopeFormat");
         return scope;
     }
 

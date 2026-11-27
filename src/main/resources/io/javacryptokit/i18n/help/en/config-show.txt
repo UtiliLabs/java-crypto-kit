@@ -13,16 +13,16 @@ Options
   For another JAR (--jar) that JAR's admin password is checked as well.
 
 Result (part)
-  JAR file     : java-crypto-kit-{version}-cfg.jar (version {version})
+  JAR file     : java-crypto-kit-{version}.jar (version {version})
   State        : 2 change(s), last 2026-11-22T05:30:12Z by ops
   Admin        : password set (sensitive commands need it)
   Key type     : pass
-  Default keys : pass=pass-default, key=key01
+  Default keys : pass=app-pass, key=key01
   Keys         :
     key01: key, embedded, custom key, crypto.key.*
       Fingerprint:
         ab12cd34...(all 64)
-    pass-default: pass, embedded, public default key
+    app-pass: pass, embedded, custom key
       KDF: pbkdf2-sha256, 600,000 rounds
       Salt: ...(Base64)   Salt SHA-256: ...(64)
   Settings hash: sha256:...      (settings file content, not a key)
@@ -33,5 +33,5 @@ Result (part)
 
 Examples
   java -jar {jar} config show
-  java -jar {jar} config show --jar new.jar
+  java -jar {jar} config show --jar backup/old.jar
 See section 2.10 of docs/user-guide.md.

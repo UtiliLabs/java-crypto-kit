@@ -91,7 +91,7 @@ final class CliHelp {
         } else if (CliCommands.GROUPS.contains(path)) {
             group(path, out, jar);
         } else {
-            throw new CryptoCli.CliException(Messages.get("cli.err.unknownTopic", String.join(", ", CliCommands.topics())));
+            throw new CryptoCli.CliException(Messages.get("cli.err.unknownTopic", String.join(", ", CliCommands.helpPaths())));
         }
         return 0;
     }
@@ -99,26 +99,23 @@ final class CliHelp {
     private static int examples(String path, CliCommands.Spec spec, PrintStream out, Path runningJar)
             throws CryptoCli.CliException {
         if (spec == null && !path.isEmpty() && !isGroup(path)) {
-            throw new CryptoCli.CliException(Messages.get("cli.err.unknownTopic", String.join(", ", CliCommands.topics())));
+            throw new CryptoCli.CliException(Messages.get("cli.err.unknownTopic", String.join(", ", CliCommands.helpPaths())));
         }
         Boolean adminEntry = hasAdminEntry(runningJar);
         boolean fresh = Boolean.FALSE.equals(adminEntry);
-        String commandName = exampleCommandName(runningJar, adminEntry);
-        String commandJar = exampleJarName(commandName);
-        String setupJar = fresh ? exampleJar(runningJar) : exampleJarName(distributionJarName());
-        String editedJar = fresh ? exampleJarName(ConfigCommand.defaultOutputName(commandName))
-                : ConfigCommand.defaultOutputName(distributionJarName());
-        if (spec == null || spec.access != CliCommands.Access.SETUP) examplePrelude(out, adminEntry, setupJar, commandJar);
+        String commandJar = exampleJar(runningJar);
+        String setupJar = fresh ? commandJar : exampleJarName(distributionJarName());
+        if (spec == null || spec.access != CliCommands.Access.SETUP) examplePrelude(out, adminEntry, setupJar);
         if (path.isEmpty()) {
             out.println(Messages.get("api.help.exampleIndex"));
             for (String name : CliCommands.topLevelNames()) {
                 if (!"help".equals(name)) out.println("  " + name + " --examples");
             }
         } else if (spec != null) {
-            printExamples(spec, out, setupJar, commandJar, editedJar);
+            printExamples(spec, out, setupJar, commandJar);
         } else {
             for (CliCommands.Spec child : CliCommands.ALL) {
-                if (child.name.startsWith(path + " ")) printExamples(child, out, setupJar, commandJar, editedJar);
+                if (child.name.startsWith(path + " ")) printExamples(child, out, setupJar, commandJar);
             }
         }
         return 0;
@@ -126,21 +123,18 @@ final class CliHelp {
 
     static String examplePrelude(PrintStream out, Path runningJar) {
         Boolean adminEntry = hasAdminEntry(runningJar);
-        String commandJar = exampleJarName(exampleCommandName(runningJar, adminEntry));
-        examplePrelude(out, adminEntry, exampleJar(runningJar), commandJar);
+        String commandJar = exampleJar(runningJar);
+        examplePrelude(out, adminEntry, exampleJar(runningJar));
         return commandJar;
     }
 
-    private static String exampleCommandName(Path runningJar, Boolean adminEntry) {
-        String name = safeJarName(runningJar == null ? jarName() : SecretFiles.fileName(runningJar));
-        return Boolean.FALSE.equals(adminEntry) ? ConfigCommand.defaultOutputName(name) : name;
+    private static String renderCommands(String text, String jar) {
+        return text.replace("{update}", "java -jar " + jar).replace("{jar}", jar).replace("{editedJar}", jar);
     }
 
-    private static void examplePrelude(PrintStream out, Boolean adminEntry, String setupJar, String commandJar) {
+    private static void examplePrelude(PrintStream out, Boolean adminEntry, String setupJar) {
         if (Boolean.FALSE.equals(adminEntry)) {
-            out.println(Messages.get("cli.examples.setup")
-                    .replace("{jar}", setupJar)
-                    .replace("{configured}", commandJar));
+            out.println(renderCommands(Messages.get("cli.examples.setup"), setupJar));
         } else {
             out.println(Messages.get(adminEntry == null ? "cli.examples.common" : "cli.examples.ready"));
         }
@@ -150,13 +144,16 @@ final class CliHelp {
     private static Boolean hasAdminEntry(Path runningJar) {
         if (runningJar == null) return null;
         try (JarFile jar = new JarFile(runningJar.toFile(), false)) {
-            return jar.getJarEntry(AdminPassword.ENTRY) != null;
+            java.util.jar.Manifest manifest = jar.getManifest();
+            String state = manifest == null ? null : manifest.getMainAttributes().getValue(io.javacryptokit.config.JarState.ATTRIBUTE);
+            return state == null ? jar.getJarEntry(AdminPassword.ENTRY) != null
+                    : io.javacryptokit.config.JarState.initialized(runningJar, state);
         } catch (IOException | SecurityException e) {
             return null;
         }
     }
 
-    private static void printExamples(CliCommands.Spec spec, PrintStream out, String setupJar, String commandJar, String editedJar) {
+    private static void printExamples(CliCommands.Spec spec, PrintStream out, String setupJar, String commandJar) {
         String text = Messages.text(Messages.current(), spec.topic);
         if (text == null) text = Messages.text(Messages.Language.EN, spec.topic);
         boolean setup = spec.access == CliCommands.Access.SETUP;
@@ -169,7 +166,7 @@ final class CliHelp {
                 section = true;
                 out.println(line);
             } else if (section && (line.isEmpty() || Character.isWhitespace(line.charAt(0)))) {
-                out.println(line.replace("{jar}", jar).replace("{editedJar}", editedJar).replace("{version}", version()));
+                out.println(renderCommands(line, jar).replace("{version}", version()));
             } else {
                 section = false;
             }
@@ -211,9 +208,7 @@ final class CliHelp {
         String text = Messages.text(Messages.current(), name);
         if (text == null) text = Messages.text(Messages.Language.EN, name);
         if (text == null) text = "!" + name + "!";
-        text = text.replace("{jar}", quoteJar(jar, false)).replace("{version}", version())
-                .replace("{editedJar}", ConfigCommand.defaultOutputName(distributionJarName()))
-                .replace("{configured}", ConfigCommand.defaultOutputName(jar));
+        text = renderCommands(text, quoteJar(jar, false)).replace("{version}", version());
         if (text.contains("{settings}")) text = text.replace("{settings}", settingsSection());
         out.print(text.endsWith("\n") ? text : text + "\n");
     }

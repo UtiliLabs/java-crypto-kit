@@ -1,20 +1,21 @@
-admin setup - set the CLI admin password for the first time (new JAR)
+admin setup - set the CLI admin password for the first time (in place)
 
 Usage
-  java -jar {jar} admin setup [--operator <ID>]
-       [--admin-pass-file <file>] [--out <jar>] [--lang en|ko]
+  {update} admin setup [--operator <ID>]
+       [--pass-export <file>]
+       [--admin-pass-file <file>] [--replace] [--lang en|ko]
 
 Options
-  --operator <ID>   Operator ID for the history. Asked interactively if absent.
+  --replace         Compatibility flag for the same JAR path.
+  --operator <ID>   Operator ID for the history. Defaults to SYSTEM.
   --admin-pass-file <file>
                     Non-interactive (CI): a file with the new password on one
                     line (a temporary file with mode 600, delete it)
-  --out <jar>       Result JAR (optional, default <name>-cfg.jar)
   --lang en|ko      Message language for this run (optional)
   Runs only on a JAR without an admin password (a set one is never replaced).
-  Interactive: operator ID -> new password -> confirmation (hidden, twice).
-  Any other command on an unset JAR starts the same setup (that command is
-  not run; you are told to run it again with the created JAR).
+  Interactive: new password -> confirmation (hidden, twice).
+  Interactive use can enter setup from another command on either OS.
+  Rerun that command with the same JAR after setup.
 
 Rules
   10-128 characters with at least one letter (A-Z, a-z), one digit (0-9) and
@@ -23,14 +24,12 @@ Rules
   separately. 12-16 characters or more are recommended for production.
 
 Result
-  Admin       : password set
-  Created JAR : C:\work\java-crypto-kit-{version}-cfg.jar
-  Original JAR: java-crypto-kit-{version}.jar (unchanged, no admin password)
-  Operator    : ops
-  Note        : run the CLI with the created JAR from now on.
-  Keys, key IDs and the existing history stay; one admin setup record is added
-  (no password or hash). The Java API and Tomcat need no admin password.
+  Setup creates random PASS (Passphrase) and KEY (AES Key) in this JAR.
+  The configured JAR has a different SHA-256 from the distribution JAR.
+  Back up the configured JAR securely for all servers using its keys.
+  Use --pass-export <file> at setup to save a protected pass recovery file.
+  The original embedded passphrase cannot be retrieved later.
 
 Examples
-  java -jar {jar} admin setup --operator ops
-  java -jar {jar} admin setup --operator ci --admin-pass-file admin.pw
+  {update} admin setup
+  {update} admin setup --admin-pass-file admin.pw

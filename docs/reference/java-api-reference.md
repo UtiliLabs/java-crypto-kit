@@ -75,15 +75,21 @@ CLI나 별도 관리자 설정을 추가할 필요는 없습니다.
 **Windows PowerShell**
 
 ```powershell
-javac -cp .\java-crypto-kit-0.2.0.jar .\AesExample.java
-java -cp '.;java-crypto-kit-0.2.0.jar' AesExample
+# 예제 Java 소스 컴파일
+javac -cp .\java-crypto-kit-0.2.1.jar .\AesExample.java
+
+# 예제 프로그램 실행
+java -cp '.;java-crypto-kit-0.2.1.jar' AesExample
 ```
 
 **Linux / macOS**
 
 ```bash
-javac -cp ./java-crypto-kit-0.2.0.jar AesExample.java
-java -cp '.:java-crypto-kit-0.2.0.jar' AesExample
+# 예제 Java 소스 컴파일
+javac -cp ./java-crypto-kit-0.2.1.jar AesExample.java
+
+# 예제 프로그램 실행
+java -cp '.:java-crypto-kit-0.2.1.jar' AesExample
 ```
 
 다른 예제는 파일명과 클래스명을 바꾸면 됩니다. 실제 배포 JAR의 파일명을 사용하세요. `// 예제:`로 시작하는 메서드 예제는 본인의 클래스 안에 넣고, 입력값을 전달하여 호출합니다.
@@ -229,7 +235,7 @@ java -cp '.:java-crypto-kit-0.2.0.jar' AesExample
 - `isEncryptionDefault()`  
   `boolean` · 유형·Key ID를 정하지 않은 새 암호화(encryptText(value))가 쓰는 키이면 true
 - `isPublicDefault()`  
-  `boolean` · 공개 기본 키(공개 예제 키)이면 true. 키를 읽지 못했으면 false
+  `boolean` · 공개된 기본 키이면 true. 키를 읽지 못했으면 false
 - `isAvailable()`  
   `boolean` · 키를 실제로 읽을 수 있었으면 true
 - `failureReason()`  
@@ -571,7 +577,7 @@ XML Resource에서 `cryptoPool`로 Pool을 선택하는 절차는 [Tomcat Pool �
 `io.javacryptokit.security.RequestAuth.Signed`
 
 - `timestamp()`  
-  `String` · Unix 초(10진수)
+  `String` · Unix 초(0~999,999,999,999, 10진수). 서명 시 `Clock`이 범위 밖이면 `IllegalArgumentException`
 - `nonce()`  
   `String` · Nonce(Base64URL 22자)
 - `mac()`  
@@ -1277,7 +1283,7 @@ XML Resource에서 `cryptoPool`로 Pool을 선택하는 절차는 [Tomcat Pool �
 - `getObject(String name)`  
   `JwtClaims` · 중첩 객체(없으면 null) · `name` 이름
 - `getInstant(String name)`  
-  `Instant` · NumericDate(정수 초)를 시각으로(없으면 null) · `name` 이름
+  `Instant` · NumericDate(0~253402300799의 정수 또는 유한 소수 초). 소수 부분을 나노초로 변환합니다. 없거나 JSON null이면 null이며, 다른 타입이나 범위 밖 값은 `IllegalArgumentException`입니다. 이 접근자는 클레임 값을 읽습니다. 검증기의 기본 정수 초 정책과 `allowFractionalTimes(true)`는 별도로 적용됩니다. · `name` 이름
 - `toJson()`  
   `String` · 이 객체의 압축 JSON(민감한 클레임이 있을 수 있으니 로그에 남기지 않는다)
 - `toString()`  
@@ -1624,7 +1630,7 @@ XML Resource에서 `cryptoPool`로 Pool을 선택하는 절차는 [Tomcat Pool �
 - `requestedScopes()`  
   `Set<String>` · 요청한 scope(공백으로 나눈 값, 요청하지 않았으면 빈 집합)
 - `grantedScopes()`  
-  `Set<String>` · 응답의 scope(공백으로 나눈 값). 응답에 없으면 빈 집합(scopeInResponse()로 구분)
+  `Set<String>` · 응답의 유효한 RFC 6749 scope. 응답에 없으면 빈 집합(scopeInResponse()로 구분)
 - `scopeInResponse()`  
   `boolean` · 응답에 scope가 있었으면 true(없으면 RFC 6749상 요청과 같다는 뜻이지만 이 객체는 추측하지 않는다)
 - `toString()`  

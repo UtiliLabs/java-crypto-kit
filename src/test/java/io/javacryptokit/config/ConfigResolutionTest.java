@@ -119,7 +119,7 @@ class ConfigResolutionTest {
                 "crypto.key.id=space01", "crypto.key.file=" + TestSupport.propertiesPath(key));
         CryptoSettings settings = load(config.toString());
         assertEquals("file", settings.keySource());
-        assertTrue(io.javacryptokit.core.CryptoService.of(settings).checkKey().available(), "공백·한글 경로의 키 파일을 읽어야 한다");
+        assertTrue(io.javacryptokit.core.CryptoService.of(settings).checkKey(settings.legacyProfile()).available(), "공백·한글 경로의 키 파일을 읽어야 한다");
     }
 
 

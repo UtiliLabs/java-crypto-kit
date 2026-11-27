@@ -35,6 +35,23 @@ class StrictJsonTest {
     }
 
     @Test
+    void directUnicodeSurrogatesAreCheckedInNamesAndValues() {
+        for (char unpaired : new char[] {'\ud800', '\udfff'}) {
+            String badValue = "{\"키\":\"" + unpaired + "\"}";
+            String badName = "{\"" + unpaired + "\":\"값\"}";
+            assertThrows(IllegalArgumentException.class, () -> StrictJson.parse(badValue));
+            assertThrows(IllegalArgumentException.class, () -> StrictJson.parse(badName));
+            assertThrows(IllegalArgumentException.class, () -> io.javacryptokit.jwt.JwtClaims.parse(badValue));
+            assertThrows(IllegalArgumentException.class, () -> io.javacryptokit.jwt.JwtClaims.parse(badName));
+        }
+        String json = "{\"한글😀\":\"Grüße 世界 \ud83d\ude03\"}";
+        io.javacryptokit.jwt.JwtClaims claims = io.javacryptokit.jwt.JwtClaims.parse(json);
+        assertEquals("Grüße 世界 😃", claims.getString("한글😀"));
+        assertEquals(json, claims.toJson());
+        assertEquals(StrictJson.parse(json), StrictJson.parse(StrictJson.write(StrictJson.parse(json))));
+    }
+
+    @Test
     void limitsAreEnforced() {
         StrictJson.Limits small = StrictJson.Limits.of(2, 2, 2, 5);
         assertEquals(2, ((Map<?, ?>) StrictJson.parse("{\"a\":1,\"b\":[1,2]}", small)).size());

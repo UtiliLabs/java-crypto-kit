@@ -142,7 +142,7 @@ class JvmOverrideTest {
     @Test
     void scenarioE_envKeyConfiguredByJvmProperties() throws Exception {
         assumeTrue(System.getenv(TestSupport.ENV_TEST_KEY) != null, "Gradle test 태스크의 테스트용 환경변수가 필요하다");
-        CryptoSettings settings = load(null, jvm("crypto.key.source=env",
+        CryptoSettings settings = load(null, jvm("crypto.key.type=key", "crypto.key.source=env",
                 "crypto.key.env=" + TestSupport.ENV_TEST_KEY, "crypto.key.id=prod01"));
         assertEquals("env", settings.keySource());
         assertEquals(TestSupport.ENV_TEST_KEY, settings.get(CryptoSettings.KEY_ENV));
@@ -197,7 +197,8 @@ class JvmOverrideTest {
         assertFalse(settings.keySourceExplicit());
         assertFalse(settings.warningEnabled());
         CryptoService service = CryptoService.of(settings);
-        assertEquals("dummy", service.decryptText(service.encryptText("dummy".toCharArray())));
+        assertEquals(io.javacryptokit.CredentialCryptoException.Reason.CONFIGURATION,
+                assertThrows(io.javacryptokit.CredentialCryptoException.class, () -> service.encryptText("dummy".toCharArray())).getReason());
     }
 
     @ParameterizedTest(name = "잘못된 JVM 값 거부: {0}")
@@ -320,7 +321,7 @@ class JvmOverrideTest {
     @Test
     void explicitEnvKeyFromJvmNeverFallsBackToEmbedded() throws Exception {
         String unset = "JAVA_CRYPTO_KIT_UNSET_" + Integer.toHexString(new SecureRandom().nextInt() & 0x7fffffff);
-        CryptoSettings settings = load(null, jvm("crypto.key.source=env", "crypto.key.env=" + unset));
+        CryptoSettings settings = load(null, jvm("crypto.key.type=key", "crypto.key.source=env", "crypto.key.env=" + unset));
         CredentialCryptoException ex = assertThrows(CredentialCryptoException.class,
                 () -> CryptoService.of(settings).encryptText("dummy".toCharArray(), io.javacryptokit.KeyType.KEY, null));
         assertEquals(CredentialCryptoException.Reason.KEY_SOURCE, ex.getReason());

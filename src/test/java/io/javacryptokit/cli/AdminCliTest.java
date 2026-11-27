@@ -84,21 +84,21 @@ class AdminCliTest {
         cli.withCliJar(fresh);
         Path plain = Files.write(dir.resolve("plain.txt"), "dummy".getBytes(StandardCharsets.UTF_8));
         List<String> before = files();
-        String token = TestSupport.jarDefaults().encryptText("dummy-x");
+        String token = TestSupport.managedCrypto().encryptText("dummy-x");
         String[][] commands = {{"encrypt"}, {"enc"}, {"decrypt"}, {"dec"}, {"verify", "--value", token}, {"info"}, {"doctor"}, {"fingerprint"},
                 {"file", "encrypt", "--in", plain.toString(), "--out", dir.resolve("plain.jck").toString()}, {"config", "history"}, {"config", "show"},
                 {"config", "key", "show", "--key-id", "default"}, {"keygen", "--out", dir.resolve("k.key").toString(), "--reason", "r"},
                 {"admin", "password", "change"}};
         for (String[] args : commands) {
             assertEquals(1, cli.run(args), String.join(" ", args));
-            assertTrue(cli.err().contains("[사유: ADMIN_SETUP]") && cli.err().contains("admin setup --operator <ID>"),
+            assertTrue(cli.err().contains("[사유: ADMIN_SETUP]") && cli.err().contains("admin setup"),
                     String.join(" ", args) + ": " + cli.err());
             assertEquals("", cli.out(), "기능을 실행하지 않는다: " + String.join(" ", args));
         }
         assertEquals(before, files(), "아무 파일도 만들지 않는다");
         assertEquals(0, cli.run());
         assertTrue(cli.out().contains("관리자 비밀번호 최초 설정 필요"), cli.out());
-        assertTrue(cli.out().contains("java-crypto-kit-0.1.0-cfg.jar"), cli.out());
+        assertTrue(cli.out().contains("java-crypto-kit-0.1.0.jar"), cli.out());
         assertTrue(cli.out().contains("api jwt --examples"), cli.out());
         for (String[] args : new String[][]{{"help"}, {"--help"}, {"-h"}, {"help", "config", "set"},
                 {"encrypt", "--help"}, {"config"}, {"config", "key"}, {"admin"}, {"file", "--examples"},
@@ -121,35 +121,31 @@ class AdminCliTest {
     @Test
     void firstRunOfAnyCommandSetsUpInteractivelyAndDoesNotRunTheCommand() throws Exception {
         cli.withCliJar(fresh);
+        byte[] initialSettings = JarConfigEditor.read(fresh).settingsBytes;
         CliHarness.FakeTerminal t = terminal("admin@12345", "admin@12345");
-        t.lines.add("ops01");
         assertEquals(1, cli.run(t, "encrypt"));
-        Path created = dir.resolve("java-crypto-kit-0.1.0-cfg.jar");
+        Path created = fresh;
         assertTrue(Files.exists(created), cli.out() + cli.err());
-        assertEquals(Arrays.asList("작업자 ID: ", "새 관리자 비밀번호(입력 숨김): ", "비밀번호 확인(입력 숨김): "), t.prompts);
+        assertEquals(Arrays.asList("새 관리자 비밀번호(입력 숨김): ", "비밀번호 확인(입력 숨김): "), t.prompts);
         assertEquals("[CLI 초기 설정 필요]", t.printed.get(0), t.printed.toString());
-        assertTrue(t.printed.contains("지금 설정하면 새 JAR(java-crypto-kit-0.1.0-cfg.jar)을 만들고 원본은 그대로 둡니다."));
+        assertTrue(t.printed.contains("현재 JAR java-crypto-kit-0.1.0.jar에 설정을 저장합니다."));
         assertTrue(t.printed.contains("비밀번호 규칙: 10~128자, 영문자·숫자·특수문자 각 1자 이상(공백·한글 불가)"), t.printed.toString());
-        String ls = System.lineSeparator();
-        assertEquals("관리자    : 비밀번호 설정 완료" + ls
-                + "생성 JAR  : " + created.toAbsolutePath() + ls + CliHarness.permissionLine()
-                + "원본 JAR  : java-crypto-kit-0.1.0.jar (그대로, 관리자 비밀번호 미설정)" + ls
-                + "작업자    : ops01" + ls
-                + "안내      : 이후에는 생성 JAR로 CLI를 실행하세요." + ls, cli.out());
-        assertTrue(cli.err().contains("[사유: ADMIN_SETUP] 요청한 명령(encrypt)은 실행하지 않았습니다. 생성 JAR로 다시 실행하세요: "
-                + "java -jar java-crypto-kit-0.1.0-cfg.jar encrypt"), cli.err());
+        assertTrue(cli.out().contains("갱신 JAR  : " + created.toAbsolutePath()), cli.out());
+        assertTrue(cli.out().contains("작업자    : SYSTEM"), cli.out());
+        assertTrue(cli.out().matches("(?s).*pass=pass-[0-9a-f]{32}\\s+key=key-[0-9a-f]{32}.*"), cli.out());
+        assertTrue(cli.err().contains("[사유: ADMIN_SETUP]") && cli.err().contains("encrypt"), cli.err());
         assertFalse(cli.out().contains("ENC[") || t.prompts.contains("암호화할 값(입력 숨김): "), "요청한 명령은 실행하지 않는다");
         String all = cli.out() + cli.err() + String.join("\n", t.printed) + new String(Files.readAllBytes(created), StandardCharsets.ISO_8859_1);
         assertFalse(all.contains("admin@12345"), "비밀번호 원문은 화면·JAR 어디에도 없다");
 
         // 설정된 JAR: 키·설정은 그대로, 이력에는 관리자 기록 1건(--all에서만, 비밀번호·해시 없음)
         JarConfigEditor.Snapshot snap = JarConfigEditor.read(created);
-        assertArrayEquals(JarConfigEditor.read(fresh).settingsBytes, snap.settingsBytes, "키·설정은 바뀌지 않는다");
+        assertFalse(Arrays.equals(initialSettings, snap.settingsBytes));
         assertEquals(AdminPassword.State.INITIALIZED, AdminPassword.statusOf(snap).state);
         String newPw = CliHarness.passFile(dir, "admin@12345");
         cli.withCliJar(created);
         assertEquals(0, cli.run("config", "history", "--all", "--admin-pass-file", newPw), cli.err());
-        assertTrue(cli.out().contains("수정자 ops01  admin setup  [관리자]") && cli.out().contains("    사유: 최초 설정")
+        assertTrue(cli.out().contains("수정자 SYSTEM  admin setup  [관리자]") && cli.out().contains("    사유: 최초 설정")
                 && cli.out().contains("    관리자 비밀번호: (없음) -> (설정됨)"), cli.out());
         assertEquals(0, cli.run("config", "history", "--admin-pass-file", newPw), cli.err());
         assertTrue(cli.out().contains("표시 범위 : pass 관련 0건(전체 1건)"), "관리자 기록은 pass·key로 분류하지 않는다: " + cli.out());
@@ -158,22 +154,13 @@ class AdminCliTest {
         // 이미 설정된 JAR는 최초 설정을 다시 할 수 없다(인증 없는 덮어쓰기 없음).
         assertEquals(1, cli.run("admin", "setup", "--operator", "x", "--admin-pass-file", newPw));
         assertTrue(cli.err().contains("이미 설정되어 있습니다"), cli.err());
-        // 원본 JAR는 여전히 미설정(실행할 때마다 다시 설정을 요구)
-        cli.withCliJar(fresh);
-        assertEquals(1, cli.run("info"));
-        assertTrue(cli.err().contains("[사유: ADMIN_SETUP]"), cli.err());
-        // 기본 결과 이름이 이미 있으면(이미 설정한 JAR일 수 있음) 입력을 받기 전에 그 JAR를 안내한다.
-        CliHarness.FakeTerminal again = terminal("admin@12345", "admin@12345");
-        again.lines.add("ops01");
-        assertEquals(1, cli.run(again, "info"));
-        assertTrue(again.prompts.isEmpty(), again.prompts.toString());
-        assertTrue(cli.err().contains("java -jar java-crypto-kit-0.1.0-cfg.jar info"), cli.err());
+        assertFalse(Files.exists(dir.resolve("java-crypto-kit-0.1.0-cfg.jar")));
     }
 
     @Test
     void setupFailuresChangeNothing() throws Exception {
         cli.withCliJar(fresh);
-        Path created = dir.resolve("java-crypto-kit-0.1.0-cfg.jar");
+        byte[] pristine = Files.readAllBytes(fresh);
         // 두 입력 불일치 3번
         CliHarness.FakeTerminal mismatch = terminal("admin@12345", "admin@12346", "admin@12345", "x", "admin@12345", "y");
         mismatch.lines.add("ops");
@@ -181,37 +168,36 @@ class AdminCliTest {
         assertTrue(cli.err().contains("[사유: ADMIN_PASSWORD]") && cli.err().contains("3번 실패") && cli.err().contains("두 입력이 다릅니다"),
                 cli.err());
         assertTrue(mismatch.printed.contains("두 입력이 다릅니다. 다시 입력하세요(남은 기회 2번)."), mismatch.printed.toString());
-        assertFalse(Files.exists(created));
+        assertArrayEquals(pristine, Files.readAllBytes(fresh));
         // 규칙 위반: 구체적인 사유를 알리고 다시 받는다(확인 입력은 묻지 않음)
         CliHarness.FakeTerminal rules = terminal("Admin12345", "admin@123", "admin@12345", "admin@12345");
         rules.lines.add("ops");
         assertEquals(0, cli.run(rules, "admin", "setup"), cli.err());
         assertTrue(rules.printed.contains("규칙에 맞지 않습니다: 특수문자 없음. 다시 입력하세요(남은 기회 2번)."), rules.printed.toString());
         assertTrue(rules.printed.contains("규칙에 맞지 않습니다: 10자 미만. 다시 입력하세요(남은 기회 1번)."), rules.printed.toString());
-        assertEquals(Arrays.asList("작업자 ID: ", "새 관리자 비밀번호(입력 숨김): ", "새 관리자 비밀번호(입력 숨김): ",
+        assertEquals(Arrays.asList("새 관리자 비밀번호(입력 숨김): ", "새 관리자 비밀번호(입력 숨김): ",
                 "새 관리자 비밀번호(입력 숨김): ", "비밀번호 확인(입력 숨김): "), rules.prompts);
-        assertTrue(Files.exists(created));
-        Files.delete(created);
+        assertEquals(AdminPassword.State.INITIALIZED, AdminPassword.statusOf(JarConfigEditor.read(fresh)).state);
+        Files.write(fresh, pristine);
         // 빈 입력(취소)·빈 작업자 ID·비대화형 필수 항목 누락
         CliHarness.FakeTerminal cancel = terminal("");
         cancel.lines.add("ops");
         assertEquals(1, cli.run(cancel, "admin", "setup"));
         assertTrue(cli.err().contains("취소했습니다"), cli.err());
-        CliHarness.FakeTerminal noOperator = terminal("admin@12345", "admin@12345");
-        noOperator.lines.add("   ");
-        assertEquals(1, cli.run(noOperator, "admin", "setup"));
-        assertTrue(cli.err().contains("작업자 ID가 비어 있어"), cli.err());
-        assertEquals(1, cli.run("admin", "setup", "--admin-pass-file", pwFile));
-        assertTrue(cli.err().contains("--operator <작업자 ID>가 필요합니다"), cli.err());
+        assertEquals(1, cli.run("admin", "setup", "--operator", "invalid operator", "--admin-pass-file", pwFile));
+        assertArrayEquals(pristine, Files.readAllBytes(fresh));
+        assertEquals(0, cli.run("admin", "setup", "--admin-pass-file", pwFile), cli.err());
+        assertTrue(cli.out().contains("SYSTEM"));
+        Files.write(fresh, pristine);
         assertEquals(1, cli.run("admin", "setup", "--operator", "ci"));
         assertTrue(cli.err().contains("--admin-pass-file <파일>로 새 비밀번호를 주어야"), cli.err());
         String weak = CliHarness.passFile(dir, "Admin12345");
         assertEquals(1, cli.run("admin", "setup", "--operator", "ci", "--admin-pass-file", weak));
         assertTrue(cli.err().contains("[사유: ADMIN_PASSWORD]") && cli.err().contains("특수문자 없음"), cli.err());
-        assertFalse(Files.exists(created), "실패하면 JAR를 만들지 않는다");
+        assertArrayEquals(pristine, Files.readAllBytes(fresh));
         // 비대화형 최초 설정(CI): 파일 1회로 같은 규칙을 검사해 설정한다.
-        Path ci = dir.resolve("ci.jar");
-        assertEquals(0, cli.run("admin", "setup", "--operator", "ci", "--admin-pass-file", pwFile, "--out", ci.toString()), cli.err());
+        Path ci = fresh;
+        assertEquals(0, cli.run("admin", "setup", "--operator", "ci", "--admin-pass-file", pwFile), cli.err());
         assertEquals(AdminPassword.State.INITIALIZED, AdminPassword.statusOf(JarConfigEditor.read(ci)).state);
         assertFalse(cli.out().contains(PW) || cli.err().contains(PW));
     }
@@ -263,26 +249,24 @@ class AdminCliTest {
         Path keyFile = TestSupport.writeRandomKeyFile(dir, "k2.key");
         Path withKey = dir.resolve("with-key.jar");
         assertEquals(0, cli.run("config", "key", "add", "--key-id", "k2", "--type", "key", "--from-file", keyFile.toString(),
-                "--operator", "ops", "--reason", "prep", "--yes", "--jar", app.toString(), "--out", withKey.toString()), cli.err());
+                "--operator", "ops", "--reason", "prep", "--yes", "--jar", Files.copy(app, withKey).toString()), cli.err());
         Path plain = Files.write(dir.resolve("plain.csv"), "a,b".getBytes(StandardCharsets.UTF_8));
         Path enc = dir.resolve("plain.csv.jck");
         CryptoService.of(JarConfigEditor.read(withKey).validated()).encryptFile(plain, enc);
-        String token = TestSupport.jarDefaults().encryptText("dummy-rekey");
+        String token = TestSupport.managedCrypto().encryptText("dummy-rekey");
         String wrongFile = CliHarness.passFile(dir, "Wrong-pass-9");
         String missingFile = dir.resolve("no-such.pw").toString();
         cli.withCliJar(withKey);
         List<String[]> commands = new ArrayList<>();
         commands.add(new String[]{"keygen", "--out", dir.resolve("new.key").toString(), "--reason", "r"});
         commands.add(new String[]{"kms", "datakey", "--out", dir.resolve("new.datakey").toString(), "--reason", "r"});
-        commands.add(new String[]{"config", "set", "crypto.lang=en", "--operator", "ops", "--out", dir.resolve("set.jar").toString()});
+        commands.add(new String[]{"config", "set", "crypto.lang=en", "--operator", "ops"});
         commands.add(new String[]{"config", "embed-key", "--from-file", keyFile.toString(), "--key-id", "e9", "--operator", "ops",
-                "--reason", "r", "--yes", "--out", dir.resolve("embed.jar").toString()});
+                "--reason", "r", "--yes"});
         commands.add(new String[]{"config", "key", "add", "--key-id", "n1", "--generate", "--export", dir.resolve("n1.backup").toString(),
-                "--operator", "ops", "--reason", "r", "--yes", "--out", dir.resolve("add.jar").toString()});
-        commands.add(new String[]{"config", "key", "use", "--key-id", "k2", "--operator", "ops", "--reason", "r", "--yes",
-                "--out", dir.resolve("use.jar").toString()});
-        commands.add(new String[]{"config", "key", "remove", "--key-id", "k2", "--operator", "ops", "--reason", "r", "--yes",
-                "--out", dir.resolve("remove.jar").toString()});
+                "--operator", "ops", "--reason", "r", "--yes"});
+        commands.add(new String[]{"config", "key", "use", "--key-id", "k2", "--operator", "ops", "--reason", "r", "--yes"});
+        commands.add(new String[]{"config", "key", "remove", "--key-id", "k2", "--operator", "ops", "--reason", "r", "--yes"});
         commands.add(new String[]{"config", "key", "show", "--key-id", "k2", "--export", dir.resolve("k2.export").toString()});
         commands.add(new String[]{"config", "show"});
         commands.add(new String[]{"config", "history", "--all"});
@@ -333,14 +317,13 @@ class AdminCliTest {
         // 맞는 비밀번호 파일이면 실행된다(대표: keygen, config set).
         assertEquals(0, cli.run("keygen", "--out", dir.resolve("ok.key").toString(), "--reason", "r", "--admin-pass-file", pwFile),
                 cli.err());
-        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "ops", "--out", dir.resolve("ok.jar").toString(),
+        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "ops",
                 "--admin-pass-file", pwFile), cli.err());
         // 관리자 인증 → 사유 → CHANGE 순서(대화형)
         CliHarness.FakeTerminal order = terminal(PW);
         order.lines.add("정기 회전");
         order.lines.add("CHANGE");
-        assertEquals(0, cli.run(order, "config", "key", "use", "--key-id", "k2", "--operator", "ops", "--out",
-                dir.resolve("use-ok.jar").toString()), cli.err());
+        assertEquals(0, cli.run(order, "config", "key", "use", "--key-id", "k2", "--operator", "ops"), cli.err());
         assertEquals(Arrays.asList(ADMIN_PROMPT, "사유(비밀값 제외): ", "계속하려면 CHANGE를 입력하세요(그 외 입력은 취소): "),
                 order.prompts);
     }
@@ -350,19 +333,20 @@ class AdminCliTest {
         cli.withCliJar(app);
         assertEquals(1, cli.run("admin", "password", "change", "--reason", "r"));
         assertTrue(cli.err().contains("대화형 터미널에서만"), cli.err());
-        Path next = dir.resolve("app-cfg.jar");
+        Path next = Files.copy(app, dir.resolve("app-copy.jar"));
+        cli.withCliJar(next);
         // 현재 비밀번호가 틀리면 바꾸지 않는다
         assertEquals(1, cli.run(terminal("bad-1", "bad-2", "bad-3"), "admin", "password", "change", "--operator", "ops",
                 "--reason", "r"));
         assertTrue(cli.err().contains("[사유: ADMIN_AUTH]"), cli.err());
-        assertFalse(Files.exists(next));
+        assertArrayEquals(Files.readAllBytes(app), Files.readAllBytes(next));
         // 새 비밀번호가 현재와 같거나 두 입력이 다르면 다시 받고, 3번이면 바꾸지 않는다
         CliHarness.FakeTerminal same = terminal(PW, PW, "Other-pass-7", "Other-pass-8", "admin@", "admin@");
         assertEquals(1, cli.run(same, "admin", "password", "change", "--operator", "ops", "--reason", "r"));
         assertTrue(same.printed.contains("현재 비밀번호와 같습니다. 다시 입력하세요(남은 기회 2번)."), same.printed.toString());
         assertTrue(same.printed.contains("두 입력이 다릅니다. 다시 입력하세요(남은 기회 1번)."), same.printed.toString());
         assertTrue(cli.err().contains("[사유: ADMIN_PASSWORD]") && cli.err().contains("10자 미만"), cli.err());
-        assertFalse(Files.exists(next));
+        assertArrayEquals(Files.readAllBytes(app), Files.readAllBytes(next));
         // 성공: 현재 → 작업자 ID → 사유 → 새 비밀번호 2회
         CliHarness.FakeTerminal ok = terminal(PW, "New-admin-22", "New-admin-22");
         ok.lines.add("sec01");
@@ -372,9 +356,8 @@ class AdminCliTest {
                 "새 관리자 비밀번호(입력 숨김): ", "비밀번호 확인(입력 숨김): "), ok.prompts);
         assertEquals("[CLI 관리자 비밀번호 변경]", ok.printed.get(0));
         String ls = System.lineSeparator();
-        assertEquals("관리자    : 비밀번호 변경 완료" + ls + "생성 JAR  : " + next.toAbsolutePath() + ls + CliHarness.permissionLine()
-                + "원본 JAR  : app.jar (그대로, 이전 비밀번호 유지)" + ls + "작업자    : sec01" + ls + "사유      : 분기 변경" + ls
-                + "안내      : 생성 JAR을 쓰고, 필요 없는 원본 JAR은 직접 폐기하세요." + ls, cli.out());
+        assertTrue(cli.out().contains("갱신 JAR  : " + next.toAbsolutePath() + ls)
+                && cli.out().contains("작업자    : sec01") && cli.out().contains("사유      : 분기 변경"), cli.out());
         // 새 JAR: 새 비밀번호만 통한다. 키·설정은 그대로, 이력에 변경 기록(사유 포함). 원본 JAR는 이전 비밀번호 그대로.
         assertArrayEquals(JarConfigEditor.read(app).settingsBytes, JarConfigEditor.read(next).settingsBytes);
         String newFile = CliHarness.passFile(dir, "New-admin-22");
@@ -399,21 +382,19 @@ class AdminCliTest {
         Path keyFile = TestSupport.writeRandomKeyFile(dir, "shared.key");
         Path otherWithKey = dir.resolve("other-key.jar");
         assertEquals(0, cli.run("config", "key", "add", "--key-id", "shared", "--type", "key", "--from-file", keyFile.toString(),
-                "--operator", "ops", "--reason", "prep", "--yes", "--jar", other.toString(), "--out", otherWithKey.toString()),
+                "--operator", "ops", "--reason", "prep", "--yes", "--jar", Files.copy(other, otherWithKey).toString()),
                 cli.err());
         cli.withCliJar(app);
         // --jar: 비대화형은 비밀번호 파일 하나가 모든 JAR와 맞아야 한다(실행 중인 JAR 인증으로 대신하지 않음)
         Path out1 = dir.resolve("o1.jar");
-        assertEquals(1, cli.run("config", "set", "crypto.lang=en", "--operator", "ops", "--jar", other.toString(), "--out",
-                out1.toString(), "--admin-pass-file", pwFile));
+        assertEquals(1, cli.run("config", "set", "crypto.lang=en", "--operator", "ops", "--jar", other.toString(), "--admin-pass-file", pwFile));
         assertTrue(cli.err().contains("[사유: ADMIN_AUTH]") && cli.err().contains("대상 JAR(other.jar)의 관리자 비밀번호가 다릅니다"),
                 cli.err());
         assertFalse(Files.exists(out1));
         // 대화형은 그 JAR의 비밀번호를 따로 묻는다
         CliHarness.FakeTerminal two = terminal(PW, "Other-admin-2");
-        assertEquals(0, cli.run(two, "config", "set", "crypto.lang=en", "--operator", "ops", "--jar", other.toString(), "--out",
-                out1.toString()), cli.err());
-        assertEquals(Arrays.asList(ADMIN_PROMPT, "대상 JAR(other.jar) 관리자 비밀번호(입력 숨김): "), two.prompts);
+        assertEquals(0, cli.run(two, "config", "set", "crypto.lang=en", "--operator", "ops", "--jar", Files.copy(other, out1).toString()), cli.err());
+        assertEquals(Arrays.asList(ADMIN_PROMPT, "대상 JAR(o1.jar) 관리자 비밀번호(입력 숨김): "), two.prompts);
         // 같은 비밀번호면 한 번만 묻는다
         Path same = CliHarness.configure(TestJars.build(dir.resolve("same.jar")), PW);
         CliHarness.FakeTerminal one = terminal(PW);
@@ -424,17 +405,17 @@ class AdminCliTest {
         assertTrue(cli.err().contains("[사유: ADMIN_SETUP]") && cli.err().contains("admin setup"), cli.err());
         assertEquals("", cli.out());
         // --from-jar(키 복사 원본)도 그 JAR의 비밀번호를 확인한다
-        Path copied = dir.resolve("copied.jar");
+        
         assertEquals(1, cli.run("config", "key", "add", "--key-id", "shared", "--from-jar", otherWithKey.toString(), "--operator",
-                "ops", "--reason", "r", "--yes", "--out", copied.toString(), "--admin-pass-file", pwFile));
+                "ops", "--reason", "r", "--yes", "--admin-pass-file", pwFile));
         assertTrue(cli.err().contains("원본 JAR(other-key.jar)의 관리자 비밀번호가 다릅니다"), cli.err());
         CliHarness.FakeTerminal source = terminal(PW, "Other-admin-2");
         assertEquals(0, cli.run(source, "config", "key", "add", "--key-id", "shared", "--from-jar", otherWithKey.toString(),
-                "--operator", "ops", "--reason", "r", "--yes", "--out", copied.toString()), cli.err());
+                "--operator", "ops", "--reason", "r", "--yes"), cli.err());
         assertEquals(Arrays.asList(ADMIN_PROMPT, "원본 JAR(other-key.jar) 관리자 비밀번호(입력 숨김): "), source.prompts);
         // rekey: --from-jar(복호화에 쓰는 원본)는 인증, --to-jar(암호화만, 바뀌지 않음)는 인증하지 않는다
-        String publicToken = TestSupport.jarDefaults().encryptText("dummy-rk");
-        assertEquals(0, cli.run("rekey", "--to-jar", otherWithKey.toString(), "--key-id", "shared", "--value", publicToken,
+        String publicToken = CryptoService.of(JarConfigEditor.read(app).validated()).encryptText("dummy-rk".toCharArray());
+        assertEquals(0, cli.run("rekey", "--from-jar", app.toString(), "--to-jar", otherWithKey.toString(), "--key-id", "shared", "--value", publicToken,
                 "--admin-pass-file", pwFile), cli.err());
         String moved = cli.out().trim();
         assertTrue(moved.startsWith("ENC[v1:shared:"), cli.out());
@@ -446,8 +427,8 @@ class AdminCliTest {
         // 관리자 비밀번호를 모르는 이전 형식 JAR는 실행 중인 CLI JAR의 인증만으로 편집하고 관리자 정보를 쓰지 않는다
         Path legacy = TestJars.buildLegacy(dir.resolve("java-crypto-kit-legacy.jar"));
         Path legacyOut = dir.resolve("legacy-out.jar");
-        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "ops", "--jar", legacy.toString(), "--out",
-                legacyOut.toString(), "--admin-pass-file", pwFile), cli.err());
+        assertEquals(1, cli.run("config", "set", "crypto.lang=en", "--operator", "ops", "--jar", Files.copy(legacy, legacyOut).toString(), "--admin-pass-file", pwFile), cli.err());
+        assertArrayEquals(Files.readAllBytes(legacy), Files.readAllBytes(legacyOut));
         JarConfigEditor.Snapshot legacySnap = JarConfigEditor.read(legacyOut);
         assertNull(legacySnap.adminBytes, "이전 버전 JAR에는 관리자 검증값을 쓰지 않는다");
         assertEquals(AdminPassword.State.LEGACY, AdminPassword.statusOf(legacySnap).state);
@@ -476,8 +457,9 @@ class AdminCliTest {
         assertTrue(cli.out().contains("config key add"), cli.out());
         // 설정 기록이 있는 JAR에서 검증값만 지우면 "미설정"이 아니라 손상(삭제 의심)이다(최초 설정으로 되돌릴 수 없음).
         cli.withCliJar(fresh);
-        Path set = dir.resolve("set.jar");
-        assertEquals(0, cli.run("admin", "setup", "--operator", "ci", "--admin-pass-file", pwFile, "--out", set.toString()), cli.err());
+        Path set = Files.copy(fresh, dir.resolve("set.jar"));
+        cli.withCliJar(set);
+        assertEquals(0, cli.run("admin", "setup", "--operator", "ci", "--admin-pass-file", pwFile), cli.err());
         Path deleted = dir.resolve("deleted.jar");
         Files.copy(set, deleted);
         CliHarness.replaceEntry(deleted, AdminPassword.ENTRY, null);
@@ -487,7 +469,7 @@ class AdminCliTest {
         assertEquals(1, cli.run("admin", "setup", "--operator", "x", "--admin-pass-file", pwFile));
         assertTrue(cli.err().contains("[사유: INTEGRITY]"), "손상 JAR는 다시 설정할 수도 없다: " + cli.err());
         // Java API는 관리자 비밀번호 항목을 읽지 않는다: 손상·삭제·미설정 JAR 모두 그대로 암복호화한다.
-        for (Path jar : new Path[]{broken, deleted, fresh, set}) {
+        for (Path jar : new Path[]{broken, deleted, set}) {
             assertEquals("dummy-api", javaApiRoundTrip(jar, "dummy-api"), jar.getFileName().toString());
         }
     }
@@ -516,13 +498,11 @@ class AdminCliTest {
         Path step2 = dir.resolve("step2.jar");
         Path keys = dir.resolve("keys.jar");
         assertEquals(0, cli.run("config", "key", "add", "--key-id", "k1", "--type", "key", "--from-file", keyFile.toString(),
-                "--operator", "ops", "--reason", "prep", "--yes", "--jar", app.toString(), "--out", step1.toString()), cli.err());
+                "--operator", "ops", "--reason", "prep", "--yes", "--jar", Files.copy(app, step1).toString()), cli.err());
         assertEquals(0, cli.run("config", "key", "add", "--key-id", "fp", "--source", "file", "--location",
-                TestSupport.propertiesPath(passFile), "--operator", "ops", "--reason", "prep", "--yes", "--jar", step1.toString(),
-                "--out", step2.toString()), cli.err());
+                TestSupport.propertiesPath(passFile), "--operator", "ops", "--reason", "prep", "--yes", "--jar", Files.copy(step1, step2).toString()), cli.err());
         assertEquals(0, cli.run("config", "key", "add", "--key-id", "gp", "--generate", "--export",
-                dir.resolve("gp.backup").toString(), "--operator", "ops", "--reason", "prep", "--yes", "--jar", step2.toString(),
-                "--out", keys.toString()), cli.err());
+                dir.resolve("gp.backup").toString(), "--operator", "ops", "--reason", "prep", "--yes", "--jar", Files.copy(step2, keys).toString()), cli.err());
         CryptoSettings settings = JarConfigEditor.read(keys).validated();
         CryptoService service = CryptoService.of(settings);
         String k1Token = service.encryptText("dummy-k1".toCharArray(), null, "k1");
@@ -610,9 +590,9 @@ class AdminCliTest {
         Path r2 = dir.resolve("r2.jar");
         cli.recordingGate();
         assertEquals(0, cli.run("config", "key", "add", "--key-id", "k1", "--type", "key", "--from-file", k1Export.toString(),
-                "--operator", "ops", "--reason", "복구", "--yes", "--jar", rebuilt.toString(), "--out", r1.toString()), cli.err());
+                "--operator", "ops", "--reason", "복구", "--yes", "--jar", Files.copy(rebuilt, r1).toString()), cli.err());
         assertEquals(0, cli.run("config", "key", "add", "--key-id", "fp", "--from-file", fpExport.toString(), "--operator", "ops",
-                "--reason", "복구", "--yes", "--jar", r1.toString(), "--out", r2.toString()), cli.err());
+                "--reason", "복구", "--yes", "--jar", Files.copy(r1, r2).toString()), cli.err());
         CryptoService restored = CryptoService.of(JarConfigEditor.read(r2).validated());
         assertEquals("dummy-k1", restored.decryptText(k1Token));
         assertEquals("dummy-fp", restored.decryptText(fpToken));
@@ -643,8 +623,7 @@ class AdminCliTest {
     void historyShowsRecordedSaltsAndMarksValuesAnOlderFormatDidNotRecord() throws Exception {
         Path added = dir.resolve("added.jar");
         assertEquals(0, cli.run("config", "key", "add", "--key-id", "old", "--generate", "--export",
-                dir.resolve("old.backup").toString(), "--operator", "ops", "--reason", "r", "--yes", "--jar", app.toString(),
-                "--out", added.toString()), cli.err());
+                dir.resolve("old.backup").toString(), "--operator", "ops", "--reason", "r", "--yes", "--jar", Files.copy(app, added).toString()), cli.err());
         JarConfigEditor.Snapshot snap = JarConfigEditor.read(added);
         String salt = snap.settings.getProperty("crypto.keys.old.salt").trim();
         // 새 기록: Salt 값을 그대로 남기고 보여 준다
@@ -661,7 +640,7 @@ class AdminCliTest {
                     ? new ConfigHistory.Change(change.key, change.before, ConfigHistory.SECRET_BEFORE) : change);
         }
         byte[] appSettings = JarConfigEditor.read(app).settingsBytes;
-        ConfigHistory.Log log = ConfigHistory.read(null, appSettings, null, null, TestJars.VERSION);
+        ConfigHistory.Log log = ConfigHistory.read(null, JarConfigEditor.read(fresh).settingsBytes, null, null, TestJars.VERSION);
         byte[] oldStyle = null;
         for (ConfigHistory.Entry entry : entries) {
             boolean last = entry == keyEntry;
@@ -682,7 +661,7 @@ class AdminCliTest {
         Path removed = dir.resolve("removed.jar");
         cli.recordingGate();
         assertEquals(0, cli.run("config", "key", "remove", "--key-id", "old", "--operator", "ops", "--reason", "r", "--yes",
-                "--jar", older.toString(), "--out", removed.toString()), cli.err());
+                "--jar", Files.copy(older, removed).toString()), cli.err());
         assertNotNull(JarConfigEditor.read(removed).history);
         assertEquals(null, JarConfigEditor.read(removed).history.problem);
     }

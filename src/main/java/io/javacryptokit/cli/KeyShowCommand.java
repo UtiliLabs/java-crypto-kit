@@ -64,7 +64,7 @@ final class KeyShowCommand {
         String export = parsed.value("--export");
         CryptoCli.Terminal terminal = show ? CryptoCli.interactive(terminals) : null;
         Path jar = ConfigCommand.sourceJar(parsed);
-        JarConfigEditor.Snapshot snap = JarConfigEditor.read(jar);
+        JarConfigEditor.Snapshot snap = parsed.admin.snapshot(jar);
         CryptoSettings settings = KeyringCommand.validated(snap);
         KeyProfile profile = settings.profile(keyId);
         if (profile == null) {

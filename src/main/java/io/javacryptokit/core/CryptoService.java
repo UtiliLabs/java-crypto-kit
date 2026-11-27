@@ -129,6 +129,7 @@ public final class CryptoService {
     public KeyProfile select(KeyType type, String keyId) throws CredentialCryptoException {
         try (Messages.Scope ignored = scope()) {
             try {
+                if (settings.profiles().isEmpty() && type == null && keyId == null) throw missingKey();
                 return settings.select(type, keyId);
             } catch (SafeMessageException e) {
                 throw new CredentialCryptoException(CredentialCryptoException.Reason.CONFIGURATION, e.getMessage());
@@ -136,7 +137,7 @@ public final class CryptoService {
         }
     }
 
-    /** @return 유형·Key ID를 정하지 않은 새 암호화가 쓰는 키(로딩 시 검증되어 항상 있다) */
+    /** @return 유형·Key ID를 정하지 않은 새 암호화가 쓰는 키(해당 유형의 활성 키가 없으면 null) */
     public KeyProfile defaultProfile() {
         return settings.activeProfile(settings.defaultType());
     }
@@ -336,7 +337,9 @@ public final class CryptoService {
             try {
                 FileCipher.checkPaths(in, out);
                 // 헤더의 Key ID를 먼저 확인해 등록되지 않은 Key ID 파일에는 키를 꺼내지 않는다.
-                KeyProfile profile = settings.profile(FileCipher.readKeyId(in));
+                String id = FileCipher.readKeyId(in);
+                if (settings.profiles().isEmpty()) throw missingKey();
+                KeyProfile profile = settings.profile(id);
                 if (profile == null) {
                     throw new CredentialCryptoException(CredentialCryptoException.Reason.KEY_ID_MISMATCH);
                 }
@@ -461,6 +464,7 @@ public final class CryptoService {
     /** @return 프로필의 키 위치 설명(비밀값 없음: 파일은 이름만, 환경변수·Vault·KMS는 이름·경로만) */
     public String describeKeyLocation(KeyProfile profile) {
         try (Messages.Scope ignored = scope()) {
+            if (profile == null) return Messages.get("key.err.unconfigured");
             return KeyResolver.provider(profile.source()).describe(settings, profile);
         }
     }
@@ -472,7 +476,7 @@ public final class CryptoService {
 
     /** @return 프로필이 원격 공급원(vault·aws-kms)이면 true */
     public boolean remoteKeySource(KeyProfile profile) {
-        return KeyResolver.provider(profile.source()).remote();
+        return profile != null && KeyResolver.provider(profile.source()).remote();
     }
 
     /** @return 기본 키의 네트워크 없는 공급원 점검 결과({@code doctor}) */
@@ -483,6 +487,7 @@ public final class CryptoService {
     /** @return 프로필의 네트워크 없는 공급원 점검 결과({@code doctor}) */
     public List<Diagnostic> offlineKeyChecks(KeyProfile profile) {
         try (Messages.Scope ignored = scope()) {
+            if (profile == null) return Collections.singletonList(Diagnostic.fail(Messages.get("key.err.unconfigured"), null));
             return KeyResolver.provider(profile.source()).offlineChecks(settings, profile);
         }
     }
@@ -490,6 +495,7 @@ public final class CryptoService {
     /** 봉투의 형식을 검사하고 Key ID로 등록된 프로필을 찾는다(없으면 KEY_ID_MISMATCH, 다른 키로 시도하지 않음). */
     private KeyProfile profileOf(String envelope) throws CredentialCryptoException {
         String id = CredentialCipher.keyIdOf(envelope);
+        if (settings.profiles().isEmpty()) throw missingKey();
         KeyProfile profile = settings.profile(id);
         if (profile == null) throw new CredentialCryptoException(CredentialCryptoException.Reason.KEY_ID_MISMATCH);
         CredentialCipher.checkEnvelope(envelope, profile.id());
@@ -503,6 +509,7 @@ public final class CryptoService {
      */
     private byte[] key(KeyProfile profile) throws IOException {
         // 직접 준 키: 설정·공급원을 거치지 않고 이 객체의 복사본을 준다(그 키 하나만 등록되어 있으므로 다른 키는 오지 않음).
+        if (profile == null) throw new SafeMessageException(Messages.get("key.err.unconfigured"));
         if (directKey != null) return directKey.clone();
         if (!KeyResolver.provider(profile.source()).remote()) return KeyResolver.resolve(settings, profile);
         synchronized (keyLock) {
@@ -513,6 +520,10 @@ public final class CryptoService {
             }
             return cached.clone();
         }
+    }
+
+    private static CredentialCryptoException missingKey() {
+        return new CredentialCryptoException(CredentialCryptoException.Reason.CONFIGURATION, Messages.get("key.err.unconfigured"));
     }
 
     private static void wipe(byte[] key) {

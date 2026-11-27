@@ -26,6 +26,8 @@ public final class RequestAuth {
     /** 지정할 수 있는 최대 허용 오차(15분). */
     public static final Duration MAX_ALLOWED_SKEW = Duration.ofMinutes(15);
 
+    private static final long MAX_TIMESTAMP = 999_999_999_999L;
+
     private final Hmac hmac;
     private final long maxSkewSeconds;
     private final Clock clock;
@@ -65,10 +67,15 @@ public final class RequestAuth {
      *
      * @param request 서명할 요청 바이트(바꾸지 않는다)
      * @return 시각·Nonce·MAC
+     * @throws IllegalArgumentException Clock의 Unix 초가 0~999,999,999,999 범위를 벗어남
      */
     public Signed sign(byte[] request) {
         Text.require(request, "request");
-        String timestamp = Long.toString(clock.instant().getEpochSecond());
+        long seconds = clock.instant().getEpochSecond();
+        if (seconds < 0 || seconds > MAX_TIMESTAMP) {
+            throw Text.invalid("sec.err.requestTimestamp", Long.toString(MAX_TIMESTAMP));
+        }
+        String timestamp = Long.toString(seconds);
         String nonce = SecureRandoms.nonce();
         return new Signed(timestamp, nonce, hmac.sign(input(timestamp, nonce, request), Encoding.BASE64_URL));
     }

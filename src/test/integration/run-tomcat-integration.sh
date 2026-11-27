@@ -5,7 +5,7 @@
 #   0  준비: Docker 이미지, MariaDB JDBC 드라이버(SHA-256 확인), 외부와 끊긴 시험 전용 네트워크
 #   1  키 JAR(CLI만 사용): 빌드 JAR(CLI 관리자 비밀번호 미설정)은 실행 거부 -> admin setup(비대화형 --admin-pass-file)
 #      -> keygen -> config embed-key(AES 키 corp01) -> config key add(pass 키 corp-pass, 기본 키) -> config set(Pool).
-#      공개 키를 뺀 JAR·pass 파일 키 JAR·이중 배포용 JAR A/B(pass 키는 비대화형 생성 + --export), 관리자 검증값 손상 JAR,
+#      최초 설정 키를 뺀 JAR·pass 파일 키 JAR·이중 배포용 JAR A/B(pass 키는 비대화형 생성 + --export), 관리자 검증값 손상 JAR,
 #      민감 명령마다 관리자 인증(비밀번호 파일)·키 생성·변경마다 --reason, 유형별 history(기본 pass·--all·[관리자]),
 #      JAR 안 내장 키·이력의 obf1 저장, 관리자 검증값(원문 없음), fingerprint·doctor
 #   2  실제 CLI: 가상 터미널로 encrypt(pass·key)·decrypt(관리자 비밀번호 숨김 입력·파일·틀린 값)·rekey(같은 유형·유형 간,
@@ -14,15 +14,15 @@
 #   4  M-*      공통 설정 fallback 8개 조합(Tomcat 4개 버전 × 두 Pool): 한 JVM에서 pass·key 암호문 정상 연결과
 #               오류 판정(평문·위조·변조·미등록 키ID·DB 로그인 거부), 실제 테이블 SELECT·INSERT(pass·key 각각)
 #   5  E01~E23  설정·보안 시나리오: 우선순위(-D > 외부 Properties > JAR), file·env 키, 언어·경고 끄기,
-#               공개 키 JAR(빌드 JAR 그대로 = 관리자 비밀번호 미설정), 키 원문 -D 거부, 키 누락 Fail Closed,
+#               빌드 JAR 그대로(관리자·PASS·KEY 미설정 = CONFIGURATION), 키 원문 -D 거부, 키 누락 Fail Closed,
 #               -D·외부 Properties 오타 거부, 빈 설정 경로 거부, 웹앱의 같은 이름 가짜 Pool Factory 차단(E17),
-#               GlobalNamingResources + ResourceLink(E18), embed-key 뒤 공개 키 암호문(E19), 공개 키를 뺀 JAR(E20),
+#               GlobalNamingResources + ResourceLink(E18), embed-key 뒤 최초 설정 키 암호문(E19), 최초 설정 키를 뺀 JAR(E20),
 #               pass 파일 키 JDK 8 파생(E21)·지문 고정 위반(E22), 관리자 검증값 손상 JAR도 Tomcat 정상(E23, CLI 전용 검증값)
 #      L01      (--legacy-jar) 실제 이전 버전 JAR를 새 CLI로 편집(이전 형식 유지) → 이전 바이너리 CLI·Tomcat 9 JNDI·SQL
 #   6  D01~D05  이중 배포: Tomcat lib의 JAR A(인프라 키) + 웹앱 WEB-INF/lib의 JAR B(업무 키, Pool 설정도 다름).
 #               Global·Context·conf/context.xml Resource를 어느 JAR의 Factory가 만드는지(Pool 종류·키로 판정),
 #               개발자 API 클래스로더(문자열·파일 암복호화, 상대 JAR 파일 거부), 키·지문·설정 독립, 교차 복호화 차단,
-#               실제 SQL, 공개 키 경고 횟수, JVM 공통 -D(D03)·CRYPTO_CONFIG_FILE(D04)이 두 JAR에 모두 적용되는 간섭과
+#               실제 SQL, 공개된 기본 키 경고 0건, JVM 공통 -D(D03)·CRYPTO_CONFIG_FILE(D04)이 두 JAR에 모두 적용되는 간섭과
 #               JAR B의 crypto.jvm.override.enabled=false로 공통 -D를 피하는 방법(D05).
 #               D01~D05 모두 두 웹앱에서 범용 보안 API(원시 AES-GCM·직접 키·HMAC·비밀번호 해시·해시·난수·서명·JWT·
 #               Access Token·TOTP·RSA-OAEP·Hybrid)를 호출해 클래스 출처(JAR B/JAR A)를 확인하고, 호출 뒤 JAR A 파일·키 목록·지문 불변 확인
@@ -96,7 +96,7 @@ TJF=org.apache.tomcat.jdbc.pool.DataSourceFactory
 DBCPF=org.apache.tomcat.dbcp.dbcp2.BasicDataSourceFactory
 POOL_D=org.apache.tomcat.dbcp.dbcp2.BasicDataSource
 POOL_T=org.apache.tomcat.jdbc.pool.DataSource
-PUBLIC_PASS_FP='3dca588c78a1...94453656'   # 공개 pass 키(pass-default)의 짧은 지문(고정 공개 값)
+
 
 die() { echo "[환경 오류] $*" >&2; exit 2; }
 hostpath() { if command -v cygpath > /dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
@@ -223,82 +223,87 @@ un=$(wb sh -c 'cd /w && java -jar jars/public.jar keygen --out /w/out/unset.key 
   java -jar jars/public.jar doctor; echo "rc=$?"; ls /w/out /w/jars' 2>&1)
 [ "$(grep -c 'ADMIN_SETUP' <<< "$un")" = 2 ] && [ "$(grep -c '^rc=1$' <<< "$un")" = 2 ] && [[ "$un" != *"unset.key"* && "$un" != *"configured"* ]]
 check $? "미설정 빌드 JAR: keygen·doctor 거부(ADMIN_SETUP, 종료 코드 1), 키 파일·새 JAR 생성 없음"
-quiet wb sh -c "cd /w && java -jar jars/public.jar admin setup --operator qa $ADM"
-check $? "admin setup(비대화형, --admin-pass-file): 빌드 JAR → 새 JAR public-cfg.jar"
-ad=$(wb sh -c 'cd /w && sha256sum jars/public.jar | cut -c1-64; rm -rf /tmp/ja && mkdir /tmp/ja && cd /tmp/ja \
-  && jar xf /w/jars/public-cfg.jar META-INF/java-crypto-kit/admin.properties \
-  && echo "kdf=$(grep -c "^kdf=PBKDF2WithHmacSHA256$" META-INF/java-crypto-kit/admin.properties)" \
-  && echo "plain=$(grep -cF "$(cat /w/admin/admin.pw)" META-INF/java-crypto-kit/admin.properties)"' 2>&1)
-[ "$(head -1 <<< "$ad")" = "$(sha256 "$JAR")" ] && grep -qx 'kdf=1' <<< "$ad" && grep -qx 'plain=0' <<< "$ad"
-check $? "admin setup: 원본 빌드 JAR 그대로(SHA-256 같음), 새 JAR에는 PBKDF2 검증값만(비밀번호 원문 없음)"
-quiet wb sh -c "cd /w && java -jar jars/public-cfg.jar keygen --out /opt/java-crypto-kit/company.key --reason 'integration test' $ADM"
+quiet wb sh -c "cd /w && cp jars/public.jar jars/initial.jar && java -jar jars/initial.jar admin setup --operator qa $ADM"
+check $? "admin setup(비대화형, --admin-pass-file): 빌드 JAR → 새 JAR initial.jar"
+ad=$(wb sh -c 'cd /w && sha256sum jars/public.jar | cut -c1-64
+  echo "kdf=$(grep -aFc "kdf=PBKDF2WithHmacSHA256" jars/initial.jar)"
+  echo "plain=$(grep -aFc "$(cat /w/admin/admin.pw)" jars/initial.jar)"' 2>&1)
+[ "$(head -1 <<< "$ad")" = "$(sha256 "$JAR")" ] && grep -qE '^kdf=[1-9][0-9]*$' <<< "$ad" && grep -qx 'plain=0' <<< "$ad"
+check $? "admin setup: 빌드 원본 그대로, 시험 JAR 예약 영역에는 PBKDF2 검증값만"
+initial_keys=$(wb java -jar /w/jars/initial.jar config show --lang en $ADM)
+INITIAL_PASS=$(sed -n 's/^Default keys *: pass=\(pass-[0-9a-f]*\)$/\1/p' <<< "$initial_keys")
+INITIAL_AES=$(sed -n 's/^ *key=\(key-[0-9a-f]*\)$/\1/p' <<< "$initial_keys")
+[[ "$INITIAL_PASS" =~ ^pass-[0-9a-f]{32}$ && "$INITIAL_AES" =~ ^key-[0-9a-f]{32}$ ]]
+check $? "최초 등록에서 생성한 활성 pass 및 AES 식별자"
+quiet wb sh -c "cd /w && java -jar jars/initial.jar keygen --out /opt/java-crypto-kit/company.key --reason 'integration test' $ADM"
 check $? "keygen(사용자 지정 AES 키, 관리자 인증·사유 필수)"
-quiet wb sh -c "cd /w && java -jar jars/public-cfg.jar config embed-key --from-file /opt/java-crypto-kit/company.key --key-id corp01 --operator qa --reason 'integration test' --yes --out jars/company-aes.jar $ADM"
-check $? "config embed-key: 사용자 지정 AES 키 + 키ID corp01(이전 공개 키 default는 키 목록에 남음)"
-quiet wb sh -c "cd /w && java -jar jars/company-aes.jar config key add --key-id corp-pass --from-file /opt/java-crypto-kit/corp.pass --active --operator qa --reason 'integration test' --yes --out jars/company.jar $ADM"
+quiet wb sh -c "cd /w && cp jars/initial.jar jars/company-aes.jar && java -jar jars/company-aes.jar config embed-key --from-file /opt/java-crypto-kit/company.key --key-id corp01 --operator qa --reason 'integration test' --yes $ADM"
+check $? "config embed-key: 사용자 지정 AES 키 + 키ID corp01(이전 초기 키 default는 키 목록에 남음)"
+quiet wb sh -c "cd /w && cp jars/company-aes.jar jars/company.jar && java -jar jars/company.jar config key add --key-id corp-pass --from-file /opt/java-crypto-kit/corp.pass --active --operator qa --reason 'integration test' --yes $ADM"
 check $? "config key add: pass 키 corp-pass(Passphrase 파일, JAR에는 파생 키만) + pass 기본 키로 지정"
-quiet wb sh -c "cd /w && java -jar jars/company.jar config set crypto.pool.factory=$TJF --operator qa --yes --out jars/company-tj.jar $ADM"
+quiet wb sh -c "cd /w && cp jars/company.jar jars/company-tj.jar && java -jar jars/company-tj.jar config set crypto.pool.factory=$TJF --operator qa --yes $ADM"
 check $? "config set crypto.pool.factory=Tomcat JDBC Pool(키 내장 JAR에서 새 JAR)"
-quiet wb sh -c "cd /w && java -jar jars/company.jar config key remove --key-id default --operator qa --reason 'integration test' --yes --out jars/company-h1.jar $ADM && java -jar jars/company-h1.jar config key remove --key-id pass-default --operator qa --reason 'integration test' --yes --out jars/company-hardened.jar $ADM"
-check $? "config key remove: 공개 기본 키 default·pass-default를 뺀 JAR"
-quiet wb sh -c "cd /w && java -jar jars/company.jar config key add --key-id corp-pfile --source file --location /opt/java-crypto-kit/corp-pfile.pass --operator qa --reason 'integration test' --yes --out jars/company-pfile.jar $ADM"
+quiet wb sh -c "cd /w && cp jars/company.jar jars/company-h1.jar && java -jar jars/company-h1.jar config key remove --key-id $INITIAL_AES --operator qa --reason 'integration test' --yes $ADM && cp jars/company-h1.jar jars/company-hardened.jar && java -jar jars/company-hardened.jar config key remove --key-id $INITIAL_PASS --operator qa --reason 'integration test' --yes $ADM"
+check $? "config key remove: 최초 등록한 두 키를 뺀 JAR"
+quiet wb sh -c "cd /w && cp jars/company.jar jars/company-pfile.jar && java -jar jars/company-pfile.jar config key add --key-id corp-pfile --source file --location /opt/java-crypto-kit/corp-pfile.pass --operator qa --reason 'integration test' --yes $ADM"
 check $? "config key add --source file: pass 파일 키 corp-pfile(지금 한 번 읽어 지문 고정, JAR에는 위치·Salt·지문만)"
-for k in ext01 env01 shared01 infra biz; do quiet wb java -jar /w/jars/public-cfg.jar keygen --out "/opt/java-crypto-kit/$k.key" --reason "integration test" $ADM || fail "keygen($k)"; done
+for k in ext01 env01 shared01 infra biz; do quiet wb java -jar /w/jars/initial.jar keygen --out "/opt/java-crypto-kit/$k.key" --reason "integration test" $ADM || fail "keygen($k)"; done
 # 이중 배포용: JAR A(인프라, Tomcat lib)와 JAR B(업무, 웹앱 WEB-INF/lib). 키 ID·키·Pool 설정이 모두 다르다.
 for side in infra biz; do
-  quiet wb sh -c "cd /w && java -jar jars/public-cfg.jar config embed-key --from-file /opt/java-crypto-kit/$side.key --key-id $side-key --operator qa --reason 'dual deploy' --yes --out jars/$side-aes.jar $ADM \
-    && java -jar jars/$side-aes.jar config key add --key-id $side-pass --generate --export /opt/java-crypto-kit/$side-pass.backup --active --operator qa --reason 'dual deploy' --yes --out jars/$side.jar $ADM \
-    && java -jar jars/$side.jar config set crypto.pool.factory=$TJF --operator qa --yes --out jars/$side-tj.jar $ADM"
+  quiet wb sh -c "cd /w && cp jars/initial.jar jars/$side-aes.jar && java -jar jars/$side-aes.jar config embed-key --from-file /opt/java-crypto-kit/$side.key --key-id $side-key --operator qa --reason 'dual deploy' --yes $ADM \
+    && cp jars/$side-aes.jar jars/$side.jar && java -jar jars/$side.jar config key add --key-id $side-pass --generate --export /opt/java-crypto-kit/$side-pass.backup --active --operator qa --reason 'dual deploy' --yes $ADM \
+    && cp jars/$side.jar jars/$side-tj.jar && java -jar jars/$side-tj.jar config set crypto.pool.factory=$TJF --operator qa --yes $ADM"
   check $? "이중 배포용 JAR($side): AES 키 $side-key + pass 키 $side-pass(비대화형 생성 → --export 복원 백업, 기본 키), DBCP2·Tomcat JDBC Pool"
   # 생성한 Passphrase는 복원 백업에만 있다. 결과·로그에 나오면 안 되므로 비밀값 검사 목록에 넣는다.
   gp=$(wb sed -n 's/^passphrase=//p' "/opt/java-crypto-kit/$side-pass.backup"); secret "$gp"
   [ "${#gp}" = 32 ]; check $? "이중 배포용 JAR($side): 비대화형 생성값은 화면이 아닌 복원 백업 파일에만(32자 Passphrase)"
 done
 # D05용 JAR B: JVM 공통 -D를 받지 않는 정책(crypto.jvm.override.enabled=false)을 JAR에 넣는다.
-quiet wb sh -c "cd /w && java -jar jars/biz-tj.jar config set crypto.jvm.override.enabled=false --operator qa --reason 'block common -D' --yes --out jars/biz-locked.jar $ADM"
+quiet wb sh -c "cd /w && cp jars/biz-tj.jar jars/biz-locked.jar && java -jar jars/biz-locked.jar config set crypto.jvm.override.enabled=false --operator qa --reason 'block common -D' --yes $ADM"
 check $? "D05용 JAR B: crypto.jvm.override.enabled=false(공통 -D 무시)"
 # 80열을 넘는 이력 항목은 '->' 앞에서 줄을 바꾸므로 이어 붙여 비교한다.
 hist=$(wb java -jar /w/jars/company-tj.jar config history --all $ADM 2>&1 | sed -E ':a;N;$!ba;s/\n +-> / -> /g')
-[[ "$hist" == *"crypto.key.id: default -> corp01"* && "$hist" == *"crypto.key.embedded: (비공개) -> (교체됨)"* \
-   && "$hist" == *"crypto.keys.default.embedded: (없음) -> (비공개)"* && "$hist" == *"키 corp01: (없음) -> key, embedded, "* \
-   && "$hist" == *"crypto.key.active.pass: pass-default -> corp-pass"* && "$hist" == *"키 corp-pass: (없음) -> pass, embedded, "* \
+[[ "$hist" == *"crypto.key.id: $INITIAL_AES -> corp01"* && "$hist" == *"crypto.key.embedded: (비공개) -> (교체됨)"* \
+   && "$hist" == *"crypto.keys.$INITIAL_AES.embedded: (없음) -> (비공개)"* && "$hist" == *"키 corp01: (없음) -> key, embedded, "* \
+   && "$hist" == *"crypto.key.active.pass: $INITIAL_PASS -> corp-pass"* && "$hist" == *"키 corp-pass: (없음) -> pass, embedded, "* \
    && "$hist" == *"crypto.pool.factory: $DBCPF -> $TJF"* && "$hist" == *"admin setup  [관리자]"* \
    && "$hist" == *"관리자 비밀번호: (없음) -> (설정됨)"* && "$hist" != *"$CORP_PASSPHRASE"* && "$hist" != *"$ADMINPW"* ]]
-check $? "config history --all(관리자 인증): 키ID default→corp01·키 교체·이전 공개 키 보존·pass 키 추가·기본 키 지정·Pool 변경·[관리자] 설정 기록(비밀값 없음)"
+check $? "config history --all(관리자 인증): 키ID default→corp01·키 교체·이전 초기 키 보존·pass 키 추가·기본 키 지정·Pool 변경·[관리자] 설정 기록(비밀값 없음)"
 histp=$(wb java -jar /w/jars/company-tj.jar config history $ADM 2>&1)
-[[ "$histp" == *"표시 범위 : pass 관련 "* && "$histp" == *"crypto.key.active.pass: pass-default -> corp-pass"* \
-   && "$histp" != *"crypto.pool.factory"* && "$histp" != *"crypto.key.id: default -> corp01"* && "$histp" != *"[관리자]"* ]]
+[[ "$histp" == *"표시 범위 : pass 관련 "* && "$histp" == *"crypto.key.active.pass: $INITIAL_PASS -> corp-pass"* \
+   && "$histp" != *"crypto.pool.factory"* && "$histp" != *"crypto.key.id: $INITIAL_AES -> corp01"* && "$histp" != *"[관리자]"* ]]
 check $? "config history(기본 pass): pass 키 변경만, AES 키·Pool 변경·관리자 기록은 --type key·--all에서만"
 hn=$(wb java -jar /w/jars/company-tj.jar config history --admin-pass-file /w/admin/wrong.pw 2>&1); rc=$?
 [ $rc = 1 ] && [[ "$hn" == *"ADMIN_AUTH"* && "$hn" != *"crypto.key.active.pass"* ]]
 check $? "config history(다른 관리자 비밀번호 파일): ADMIN_AUTH, 이력 미표시"
-jx=$(wb sh -c 'rm -rf /tmp/jo && mkdir /tmp/jo && cd /tmp/jo && jar xf /w/jars/company-tj.jar java-crypto-kit.properties META-INF/java-crypto-kit/config-history.properties \
-  && grep "^crypto.key.embedded=" java-crypto-kit.properties; head -c 5 META-INF/java-crypto-kit/config-history.properties; echo; \
-  echo "plain-key=$(grep -cF "$(cat /opt/java-crypto-kit/company.key)" java-crypto-kit.properties)"; \
-  echo "plain-reason=$(grep -c "integration test" META-INF/java-crypto-kit/config-history.properties)"' 2>&1)
-[[ "$jx" == *"crypto.key.embedded=obf1:"* && "$jx" == *$'\nobf1:\n'* && "$jx" == *"plain-key=0"* && "$jx" == *"plain-reason=0"* ]]
-check $? "JAR 압축 해제: 내장 키·이력 본문이 obf1(키 원문·사유 문구가 글자 그대로 보이지 않음)"
+jx=$(wb sh -c 'cd /w
+  echo "obf=$(grep -aFc "crypto.key.embedded=obf1:" jars/company-tj.jar)"
+  echo "plain-key=$(grep -aFc "$(cat /opt/java-crypto-kit/company.key)" jars/company-tj.jar)"
+  echo "plain-reason=$(grep -aFc "integration test" jars/company-tj.jar)"' 2>&1)
+[[ "$jx" == *"obf=1"* && "$jx" == *"plain-key=0"* && "$jx" == *"plain-reason=0"* ]]
+check $? "JAR 예약 영역의 키와 이력은 obf1로 저장"
 fp_jar=$(fpw /w/jars/company.jar fingerprint --type key)
-fp_key=$(fpw /w/jars/public-cfg.jar fingerprint --key-file /opt/java-crypto-kit/company.key)
+fp_key=$(fpw /w/jars/initial.jar fingerprint --key-file /opt/java-crypto-kit/company.key)
 [ -n "$fp_jar" ] && [ "$fp_jar" = "$fp_key" ]; check $? "fingerprint --type key: 키 내장 JAR의 AES 키 = 키 파일(64자 지문)"
 fp_pass=$(fpw /w/jars/company.jar fingerprint); fp_pass_id=$(fpw /w/jars/company.jar fingerprint --key-id corp-pass)
 [ -n "$fp_pass" ] && [ "$fp_pass" = "$fp_pass_id" ] && [ "$fp_pass" != "$fp_jar" ]
 check $? "fingerprint(유형 미지정) = 기본 pass 키 corp-pass(--key-id와 같음), AES 키와 다름"
 FP_INFRA_KEY=$(fpw /w/jars/infra.jar fingerprint --type key); FP_INFRA_PASS=$(fpw /w/jars/infra.jar fingerprint)
 FP_BIZ_KEY=$(fpw /w/jars/biz.jar fingerprint --type key); FP_BIZ_PASS=$(fpw /w/jars/biz.jar fingerprint)
-FP_SHARED=$(fpw /w/jars/public-cfg.jar fingerprint --key-file /opt/java-crypto-kit/shared01.key)
+INITIAL_PASS_FP=$(fpw /w/jars/initial.jar fingerprint)
+FP_SHARED=$(fpw /w/jars/initial.jar fingerprint --key-file /opt/java-crypto-kit/shared01.key)
 [ -n "$FP_INFRA_KEY" ] && [ -n "$FP_INFRA_PASS" ] && [ -n "$FP_BIZ_KEY" ] && [ -n "$FP_BIZ_PASS" ] && [ -n "$FP_SHARED" ] \
   && [ "$FP_INFRA_KEY" != "$FP_BIZ_KEY" ] && [ "$FP_INFRA_PASS" != "$FP_BIZ_PASS" ] \
   && [ "$(fpw /w/jars/infra-tj.jar fingerprint --type key)" = "$FP_INFRA_KEY" ] && [ "$(fpw /w/jars/biz-tj.jar fingerprint)" = "$FP_BIZ_PASS" ]
 check $? "이중 배포용 JAR A·B: pass·key 키 지문이 서로 다름, Pool만 바꾼 JAR는 키가 같음"
 doc=$(wb java -jar /w/jars/company.jar doctor 2>&1); rc=$?
 [ $rc = 0 ] && [[ "$doc" == *"키 로딩 정상: corp01, 사용자 지정"* && "$doc" == *"키 로딩 정상: corp-pass, 사용자 지정"* \
-   && "$doc" == *"키 로딩 정상: default, 공개 기본 키"* && "$doc" == *"키 로딩 정상: pass-default, 공개 기본 키"* \
+   && "$doc" == *"키 로딩 정상: $INITIAL_AES, 사용자 지정"* && "$doc" == *"키 로딩 정상: $INITIAL_PASS, 사용자 지정"* \
    && "$doc" == *"결과: PASS"* && "$doc" != *"[WARN]"* ]]
-check $? "doctor(키 내장 JAR): 종료 코드 0, 등록된 키 4개 확인(corp01·corp-pass 사용자 지정, 공개 키는 사실 표시), WARN 없음"
-doc=$(wb java -jar /w/jars/public-cfg.jar doctor 2>&1); rc=$?
-[ $rc = 0 ] && [[ "$doc" == *"키 로딩 정상: default, 공개 기본 키"* && "$doc" == *"키 로딩 정상: pass-default, 공개 기본 키"* && "$doc" != *"[WARN]"* ]]
-check $? "doctor(공개 키만 있는 JAR, 관리자 인증 불필요): 공개 키 2개(pass-default·default) 사실 표시, 정책 WARN·자동 경고 없음, 종료 코드 0"
+check $? "doctor(키 내장 JAR): 종료 코드 0, 등록된 키 4개 확인(corp01·corp-pass·최초 설정 키 2개 모두 사용자 지정), WARN 없음"
+doc=$(wb java -jar /w/jars/initial.jar doctor 2>&1); rc=$?
+[ $rc = 0 ] && [[ "$doc" == *"키 로딩 정상: $INITIAL_AES, 사용자 지정"* && "$doc" == *"키 로딩 정상: $INITIAL_PASS, 사용자 지정"* && "$doc" != *"[WARN]"* ]]
+check $? "doctor(초기 키만 있는 JAR, 관리자 인증 불필요): 초기 설정 키 두 개 사실 표시, 정책 WARN·자동 경고 없음, 종료 코드 0"
 doc=$(wb java -jar /w/jars/company-pfile.jar doctor 2>&1); rc=$?
 [ $rc = 0 ] && [[ "$doc" == *"키 로딩 정상: corp-pfile, 사용자 지정"* ]]
 check $? "doctor(pass 파일 키 JAR): 파일의 Passphrase로 파생한 키 = 고정 지문"
@@ -315,17 +320,17 @@ dm=$(wb sh -c 'rm -rf /tmp/jd && mkdir -p /tmp/jd/META-INF/java-crypto-kit && cd
   java -jar jars/company-admin-damaged.jar decrypt --admin-pass-file /w/admin/admin.pw; echo "rc=$?"' 2>&1)
 [ "$(grep -c 'INTEGRITY' <<< "$dm")" = 2 ] && [ "$(grep -c '^rc=1$' <<< "$dm")" = 2 ] && [[ "$dm" != *"결과: PASS"* ]]
 check $? "관리자 검증값 손상 JAR: CLI doctor·decrypt 모두 INTEGRITY(종료 코드 1), 비밀번호 파일로도 진행 안 됨"
-hd=$(wb sh -c 'rm -rf /tmp/jh /tmp/jh.mf && mkdir /tmp/jh && cd /tmp/jh && jar xf /w/jars/public-cfg.jar \
-  && mv META-INF/MANIFEST.MF /tmp/jh.mf && rm META-INF/java-crypto-kit/config-history.properties \
+hd=$(wb sh -c 'rm -rf /tmp/jh /tmp/jh.mf && mkdir /tmp/jh && cd /tmp/jh && jar xf /w/jars/initial.jar \
+  && mv META-INF/MANIFEST.MF /tmp/jh.mf && rm -f META-INF/java-crypto-kit/config-history.properties \
   && jar cfm /w/jars/public-history-deleted.jar /tmp/jh.mf . && cd /w && sha256sum jars/public-history-deleted.jar | cut -c1-64
   java -jar jars/public-history-deleted.jar config history --all --admin-pass-file /w/admin/admin.pw; echo "rc=$?"
-  java -jar jars/public-history-deleted.jar config set crypto.lang=en --operator qa --out /w/out/hd.jar --admin-pass-file /w/admin/admin.pw; echo "rc=$?"
+  java -jar jars/public-history-deleted.jar config set crypto.lang=en --operator qa --admin-pass-file /w/admin/admin.pw; echo "rc=$?"
   java -jar jars/public-history-deleted.jar config key show --key-id default --export /w/out/hd.export --admin-pass-file /w/admin/admin.pw; echo "rc=$?"
   java -jar jars/company.jar config show --jar jars/public-history-deleted.jar --admin-pass-file /w/admin/admin.pw; echo "rc=$?"
   ls /w/out; sha256sum jars/public-history-deleted.jar | cut -c1-64' 2>&1)
 [ "$(grep -c 'INTEGRITY' <<< "$hd")" = 4 ] && [ "$(grep -c '^rc=1$' <<< "$hd")" = 4 ] && [[ "$hd" != *"hd.jar"* && "$hd" != *"hd.export"* ]] \
   && [ "$(grep -cE '^[0-9a-f]{64}$' <<< "$hd")" = 2 ] && [ "$(grep -E '^[0-9a-f]{64}$' <<< "$hd" | sort -u | wc -l | tr -d ' ')" = 1 ]
-check $? "이력만 지운 JAR(검증값 그대로): config history·set·key show --export와 다른 JAR(--jar)로 지정 모두 INTEGRITY, 새 JAR·내보내기 없음, 원본 그대로"
+check $? "예약 영역이 유실된 JAR: config history·set·key show --export와 다른 JAR(--jar)로 지정 모두 INTEGRITY, 새 JAR·내보내기 없음, 원본 그대로"
 
 section "2. 실제 CLI encrypt·decrypt·rekey(가상 터미널) - 암호문은 임시 파일에만 저장"
 CASE=cli
@@ -333,14 +338,14 @@ export QA_ENV_KEY; QA_ENV_KEY=$(docker exec "$WB" cat /opt/java-crypto-kit/env01
 cat > "$WORK/gen-tokens.sh" << 'GEN'
 #!/bin/sh
 # 안내 문구가 나온 뒤(입력 숨김 상태) 값을 입력한다. 평문·암호문은 화면에 출력하지 않는다.
-# PUB: 공개 키만 있는 CLI JAR(빌드 JAR에 관리자 비밀번호만 설정한 public-cfg.jar). ADM: 비대화형 관리자 인증
-J=/w/jars; PUB=$J/public-cfg.jar; COMP=$J/company.jar; ADM="--admin-pass-file /w/admin/admin.pw"
+# PUB: 초기 키만 있는 CLI JAR(빌드 JAR에 관리자 비밀번호만 설정한 initial.jar). ADM: 비대화형 관리자 인증
+J=/w/jars; PUB=$J/initial.jar; COMP=$J/company.jar; ADM="--admin-pass-file /w/admin/admin.pw"
 # enc <이름> <값> "<java 옵션 -jar JAR>" [encrypt 옵션...]
 enc() {
   name="$1"; value="$2"; java_args="$3"; shift 3
   (sleep 3; printf '%s\n' "$value") | script -qec "java $java_args encrypt $*" /dev/null > "/tmp/$name.out" 2>&1
   tr -d '\r' < "/tmp/$name.out" | grep -oE '(ENC\[v1:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+\]|B64\[[A-Za-z0-9+/=_-]+\])' | head -1 > "/w/tokens/$name"
-  # warn: 표준 오류의 공개 기본 키 경고 줄 수(공개 키를 쓸 때만 1, 그 밖에는 0)
+  # warn: 표준 오류의 [WARN] 줄 수(공개된 기본 키는 로딩 단계에서 KEY_SOURCE로 거부되므로 항상 0)
   echo "$name echo=$(grep -cF -- "$value" "/tmp/$name.out") warn=$(grep -c '^\[WARN\] ' "/tmp/$name.out")"
   rm -f "/tmp/$name.out"
 }
@@ -399,18 +404,18 @@ for t in $TOKENS; do
 done
 [ "$(grep -c ' echo=0 ' <<< "$gen")" = 17 ]; check $? "encrypt 17회: 입력한 평문이 화면에 보이지 않음"
 bad_ids=""
-for pair in CORP_PW=corp01 CORP_USER=corp01 CORP_WRONG=corp01 CORP_PASS_PW=corp-pass PUB_PW=pass-default PUB_KEY=default \
+for pair in CORP_PW=corp01 CORP_USER=corp01 CORP_WRONG=corp01 CORP_PASS_PW=corp-pass PUB_PW=$INITIAL_PASS PUB_KEY=$INITIAL_AES \
     FORGED=corp01 FOREIGN=other01 EXT_PW=ext01 ENV_PW=env01 PFILE_PW=corp-pfile INFRA_PASS_PW=infra-pass INFRA_KEY_PW=infra-key \
     BIZ_PASS_PW=biz-pass BIZ_KEY_PW=biz-key SHARED_PW=shared01 REKEY_PW=corp01 REKEY_PASS=corp-pass REKEY_X=corp01; do
   n="${pair%%=*}"; [[ "${!n}" == "ENC[v1:${pair#*=}:"* ]] || bad_ids="$bad_ids $n"
 done
 [[ "$CORP_B64" == "B64["* ]] || bad_ids="$bad_ids CORP_B64"
 [ -z "$bad_ids" ]
-check $? "암호문 키ID: 유형 미지정 = pass 기본 키, --type key = AES 키, 공개 키 2종·위조·미등록·외부·이중 배포 A/B·rekey·B64 포장${bad_ids:+ (다름:$bad_ids)}"
+check $? "암호문 키ID: 유형 미지정 = pass 기본 키, --type key = AES 키, 최초 설정 키 2종·위조·미등록·외부·이중 배포 A/B·rekey·B64 포장${bad_ids:+ (다름:$bad_ids)}"
 [ "$(grep -cE '^(CORP_PW|CORP_USER|CORP_WRONG|CORP_B64|CORP_PASS_PW|EXT_PW|ENV_PW|PFILE_PW|INFRA_PASS_PW|INFRA_KEY_PW|BIZ_PASS_PW|BIZ_KEY_PW|SHARED_PW) echo=0 warn=0$' <<< "$gen")" = 13 ]
-check $? "encrypt: 사용자 지정·외부 키(pass·key·파일·환경변수)는 공개 키 경고 0건"
-[ "$(grep -cE '^(PUB_PW|PUB_KEY|FORGED|FOREIGN) echo=0 warn=1$' <<< "$gen")" = 4 ]
-check $? "encrypt: 공개 기본 키(pass-default·default)를 쓰면 표준 오류에 [WARN] 한 줄(JVM당 1회)"
+check $? "encrypt: 사용자 지정·외부 키(pass·key·파일·환경변수)는 [WARN] 0건"
+[ "$(grep -cE '^(PUB_PW|PUB_KEY|FORGED|FOREIGN) echo=0 warn=0$' <<< "$gen")" = 4 ]
+check $? "최초 설정 키·위조·미등록 키ID 암호화에도 [WARN] 없음"
 grep -q '^decrypt-key plain=1 result=1 integrity=0 auth=0 prompt=1 admin-echo=0$' <<< "$gen"
 check $? "decrypt(가상 터미널): 관리자 비밀번호 프롬프트 숨김 입력(화면에 비밀번호 없음) 뒤 key 암호문 평문 표시"
 grep -q '^decrypt-pass plain=1 result=1 integrity=0 auth=0 prompt=0 admin-echo=0$' <<< "$gen"
@@ -419,7 +424,7 @@ grep -q '^decrypt-forged plain=0 result=0 integrity=1 auth=0 ' <<< "$gen"; check
 grep -q '^decrypt-wrong-admin plain=0 result=0 integrity=0 auth=1 prompt=0 admin-echo=0$' <<< "$gen"
 check $? "decrypt(다른 관리자 비밀번호 파일): ADMIN_AUTH, 암호문 입력·복호화 전에 끝남(평문 없음)"
 [ "$(grep -cE '^REKEY_(PW|PASS|X) rekey=0 err=0 setup=0 auth=0$' <<< "$gen")" = 3 ]
-check $? "rekey(관리자 인증, --from-jar도 같은 비밀번호): 공개 키 암호문 → 사용자 지정 키(같은 유형 2건·--type key 유형 간 1건), 표준 오류 없음"
+check $? "rekey(관리자 인증, --from-jar도 같은 비밀번호): 최초 설정 키 암호문 → 사용자 지정 키(같은 유형 2건·--type key 유형 간 1건), 표준 오류 없음"
 grep -q '^REKEY_UNSET rekey=1 err=[1-9][0-9]* setup=1 auth=0$' <<< "$gen" && grep -q '^REKEY_NOAUTH rekey=1 err=[1-9][0-9]* setup=0 auth=1$' <<< "$gen" \
   && [ ! -s "$WORK/tokens/REKEY_UNSET" ] && [ ! -s "$WORK/tokens/REKEY_NOAUTH" ]
 check $? "rekey: --from-jar 미설정 빌드 JAR은 ADMIN_SETUP, 다른 비밀번호 파일은 ADMIN_AUTH(둘 다 새 암호문 없음)"
@@ -442,9 +447,9 @@ v8=$(T="$CORP_PW" S="$CORP_PASS_PW" P="$PUB_PW" K="$PUB_KEY" O="$FOREIGN" F="$FO
 grep -q '^key=0$' <<< "$v8" && grep -q '^pass=0$' <<< "$v8"; check $? "JDK 21에서 만든 pass·key 암호문을 JDK 8에서 verify"
 grep -q '^pfile=0$' <<< "$v8"; check $? "JDK 8에서 pass 파일 키(한글·이모지 Passphrase) PBKDF2 파생 = JDK 21에서 고정한 지문"
 grep -q '^public-pass=0$' <<< "$v8" && grep -q '^public-key=0$' <<< "$v8"
-check $? "키 내장 JAR: embed-key·key add 뒤에도 공개 키(pass-default·default) 암호문 복호화(기존 암호문 호환)"
-grep -q '^hardened-pass=1$' <<< "$v8" && grep -q '^hardened-key=1$' <<< "$v8"; check $? "공개 키를 뺀 JAR: 공개 키 암호문 KEY_ID_MISMATCH"
-grep -q '^foreign=1$' <<< "$v8" && grep -q '^forged=1$' <<< "$v8"; check $? "미등록 키ID 암호문 KEY_ID_MISMATCH, 위조 암호문(공개 키 + corp01) INTEGRITY"
+check $? "키 내장 JAR: embed-key·key add 뒤에도 최초 등록한 두 키 암호문 복호화(기존 암호문 호환)"
+grep -q '^hardened-pass=1$' <<< "$v8" && grep -q '^hardened-key=1$' <<< "$v8"; check $? "최초 설정 키를 뺀 JAR: 그 키 암호문 KEY_ID_MISMATCH"
+grep -q '^foreign=1$' <<< "$v8" && grep -q '^forged=1$' <<< "$v8"; check $? "미등록 키ID 암호문 KEY_ID_MISMATCH, 위조 암호문(최초 설정 AES 키 + 키 ID corp01) INTEGRITY"
 
 section "3. MariaDB(tmpfs 데이터, 시험 전용 계정)"
 CASE=mariadb
@@ -741,7 +746,7 @@ newapi_check() {
 }
 EXP_NAMES=(); EXP_VALUES=()
 expect() { EXP_NAMES=(); EXP_VALUES=(); while [ $# -gt 1 ]; do EXP_NAMES+=("$1"); EXP_VALUES+=("$2"); shift 2; done; }
-WPUB_RE='공개 기본 키 사용 중|Public default key in use'
+WPUB_RE='공개된 기본 키 사용 중|Published default key in use'
 MATRIX="$RES/matrix.txt"; : > "$MATRIX"
 # wait_tomcat <컨테이너> <웹앱 경로>: HTTP 응답을 기다린다(0이면 기동). TV에 Tomcat·Java 버전을 넣는다.
 wait_tomcat() {
@@ -774,22 +779,23 @@ insert_check() {
     pass "$tag$ds 실제 테이블 SELECT·INSERT → $out"
   else fail "$tag$ds 실제 테이블 SELECT·INSERT: 실제 ${out:-응답 없음}"; fi
 }
-# finish_case <id> <컨테이너> <기대 공개 키 경고 수 또는 -> <기동(0=기동)>: 로그 검사, 결과 표 기록, 컨테이너 삭제
-#   이 라이브러리의 자동 경고는 공개 기본 키 한 가지뿐이므로 그 밖의 [java-crypto-kit] WARNING이 있으면 실패로 본다.
+# finish_case <id> <컨테이너> <기대 공개된 기본 키 경고 수 또는 -> <기동(0=기동)>: 로그 검사, 결과 표 기록, 컨테이너 삭제
+#   이 라이브러리의 자동 경고는 공개된 기본 키 경고 한 가지뿐이고(그 키는 로딩 단계에서 거부되어 기대값은 0) 그 밖의
+#   [java-crypto-kit] WARNING이 있으면 실패로 본다.
 finish_case() {
   local id="$1" name="$2" warn="$3" up="$4" logs leaks cmdline wpub wother fakes result=PASS
   logs=$(docker logs "$name" 2>&1)
   leaks=$(printf '%s\n' "$logs" | grep -v 'Command line argument:' | grep -cFf "$SECRETS")
   cmdline=$(printf '%s\n' "$logs" | grep 'Command line argument:' | grep -cFf "$SECRETS")
   wpub=$(printf '%s\n' "$logs" | grep -cE "$WPUB_RE")
-  # 공개 키 경고 외의 이 라이브러리 정책성 WARNING(JULI 형식 "WARNING ... [java-crypto-kit]") 줄 수.
+  # 공개된 기본 키 경고 외의 이 라이브러리 정책성 WARNING(JULI 형식 "WARNING ... [java-crypto-kit]") 줄 수.
   # 사유 코드가 붙은 줄은 실제 오류 보고이므로 세지 않는다.
   wother=$(printf '%s\n' "$logs" | grep -E 'WARNING.*\[java-crypto-kit\]' | grep -vE "$WPUB_RE" | grep -cvE '\[(사유|reason): ')
   fakes=$(printf '%s\n' "$logs" | grep -c FAKE_POOL_FACTORY_CALLED)
   [ "$leaks" = 0 ]; check $? "Tomcat 로그의 비밀값(평문·키·Passphrase·토큰·암호문) 노출 ${leaks}건"
   [ "$cmdline" != 0 ] && echo "   참고: Tomcat 자체 'Command line argument' 로그에 -D 값 ${cmdline}줄(키 원문 -D를 금지하는 이유)"
   if [ "$warn" != "-" ]; then
-    [ "$wpub" = "$warn" ]; check $? "공개 기본 키 경고 = ${wpub}건 (기대 $warn, 라이브러리 사본당 JVM 1회)"
+    [ "$wpub" = "$warn" ]; check $? "공개된 기본 키 경고 = ${wpub}건 (기대 $warn)"
     [ "$wother" = 0 ]; check $? "그 밖의 라이브러리 정책 WARNING ${wother}건"
   fi
   if [ -n "${EXTRA_CLASSES:-}" ]; then [ "$fakes" = 0 ]; check $? "웹앱의 같은 이름 가짜 Pool Factory 호출 ${fakes}건"; fi
@@ -800,7 +806,7 @@ finish_case() {
   docker rm -f -v "$name" > /dev/null 2>&1
   unset EXTRA_CLASSES SERVER_XML SETENV RUN_DS
 }
-# run_case <id> <image> <jar> <context.xml Resource들> <기대 공개 키 경고 수(0 또는 1) 또는 -> [docker create 옵션...]
+# run_case <id> <image> <jar> <context.xml Resource들> <기대 공개된 기본 키 경고 수(0) 또는 -> [docker create 옵션...]
 #   선택 변수: EXTRA_CLASSES(웹앱 WEB-INF/classes에 넣을 폴더), SERVER_XML, SETENV,
 #             RUN_DS(실제 테이블 SELECT·INSERT로 확인할 JNDI 이름, 여러 개면 공백으로 구분)
 run_case() {
@@ -876,13 +882,13 @@ run_case E07-env-key-tomcat11 "$T110" "$COMP" "$(res jdbc/qaEnv "$ENV_PW" "$ATTR
 expect jdbc/qa "OK $POOL_D" jdbc/qaForeign "FAIL [reason: KEY_ID_MISMATCH]"
 run_case E08-lang-en "$T101" "$COMP" "$(res jdbc/qa "$CORP_PW" "$ATTR_X")
 $(res jdbc/qaForeign "$FOREIGN" "$ATTR_X")" 0 -e "CATALINA_OPTS=-Dcrypto.lang=en"
-# 경고 끄기: 공개 키(pass-default·default) 암호문을 써도 경고 0건, 연결은 정상
+# 경고 끄기: 최초 등록한 두 키 암호문을 써도 경고 0건, 연결은 정상
 expect jdbc/qaPublic "OK $POOL_D" jdbc/qaPublicKey "OK $POOL_D"
-run_case E09-warning-off "$T101" "$PUB" "$R_PUB" 0 -e "CATALINA_OPTS=-Dcrypto.warning.enabled=false"
-# 빌드 JAR 그대로(CLI 관리자 비밀번호 미설정)를 Tomcat lib에 넣어도 JNDI 복호화는 정상(관리자 검증값은 CLI 전용, Tomcat은 읽지 않음)
-expect jdbc/qaPublic "OK $POOL_D" jdbc/qaPublicKey "OK $POOL_D" jdbc/qa "FAIL [사유: KEY_ID_MISMATCH]"
+run_case E09-warning-off "$T101" "$WORK/jars/initial.jar" "$R_PUB" 0 -e "CATALINA_OPTS=-Dcrypto.warning.enabled=false"
+# 빌드 JAR 그대로(관리자·PASS·KEY 미설정)를 Tomcat lib에 넣으면 키가 없어 모든 Resource가 CONFIGURATION(공개 키로 대체하지 않음)
+expect jdbc/qaPublic "FAIL [사유: CONFIGURATION]" jdbc/qaPublicKey "FAIL [사유: CONFIGURATION]" jdbc/qa "FAIL [사유: CONFIGURATION]"
 run_case E10-public-jar "$T101" "$PUB" "$R_PUB
-$(res jdbc/qa "$CORP_PW" "$ATTR_X")" 1
+$(res jdbc/qa "$CORP_PW" "$ATTR_X")" 0
 expect jdbc/qa "FAIL [사유: CONFIGURATION]"
 run_case E11-raw-key-by-jvm-rejected "$T101" "$COMP" "$R_QA" - -e "CATALINA_OPTS=-Dcrypto.key.embedded=$RAWDUMMY"
 expect jdbc/qaExt "FAIL [사유: KEY_SOURCE]" jdbc/qa "FAIL ds=jdbc/qa "
@@ -934,12 +940,12 @@ for spec in "$T101|$COMP|$POOL_D|$ATTR_D" "$T85|$COMPTJ|$POOL_T|$ATTR_T"; do
   run_case "E18-global-resource-link-$v" "$image" "$jar" '  <ResourceLink name="jdbc/linked" global="jdbc/qaGlobal" type="javax.sql.DataSource"/>' 0
 done
 
-# embed-key·key add 뒤에도 공개 기본 키는 키 목록에 남아(자동 삭제 없음) 기존 공개 키 암호문이 계속 연결된다(경고 1건).
+# embed-key·key add 뒤에도 최초 설정 키는 키 목록에 남아(자동 삭제 없음) 그 키 암호문이 계속 연결된다(경고 0건).
 expect jdbc/qaPublic "OK $POOL_D" jdbc/qaPublicKey "OK $POOL_D" jdbc/qaRekeyedX "OK $POOL_D" jdbc/qa "OK $POOL_D"
 run_case E19-company-jar-public-tokens-tomcat9 "$T90" "$COMP" "$R_PUB
 $(res jdbc/qaRekeyedX "$REKEY_X" "$ATTR_X")
-$(res jdbc/qa "$CORP_PW" "$ATTR_X")" 1
-# config key remove로 공개 기본 키를 뺀 JAR: 공개 키 암호문은 KEY_ID_MISMATCH, 사용자 지정 pass·key 키는 정상, 경고 0건
+$(res jdbc/qa "$CORP_PW" "$ATTR_X")" 0
+# config key remove로 최초 설정 키를 뺀 JAR: 그 키 암호문은 KEY_ID_MISMATCH, 사용자 지정 pass·key 키는 정상, 경고 0건
 expect jdbc/qaPublic "FAIL [사유: KEY_ID_MISMATCH]" jdbc/qaPublicKey "FAIL [사유: KEY_ID_MISMATCH]" jdbc/qa "OK $POOL_D" jdbc/qaPass "OK $POOL_D"
 run_case E20-public-keys-removed-tomcat11 "$T110" "$WORK/jars/company-hardened.jar" "$R_PUB
 $(res jdbc/qa "$CORP_PW" "$ATTR_X")
@@ -958,30 +964,15 @@ run_case E23-admin-damaged-jar-tomcat10.1 "$T101" "$WORK/jars/company-admin-dama
 $(res jdbc/qaPass "$CORP_PASS_PW" "$ATTR_X")" 0
 
 if [ -n "$LEGACY_JAR" ]; then
-  # 실제 이전 형식 바이너리: 새 CLI는 실행 중인 JAR의 관리자 인증으로 편집하고 이전 형식(표준 Base64 내장 키·평문 이력)으로 쓴다.
   CASE=legacy
   docker cp "$(hostpath "$LEGACY_JAR")" "$WB:/w/jars/legacy.jar" > /dev/null
-  quiet wb sh -c "cd /w && java -jar jars/public-cfg.jar keygen --out /w/out/legacy.key --reason 'legacy test' $ADM \
-    && java -jar jars/public-cfg.jar config embed-key --jar jars/legacy.jar --from-file /w/out/legacy.key --key-id old01 \
-       --operator qa --reason 'legacy test' --yes --out jars/legacy-edited.jar $ADM"
-  check $? "실제 이전 버전 JAR: 새 CLI(실행 중인 JAR 인증)로 AES 키 old01 내장"
-  docker cp "$WB:/w/out/legacy.key" "$WORKH/secure/legacy.key" > /dev/null; secret "$(tr -d '\r\n' < "$WORK/secure/legacy.key")"
-  lg=$(wb sh -c 'rm -rf /tmp/jl && mkdir /tmp/jl && cd /tmp/jl && jar xf /w/jars/legacy-edited.jar java-crypto-kit.properties \
-    META-INF/java-crypto-kit/config-history.properties; echo "obf=$(grep -c "obf1:" java-crypto-kit.properties META-INF/java-crypto-kit/config-history.properties | grep -vc ":0$")"
-    echo "plainkey=$(grep -cF "$(cat /w/out/legacy.key)" java-crypto-kit.properties)"
-    echo "admin=$(jar tf /w/jars/legacy-edited.jar | grep -c admin.properties)"
-    java -jar /w/jars/legacy-edited.jar config history 2>&1 | grep -c "old01" | sed "s/^/oldcli=/"' 2>&1)
-  grep -q '^obf=0$' <<< "$lg" && grep -q '^plainkey=1$' <<< "$lg" && grep -q '^admin=0' <<< "$lg" && grep -q '^oldcli=[1-9]' <<< "$lg"
-  check $? "편집된 이전 JAR: 내장 키 표준 Base64·이력 평문(obf1 없음), 관리자 항목 없음, 이전 바이너리 자신의 config history가 읽음"
-  wb sh -c '(sleep 3; printf "%s\n" "$DBPW") | script -qec "java -jar /w/jars/legacy-edited.jar encrypt" /dev/null 2>&1 | tr -d "\r" \
-    | grep -oE "ENC\[v1:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+\]" | head -1 > /w/tokens/LEGACY_PW'
-  docker cp "$WB:/w/tokens/LEGACY_PW" "$WORKH/tokens/LEGACY_PW" > /dev/null
-  docker cp "$WB:/w/jars/legacy-edited.jar" "$WORKH/jars/legacy-edited.jar" > /dev/null
-  LEGACY_PW=$(tr -d '\r\n' < "$WORK/tokens/LEGACY_PW"); secret "$LEGACY_PW"
-  [[ "$LEGACY_PW" == "ENC[v1:old01:"* ]]; check $? "이전 바이너리 자신의 CLI encrypt(가상 터미널): 새 CLI가 넣은 키 old01로 암호화"
-  # Tomcat 9(Java 8): 이전 바이너리의 Factory가 새 CLI로 편집한 설정으로 JNDI 복호화·연결(실제 SQL)
-  expect jdbc/qaLegacy "OK $POOL_D"
-  run_case L01-real-legacy-edited-tomcat9 "$T90" "$WORK/jars/legacy-edited.jar" "$(res jdbc/qaLegacy "$LEGACY_PW" "$ATTR_X")" -
+  lg=$(wb sh -c "sha256sum /w/jars/legacy.jar
+    java -jar /w/jars/initial.jar config set crypto.lang=en --operator qa --jar /w/jars/legacy.jar $ADM
+    echo rc=\$?
+    sha256sum /w/jars/legacy.jar" 2>&1)
+  grep -q '^rc=1$' <<< "$lg" &&
+    [ "$(grep -E '^[0-9a-f]{64} ' <<< "$lg" | sort -u | wc -l | tr -d ' ')" = 1 ]
+  check $? "예약 영역 없는 이전 바이너리를 그대로 보존하고 직접 갱신 거부"
 fi
 
 section "6. 이중 배포: Tomcat lib의 JAR A(인프라) + 웹앱 WEB-INF/lib의 JAR B(업무) - 키·Pool 설정이 다른 두 JAR"
@@ -989,7 +980,7 @@ section "6. 이중 배포: Tomcat lib의 JAR A(인프라) + 웹앱 WEB-INF/lib�
 #          <Global Resource(server.xml)> <conf/context.xml Resource(빈 값이면 없음)> [docker create 옵션...]
 #   웹앱 dual(JAR B 포함)과 plain(JAR 없음, Tomcat lib의 JAR A만 보임)을 한 Tomcat에 함께 배포한다.
 #   변수: DEXP("웹앱|JNDI 이름|기대" 줄), DAPI("웹앱|jck-dual.jsp 출력 줄", 그 줄이 그대로 있어야 함),
-#         DRUN("웹앱|JNDI 이름" 줄, 실제 테이블 SELECT·INSERT), DWARN(공개 키 경고 기대 수, 기본 0)
+#         DRUN("웹앱|JNDI 이름" 줄, 실제 테이블 SELECT·INSERT), DWARN(공개된 기본 키 경고 기대 수, 기본 0)
 run_dual() {
   local id="$1" image="$2" jara="$3" jarb="$4" rdual="$5" rplain="$6" rglobal="$7" rshared="$8"; shift 8
   CASE="$id"; CASE_BEFORE=${#FAILS[@]}
@@ -1046,6 +1037,7 @@ run_dual() {
   unset DEXP DAPI DRUN DWARN
 }
 CASE=dual-prepare
+INITIAL_PASS_SHORT=$(short "$INITIAL_PASS_FP")
 printf 'INFRA_PASS=%s\nINFRA_KEY=%s\nBIZ_PASS=%s\nBIZ_KEY=%s\nSHARED=%s\n' \
   "$INFRA_PASS_PW" "$INFRA_KEY_PW" "$BIZ_PASS_PW" "$BIZ_KEY_PW" "$SHARED_PW" > "$WORK/secure/dual-tokens.properties"
 SP_IK=$(short "$FP_INFRA_KEY"); SP_IP=$(short "$FP_INFRA_PASS"); SP_BK=$(short "$FP_BIZ_KEY"); SP_BP=$(short "$FP_BIZ_PASS"); SP_SH=$(short "$FP_SHARED")
@@ -1082,14 +1074,14 @@ dual|app.load=OK
 dual|lib.load=OK
 dual|app.default=biz-pass
 dual|lib.default=infra-pass
-dual|app.keys=biz-key,biz-pass,default,pass-default
-dual|lib.keys=default,infra-key,infra-pass,pass-default
+dual|app.keys=$(printf '%s\n' biz-key biz-pass "$INITIAL_AES" "$INITIAL_PASS" | LC_ALL=C sort | paste -sd, -)
+dual|lib.keys=$(printf '%s\n' infra-key infra-pass "$INITIAL_AES" "$INITIAL_PASS" | LC_ALL=C sort | paste -sd, -)
 dual|app.fp.biz-key=$SP_BK
 dual|app.fp.biz-pass=$SP_BP
 dual|lib.fp.infra-key=$SP_IK
 dual|lib.fp.infra-pass=$SP_IP
-dual|app.fp.pass-default=$PUBLIC_PASS_FP
-dual|lib.fp.pass-default=$PUBLIC_PASS_FP
+dual|app.fp.$INITIAL_PASS=$INITIAL_PASS_SHORT
+dual|lib.fp.$INITIAL_PASS=$INITIAL_PASS_SHORT
 dual|app.dec.BIZ_KEY=OK
 dual|app.dec.BIZ_PASS=OK
 dual|app.dec.INFRA_KEY=KEY_ID_MISMATCH
@@ -1122,11 +1114,11 @@ plain|jdbc/ctxInfra"
 }
 dual_expect "$POOL_D" "$POOL_T"
 run_dual D01-dual-tomcat9-libDBCP2-appJDBCPool "$T90" "$WORK/jars/infra.jar" "$WORK/jars/biz-tj.jar" "$R_DUAL" "$R_PLAIN" "$GLOBAL" "$SHARED_RES"
-# D02는 공개 키 암호문 Resource를 두 웹앱에 하나씩 더 둔다: 공개 키 경고는 라이브러리 사본(클래스로더)마다 1회씩 2건이 된다.
+# D02는 최초 설정 키 암호문 Resource를 두 웹앱에 하나씩 더 둔다: 두 라이브러리 사본(클래스로더) 모두 그 키 ID로 복호화하고 경고는 0건이다.
 dual_expect "$POOL_T" "$POOL_D"
 DEXP="$DEXP
 dual|jdbc/ctxPublic|OK $POOL_D
-plain|jdbc/ctxPublic|OK $POOL_T"; DWARN=2
+plain|jdbc/ctxPublic|OK $POOL_T"
 run_dual D02-dual-tomcat11-libJDBCPool-appDBCP2 "$T110" "$WORK/jars/infra-tj.jar" "$WORK/jars/biz.jar" "$R_DUAL
 $(res jdbc/ctxPublic "$PUB_PW" "$ATTR_X")" "$R_PLAIN
 $(res jdbc/ctxPublic "$PUB_PW" "$ATTR_X")" "$GLOBAL" "$SHARED_RES"
@@ -1154,8 +1146,8 @@ dual|jdbc/ctxShared|OK $POOL_D
 dual|jdbc/linkInfra|OK $POOL_T
 plain|jdbc/ctxShared|OK $POOL_T
 plain|jdbc/ctxInfraKey|FAIL [사유: KEY_ID_MISMATCH]"
-DAPI="dual|app.keys=biz-pass,default,pass-default,shared01
-dual|lib.keys=default,infra-pass,pass-default,shared01
+DAPI="dual|app.keys=$(printf '%s\n' biz-pass shared01 "$INITIAL_AES" "$INITIAL_PASS" | LC_ALL=C sort | paste -sd, -)
+dual|lib.keys=$(printf '%s\n' infra-pass shared01 "$INITIAL_AES" "$INITIAL_PASS" | LC_ALL=C sort | paste -sd, -)
 dual|app.fp.shared01=$SP_SH
 dual|lib.fp.shared01=$SP_SH
 dual|app.dec.SHARED=OK
@@ -1233,7 +1225,7 @@ if [ "$WITH_VAULT" = 1 ]; then
   up=1; for i in $(seq 1 60); do vx status > /dev/null 2>&1 && { up=0; break; }; sleep 1; done
   check $up "Vault 기동(TLS)"
   docker exec "$VAULT" cat /vault/tls/vault-ca.pem > "$WORK/secure/vault-ca.pem"
-  for k in v1 v2; do wb java -jar /w/jars/public-cfg.jar keygen --out "/w/out/vault-$k.key" --reason "vault test" $ADM > /dev/null; done
+  for k in v1 v2; do wb java -jar /w/jars/initial.jar keygen --out "/w/out/vault-$k.key" --reason "vault test" $ADM > /dev/null; done
   docker cp "$WB:/w/out/." "$WORKH/secure/" > /dev/null
   for k in v1 v2; do secret "$(tr -d '\r\n' < "$WORK/secure/vault-$k.key")"; tr -d '\r\n' < "$WORK/secure/vault-$k.key" | vx kv put -mount=secret java-crypto-kit/qa key=- > /dev/null; done
   check $? "KV v2 버전 1·2 저장"
@@ -1281,11 +1273,11 @@ if [ "$WITH_VAULT" = 1 ]; then
   docker cp "$WB:/w/tokens/VAULT_PW" "$WORKH/tokens/VAULT_PW" > /dev/null
   VAULT_PW=$(tr -d '\r\n' < "$WORK/tokens/VAULT_PW"); secret "$VAULT_PW"
   [[ "$VAULT_PW" == "ENC[v1:vault02:"* ]]; check $? "Vault 키로 CLI encrypt"
-  quiet wb java -Dcrypto.config.file=/opt/java-crypto-kit/vault-conn.properties -jar /w/jars/company.jar config key add --key-id vault-pass \
-    --source vault --location 'java-crypto-kit/qa-pass#passphrase' --operator qa --reason "vault test" --yes --out /w/jars/company-vpass.jar $ADM
+  quiet wb cp /w/jars/company.jar /w/jars/company-vpass.jar && quiet wb java -Dcrypto.config.file=/opt/java-crypto-kit/vault-conn.properties -jar /w/jars/company-vpass.jar config key add --key-id vault-pass \
+    --source vault --location 'java-crypto-kit/qa-pass#passphrase' --operator qa --reason "vault test" --yes $ADM
   check $? "config key add --source vault: pass 키 vault-pass(지금 한 번 읽어 지문 고정, JAR에는 경로·필드·Salt·지문만)"
-  vprop=$(wb sh -c 'rm -rf /tmp/jx && mkdir /tmp/jx && cd /tmp/jx && jar xf /w/jars/company-vpass.jar java-crypto-kit.properties && cat java-crypto-kit.properties' 2>&1)
-  [[ "$vprop" == *"crypto.keys.vault-pass.vault.path=java-crypto-kit/qa-pass"* && "$vprop" == *"crypto.keys.vault-pass.fingerprint="* \
+  vprop=$(wb java -jar /w/jars/company-vpass.jar config show $ADM 2>&1)
+  [[ "$vprop" == *"crypto.keys.vault-pass.vault.path = java-crypto-kit/qa-pass"* && "$vprop" == *"crypto.keys.vault-pass.fingerprint ="* \
      && "$vprop" != *"$VAULT_PASSPHRASE"* && "$vprop" != *"$GOOD"* ]]
   check $? "Vault pass 키 JAR 설정: 경로·고정 지문만, Passphrase·토큰 없음"
   wb sh -c '(sleep 3; printf "%s\n" "$DBPW") | script -qec "java -Dcrypto.config.file=/opt/java-crypto-kit/vault-conn.properties -jar /w/jars/company-vpass.jar encrypt --key-id vault-pass" /dev/null 2>&1 | tr -d "\r" | grep -oE "ENC\[v1:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+\]" | head -1 > /w/tokens/VAULT_PASS_PW'

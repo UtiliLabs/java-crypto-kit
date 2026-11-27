@@ -1,7 +1,7 @@
 file encrypt - encrypt a file (any content, JCKF v2, streaming for large files)
 
 Usage
-  java [-D...] -jar {jar} file encrypt --in <file>
+  java [-D...] -jar {jar} file enc --in <file>
        --out <file> [--type pass|key] [--key-id <ID>]
        [--config <file>] [--lang en|ko]
 

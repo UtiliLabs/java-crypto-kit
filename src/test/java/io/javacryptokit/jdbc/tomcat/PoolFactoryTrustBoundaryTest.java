@@ -43,7 +43,7 @@ class PoolFactoryTrustBoundaryTest {
     void isolate() {
         assumeTrue(TestSupport.noConfigEnvironmentVariables());
         AutoCloseable common = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY, null);
-        AutoCloseable others = TestSupport.clearOtherConfigProperties();
+        AutoCloseable others = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY, TestSupport.managedConfig().toString());
         AutoCloseable jvm = TestSupport.jvmSettings();
         isolation = () -> {
             jvm.close();
@@ -73,7 +73,7 @@ class PoolFactoryTrustBoundaryTest {
     void lookalikePoolFactoryInContextClassLoaderNeverReceivesThePassword(String pool) throws Exception {
         String factoryName = "dbcp2".equals(pool) ? CryptoSettings.DBCP2_FACTORY : CryptoSettings.TOMCAT_JDBC_FACTORY;
         Class<?> trusted = "dbcp2".equals(pool) ? BasicDataSourceFactory.class : org.apache.tomcat.jdbc.pool.DataSourceFactory.class;
-        Path config = TestSupport.writeConfig(dir, "trust.properties", "crypto.key.source=embedded",
+        Path config = TestSupport.writeManagedConfig(dir, "trust.properties", "crypto.key.source=embedded",
                 "crypto.pool.factory=" + factoryName);
         String secret = "dummy-trust-" + UUID.randomUUID();
         String token = CredentialCrypto.fromConfigFile(config).encryptText(secret);

@@ -3,13 +3,12 @@ package io.javacryptokit.oauth;
 import io.javacryptokit.jwt.JwtClaims;
 import java.time.Instant;
 import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
 /**
  * <b>공개 API</b>: RFC 7662 Introspection 응답. {@link #active()}가 false이면 토큰을 쓰면 안 되며 다른 값은 의미가 없다(빈 값).
- * true이면 인증 서버가 알려 준 선택 정보(scope·client_id·exp 등)를 형식 검사 후 돌려준다. 이 API의 대상·업무 권한 확인
+ * true이면 인증 서버가 알려 준 선택 정보(scope·client_id·exp 등)를 형식 검사 후 돌려준다. 명시된 scope는 RFC 6749 구문을 따른다. 이 API의 대상·업무 권한 확인
  * ({@link #audience()}·{@link #scopes()})은 호출자가 한다.
  */
 public final class IntrospectionResult {
@@ -20,14 +19,7 @@ public final class IntrospectionResult {
     IntrospectionResult(boolean active, JwtClaims claims) {
         this.active = active;
         this.claims = claims;
-        Set<String> out = new LinkedHashSet<>();
-        String scope = active ? claims.getString("scope") : null;
-        if (scope != null) {
-            for (String part : scope.split(" ")) {
-                if (!part.isEmpty()) out.add(part);
-            }
-        }
-        this.scopes = Collections.unmodifiableSet(out);
+        this.scopes = active ? OAuthText.responseScopes(claims) : Collections.emptySet();
     }
 
     /** @return 인증 서버가 활성이라고 답했으면 true */

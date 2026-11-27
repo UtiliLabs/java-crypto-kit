@@ -27,7 +27,7 @@ import java.util.Properties;
  *
  * <p><b>출력</b>: 실제로 실행한 점검만 {@code [PASS]}·{@code [FAIL]}·{@code [SKIP]}로 표시하고, 판단에 필요한 사실만 {@code [INFO]}로
  * 덧붙인다. {@code [WARN]}은 지정한 {@code -D}가 정책 때문에 적용되지 않은 경우처럼 설정이 의도대로 적용되지 않은 경우에만 쓴다.
- * 공개 기본 키 여부는 키 로딩 줄의 키 상태로만 보여 주며 따로 경고하지 않는다. 상태 코드는 언어와 관계없이 같다. FAIL이 하나라도
+ * 관리형 공개 키는 키 로딩 단계에서 거부한다. 상태 코드는 언어와 관계없이 같다. FAIL이 하나라도
  * 있으면 종료 코드 1이다.</p>
  *
  * <p><b>키 목록</b>: 등록된 키(pass·key 유형 모두)마다 공급원 준비 상태와 실제 키 조회(외부 키는 고정 지문 확인 포함)를 따로
@@ -92,6 +92,13 @@ final class DoctorCommand {
         // [3] 등록된 키마다: 공급원 준비 상태(네트워크 없이) → 실제 키 조회(지문 고정 확인 포함). --offline이면 원격 조회는 생략한다.
         KeyProfile selfTestKey = null;
         KeyProfile encryptionDefault = crypto.defaultProfile();
+        if (encryptionDefault == null) {
+            try {
+                crypto.select(null, null);
+            } catch (CredentialCryptoException e) {
+                results.add(failure(e.getMessage()));
+            }
+        }
         for (KeyProfile profile : settings.profiles()) {
             // 키 한 줄: "키 <ID> (꼬리표): 공급원, 위치". 80열을 넘으면 꼬리표 다음에서 줄을 바꾼다(값은 자르지 않음).
             results.add(Diagnostic.info(KeyringView.wrapAfter(STATUS_WIDTH_SAMPLE,
@@ -107,11 +114,11 @@ final class DoctorCommand {
                 results.add(failure(check.failure()));
                 continue;
             }
-            // 키 상태(공개 기본 키/사용자 지정)는 사실로만 표시한다. 공개 기본 키라도 동작 점검은 PASS다.
+            // 키 공급원 로딩에 성공하면 키 상태와 지문을 표시한다.
             results.add(Diagnostic.pass(KeyringView.wrapAfter(STATUS_WIDTH_SAMPLE, Messages.get("doctor.keyOk", profile.id()),
                     Messages.get("doctor.keyOkDetail", CryptoCli.keyStatus(check.publicDefaultKey()),
                             KeyResolver.shortFingerprint(check.fingerprint())), DETAIL_INDENT)));
-            if (selfTestKey == null || profile.id().equals(encryptionDefault.id())) selfTestKey = profile;
+            if (selfTestKey == null || profile.equals(encryptionDefault)) selfTestKey = profile;
         }
 
         // [4] 암복호화 자체 검증(읽은 키 하나로, 가능하면 새 암호화의 기본 키). 읽은 키가 없으면 실행하지 않는다(PASS 없음).

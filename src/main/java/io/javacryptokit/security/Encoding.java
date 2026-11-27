@@ -134,13 +134,12 @@ public enum Encoding {
     }
 
     private byte[] unbase32(String text) {
-        String body = text;
-        int padding = 0;
-        while (body.endsWith("=")) {
-            body = body.substring(0, body.length() - 1);
-            padding++;
-        }
-        if (padding > 0 && text.length() % 8 != 0) throw malformed();
+        int end = text.length();
+        while (end > 0 && text.charAt(end - 1) == '=') end--;
+        int padding = text.length() - end;
+        // 정상 Base32의 패딩은 최대 6자다. 넘으면 문자열을 복사하지 않고 바로 거부한다.
+        if (padding > 6 || padding > 0 && text.length() % 8 != 0) throw malformed();
+        String body = text.substring(0, end);
         int remainder = body.length() % 8;
         if (remainder == 1 || remainder == 3 || remainder == 6) throw malformed();
         if (padding > 0 && padding != (8 - remainder) % 8) throw malformed();

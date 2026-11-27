@@ -2,12 +2,12 @@
 
 [README](../../README.md) · [사용자 가이드](../user-guide.md)
 
-키 보관, 공개 기본 키, 이력, 관리자 인증과 보장 범위.
+키 보관, 공개된 기본 키 차단, 이력, 관리자 인증과 보장 범위.
 
 **목차**
 
 - [12. 운영·보안 참고](#12-운영보안-참고)
-- [12.1 공개 기본 키 경고](#121-공개-기본-키-경고)
+- [12.1 공개된 기본 키 차단과 이관](#121-공개-기본-키-경고)
 - [12.2 키 파일과 키 내장 JAR 보관](#122-키-파일과-키-내장-jar-보관)
 - [12.3 평문을 다루는 명령](#123-평문을-다루는-명령)
 - [12.4 JAR 설정 이력의 성격](#124-jar-설정-이력의-성격)
@@ -22,31 +22,25 @@
 
 CLI와 로그는 결과와 실제 오류만 보여 주고 운영 권고를 반복하지 않습니다. 운영 환경의 보안 정책을 정할 때 참고할 사항을 여기에 모았습니다. 무엇을 어떻게 적용할지는 사용하는 조직이 판단합니다.
 
-## 12.1 공개 기본 키 경고
+<a name="121-공개-기본-키-경고"></a>
+## 12.1 공개된 기본 키 차단과 이관
 
-이 라이브러리가 정상 실행 중에 자동으로 내는 경고는 이것 하나뿐입니다.
+관리형 암복호화는 공급원이 반환한 실제 AES 키의 SHA-256을 공개된 기본 AES 키 2개의 SHA-256과 비교해 같으면 `KEY_SOURCE`로 거부합니다. 파일·환경변수·Vault에서 읽은 Passphrase는 NFC 정규화 뒤 파생 전에 공개된 기본 Passphrase와 비교하므로 Salt와 반복 횟수를 바꾸어도 그 Passphrase를 사용할 수 없습니다. Key ID 변경, 공급원 이동 또는 `crypto.warning.enabled=false`로 차단을 해제할 수 없습니다. 공개된 기본 키가 아닌 사용자 키는 같은 Key ID와 키 재료를 유지하면 계속 사용할 수 있습니다.
 
-| 항목 | 내용 |
-|---|---|
-| 조건 | 실제로 쓰는 키가 공개 배포 JAR의 예제 키 두 개(pass `pass-default`, key `default`) 중 하나와 **같은 값**일 때. 키 공급 방식과 관계없음(내장 키 값을 키 파일·환경변수·Vault·KMS로 옮겨도, 공개 예제 Passphrase를 같은 Salt·반복으로 공급해도 대상). 사용자 지정 키(교체한 내장 키 포함)와 정상 외부 키에는 나오지 않음 |
-| 문구 | CLI: 표준 오류에 `[WARN] 공개 기본 키 사용 중 (별도 키 설정 권장)`(영어 `[WARN] Public default key in use (set your own key)`). Java API·Tomcat: java.util.logging WARNING `[java-crypto-kit] 공개 기본 키 사용 중 (별도 키 설정 권장)`(Tomcat은 catalina 로그, 앞부분 형식은 Tomcat 로그 설정을 따름) |
-| 횟수 | JVM(프로세스)당 최대 1회. Tomcat에서 DataSource가 여러 개이거나 같은 프로세스에서 여러 번 암복호화해도 한 번. CLI는 명령마다 새 JVM이므로 명령마다 한 번 나올 수 있음 |
-| 끄기 | `crypto.warning.enabled=false`(JAR `config set`·외부 Properties·`-D`). 이 경고 한 줄만 없어지며 오류, `info`·`doctor`의 키 상태, 공개 키의 위험은 그대로 |
-| 나오지 않는 명령 | 키 상태를 직접 보여 주는 `info`·`doctor`·`fingerprint`와 Java API `keys()`(경고 대신 키 상태 `공개 기본 키` 표시), 키를 쓰지 않는 `config show`·`config history`·`help`. `rekey`는 이전 키 쪽이 공개 키여도 경고하지 않고, 새 키가 공개 키일 때만 재암호화·검증이 모두 성공한 뒤 경고(실패하면 경고 없음) |
-| 조치 | 사용자 지정 키를 적용하고([1.3절](../guide/key-management.md#topic-key-selection--13-체험용-내장-키와-운영용-사용자-지정-키)·[5장](../guide/key-management.md#topic-key-management--5-키-공급원과-설정-적용)) 공개 키로 만든 기존 암호문은 `rekey`로 다시 암호화 |
+공개된 기본 키로 보호한 DB 비밀번호나 토큰은 노출 가능성을 평가하고 필요하면 원본 비밀을 교체하세요. 그 키로 만든 암호문은 격리된 환경에서 이전 버전 JAR로 복호화한 뒤 `admin setup`을 마친 JAR의 키로 다시 암호화하고, 전환 전에 그 JAR로 검증하세요. 관리자 비밀번호는 CLI 인증에만 쓰며, 내장 키 보호에는 설정한 JAR의 접근 권한과 사용자가 직접 만든 보호된 사본이 필요합니다.
 
 ## 12.2 키 파일과 키 내장 JAR 보관
 
 - **키 파일:** Linux는 WAS 실행 계정 소유 `chmod 600`(폴더는 `750` 등), Windows는 `icacls`로 상속을 끊고 필요한 계정(운영자, Tomcat 서비스 계정)만 허용합니다. 예: `icacls "C:\secure\example.key" /inheritance:r /grant:r "${env:USERNAME}:(R)"`. `doctor`는 파일이 있고 읽을 수 있는지만 확인하며 권한 범위는 점검하지 않습니다.
-- **키 내장 JAR**(`-cfg*.jar`, `--out`으로 정한 임의 이름 포함)는 JAR에서 키를 추출할 수 있으므로 키 파일과 같은 비밀 파일로 취급합니다(JAR 안의 키 값은 [12.7절](#127-jar-내장값의-경량-난독화obf1)의 경량 난독화로 압축을 풀었을 때 바로 읽히지 않을 뿐 추출을 막지 않음). 공개 저장소에 올리지 말고 읽기 권한을 제한합니다(배포 위치는 예: `chmod 640`, 서비스 그룹만). 이 저장소의 `.gitignore`와 CI는 `*.jar`·`*.key`·`*.jar.bak-*` 같은 이름의 추적을 막지만 만능이 아니므로, 커밋 전에 추적 파일과 새 미추적 파일을 `git status`로 직접 확인합니다.
+- **키 내장 JAR**는 JAR에서 키를 추출할 수 있으므로 키 파일과 같은 비밀 파일로 취급합니다(JAR 안의 키 값은 [12.7절](#127-jar-내장값의-경량-난독화obf1)의 경량 난독화로 압축을 풀었을 때 바로 읽히지 않을 뿐 추출을 막지 않음). 공개 저장소에 올리지 말고 읽기 권한을 제한합니다(배포 위치는 예: `chmod 640`, 서비스 그룹만). 이 저장소의 `.gitignore`와 CI는 `*.jar`·`*.key`·`*.jar.bak-*` 같은 이름의 추적을 막지만 만능이 아니므로, 커밋 전에 추적 파일과 새 미추적 파일을 `git status`로 직접 확인합니다.
 
   더 강한 분리가 필요하면 `file`·`env`·Vault·AWS KMS를 씁니다.
-- **CLI가 만드는 JAR의 권한:** Linux·macOS에서 CLI가 새로 만드는 결과 JAR(`admin setup`·`admin password change`·`config` 변경의 결과, `--out` 이름 포함)와 `--replace` 백업은 소유자만 읽고 쓰는 `600`으로 만들고, 결과 화면에 `권한      : 소유자만(600)...` 한 줄로 알립니다(관리자 검증값과 사용자 키가 들어 있음). `--replace`로 바꾼 운영 JAR는 원래 파일의 권한을 그대로 둡니다(서비스 계정이 계속 읽을 수 있게). 새 JAR를 Tomcat에 배포할 때는 서비스 계정이 읽을 수 있게 권한을 따로 정합니다.
+- **JAR 권한.** 최초 설정 뒤 POSIX 권한은 소유자 전용(600)입니다. 이후 편집은 원본 권한을 보존합니다. Windows는 대상 파일 ACL을 따릅니다. Tomcat 배포 시 서비스 계정의 읽기 권한을 확인하세요.
 
-  예: `sudo install -m 640 -o root -g tomcat company.jar "$CATALINA_BASE/lib/java-crypto-kit.jar"`. 공개 배포 JAR(예제 키만)과 키 내장 JAR를 같은 공개 파일처럼 다루지 않습니다.
+  예: `sudo install -m 640 -o root -g tomcat company.jar "$CATALINA_BASE/lib/java-crypto-kit.jar"`. 공개 배포 JAR(관리자와 내장 PASS·KEY가 미설정인 원본)와 `admin setup` 뒤 키가 내장된 JAR를 같은 공개 파일처럼 다루지 않습니다.
 
-  Windows는 POSIX 권한이 없어 결과 JAR·백업이 만들어진 폴더의 ACL을 상속하므로, CLI 작업 폴더를 사용자 프로필 아래처럼 다른 사용자가 읽을 수 없는 곳으로 두거나 위의 `icacls`로 제한합니다.
-- **`--replace` 백업**(`*.jar.bak-*`)과 Vault 토큰 파일, 관리자 비밀번호 파일(`--admin-pass-file`)도 같은 수준으로 관리합니다.
+  Windows는 POSIX 권한이 없어 CLI가 갱신하는 JAR 파일의 ACL을 그대로 따르므로, 관리하는 JAR를 사용자 프로필 아래처럼 다른 사용자가 읽을 수 없는 폴더에 두거나 위의 `icacls`로 제한합니다.
+- **직접 만든 설정 JAR 백업**과 Vault 토큰 파일, 관리자 비밀번호 파일(`--admin-pass-file`)도 같은 수준으로 관리합니다.
 - **백업:** 키 파일과 키 내장 JAR를 모두 잃으면 그 키로 만든 암호문을 복구할 수 없습니다(pass 키는 복원 백업으로도 복구, [5.6절](../guide/key-management.md#topic-key-recovery--56-자동-생성한-passkey-보관재등록복구)). 키를 바꾼 뒤에도 기존 암호문을 모두 바꿀 때까지 이전 키·이전 JAR를 보관합니다.
 
 ## 12.3 평문을 다루는 명령
@@ -93,29 +87,29 @@ JAR 압축을 풀어 설정 파일을 열었을 때 내장 키 값과 변경 이
 
 | 항목 | 내용 |
 |---|---|
-| 대상 | JAR 내부 설정의 내장 키 값(`crypto.key.embedded`, `crypto.keys.<ID>.embedded`, 공개 기본 키 포함)과 JAR 내부 변경 이력 파일(`META-INF/java-crypto-kit/config-history.properties`)의 본문. 그 밖의 설정·클래스·외부 파일·암호문은 대상이 아님 |
+| 대상 | JAR 내부 설정의 내장 키 값(`crypto.key.embedded`, `crypto.keys.<ID>.embedded`)과 예약 영역의 변경 이력 본문. 그 밖의 설정·클래스·외부 파일·암호문은 대상이 아님 |
 | 형식 | `obf1:` + Base64url(패딩 없음). 본문은 [확인값 4바이트 + 원래 바이트]를 SHA-256 기반 고정 키 스트림과 XOR한 값이고, 확인값은 `SHA-256(ASCII("java-crypto-kit/obf1/check") \|\| 0x00 \|\| 원래 바이트)`의 앞 4바이트. [패드 계산과 복원 규격](technical-specification.md#jar-obf1). 이력 파일은 `obf1:...` 한 줄 |
-| 읽기 | `obf1:`이면 되돌린 뒤 확인값을 검사하고, 표시가 없으면 이전 형식 평문(표준 Base64 키·평문 이력)으로 읽음. 모르는 버전(`obf2:` 등)이나 손상(확인값 불일치·형식 오류)은 다른 값으로 바꾸지 않고 `JAR 안의 저장 값(obf1)이 손상되었거나 이 버전이 모르는 형식입니다. ...`로 실패 |
-| 쓰기 | 새 버전 JAR를 CLI로 편집하면 내장 키와 이력 본문을 `obf1`로 저장(바꾸지 않은 이전 형식 평문 내장 값도 같은 표현으로 다시 씀, 키 바이트는 그대로라 변경 이력에는 남지 않음). obf1을 읽지 못하는 이전 형식 JAR를 편집할 때는 그 JAR가 계속 동작하도록 기존 형식(표준 Base64 키, 평문 이력)으로 씀 |
+| 읽기 | `obf1:`이면 되돌린 뒤 확인값을 검사하고, 표시가 없으면 평문(표준 Base64 키·평문 이력)으로 읽음. 모르는 버전(`obf2:` 등)이나 손상(확인값 불일치·형식 오류)은 다른 값으로 바꾸지 않고 `JAR 안의 저장 값(obf1)이 손상되었거나 이 버전이 모르는 형식입니다. ...`로 실패 |
+| 쓰기 | 예약 영역이 있는 JAR를 갱신할 때 변경된 내장 키와 이력 본문을 `obf1`로 저장. 예약 영역이 없는 JAR는 읽기와 키 이관(`--from-jar`)의 원본으로만 사용 |
 | 바뀌지 않는 것 | 키 바이트·키 ID·키 지문, `ENC[v1:...]`·JCKF 형식과 복호화 결과, 이력의 해시 체인(되돌린 본문으로 계산)과 순번, `config history`·`config show`·`info`·`doctor`·`fingerprint`·Java API·Tomcat 동작 |
-| 외부 키 | `keygen` 키 파일·환경변수·Vault 값은 계속 표준 Base64만 받음(`obf1:` 값은 JAR 안 표현이라 키 파일로 쓰면 거부) |
+| 외부 키 | KEY (AES Key): `keygen` 키 파일(512바이트 이내 한 줄)·환경변수·Vault 필드 모두 32바이트 AES 키의 표준 Base64. PASS (Passphrase): 파일(1KiB 이내 UTF-8 한 줄)·환경변수·Vault 필드의 Passphrase 원문을 NFC 정규화 뒤 파생하며 공개된 기본 Passphrase는 거부. AWS KMS는 보호된 데이터 키 파일(PASS는 파생 AES 키를 보호). `obf1:` 값은 JAR 안 표현이라 키 자료로 쓰면 거부([공급원별 규격](technical-specification.md#31-설정-해석과-공급원)) |
 
 **성능(시험 PC 실측):** 로컬 내장 키는 암복호화할 때마다 되돌린 뒤 지우므로 연산마다 약 0.2µs(JDK 21)·0.7µs(JDK 8)가 더 듭니다(AES-GCM 연산 자체보다 작음). 설정 로딩·Tomcat DataSource 생성은 사실상 차이가 없고(1ms 안팎), 변경 이력 본문(약 4KB)을 되돌리는 데는 수십 µs가 걸립니다.
 
-압축을 풀어 확인하면 내장 키는 `crypto.key.embedded=obf1:...`처럼, 이력 파일은 `obf1:`로 시작하는 한 줄로 보이며 사유 등 본문 글자는 그대로 보이지 않습니다.
+**압축 해제로 보이는 것과 현재 설정:** 최신 설정·변경 이력·관리자 검증값은 ZIP 로컬 헤더의 예약 영역([JAR 내부 예약 영역 갱신](technical-specification.md#44-jar-내부-예약-영역-갱신))에 저장됩니다. 그래서 `unzip -p`로 `java-crypto-kit.properties`·`META-INF/java-crypto-kit/config-history.properties` 엔트리를 열면 기본 Properties와 구형 JAR의 레거시 엔트리만 볼 수 있습니다. 현행 배포 JAR에는 별도 이력 엔트리가 없습니다. 현재 키 목록·설정·이력은 관리자 인증 뒤 `config show`와 `config history --all`로 확인합니다.
 
-확인 예: `unzip -p <JAR> java-crypto-kit.properties | grep embedded`, `unzip -p <JAR> META-INF/java-crypto-kit/config-history.properties | head -c 40`.
+평문 노출 검사는 최신 설정 조회와 별개로, JAR 파일 자체를 바이트 그대로 검색해 고유한 사유 문구나 키 원문이 나오지 않는지 봅니다(예: bash `grep -a -c '<고유 사유 문구>' <JAR>`의 결과가 0). 예약 영역의 내장 키와 이력 본문은 `obf1`로 저장되어 글자 그대로 보이지 않습니다.
 
 ## 12.8 CLI 관리자 인증의 범위와 한계
 
 | 구분 | 내용 |
 |---|---|
 | 보호하는 것 | 이 JAR로 실행하는 **CLI**의 사용: 설정 전 실행 차단, 복호화·키 생성/등록/변경/삭제·키와 설정 조회·원문 확인마다 관리자 비밀번호 확인 |
-| 보호하지 않는 것 | JAR 파일 자체(압축을 풀어 내장 키를 꺼내거나 검증값 항목을 바꿀 수 있음), Java API·Tomcat을 통한 복호화(같은 JVM의 코드), 이전 형식 등 관리자 기능이 없는 이전 JAR. 키 추출 방지·접근 통제 수단이 아니므로 JAR와 키 파일은 OS 권한·배포 절차로 보호 |
+| 보호하지 않는 것 | JAR 파일 자체(압축을 풀어 내장 키를 꺼내거나 검증값 항목을 바꿀 수 있음), Java API·Tomcat을 통한 복호화(같은 JVM의 코드), 예약 영역이 없어 관리자 기능이 없는 JAR. 키 추출 방지·접근 통제 수단이 아니므로 JAR와 키 파일은 OS 권한·배포 절차로 보호 |
 | 저장 | 단방향 검증값(PBKDF2-HMAC-SHA256, 보안 난수 Salt, 600,000회)만 JAR에 있음. JAR를 가진 사람은 이 값으로 비밀번호를 오프라인 대입할 수 있으므로 충분히 긴 비밀번호(12~16자 이상 권장)를 씀 |
 | 시도 제한 | 한 실행에 3번. 새로 실행하면 다시 3번이며 계정 잠금·영구 잠금은 없음(운영 중단 방지). 반복 시도는 OS·작업 기록으로 관리 |
 | JAR 복사 | 설정된 JAR을 복사하면 검증값도 복사됨. 비밀번호는 JAR마다이며 사용자·서버별 독립 인증이 아님 |
-| 변경 후 이전 JAR | `admin password change`는 새 JAR을 만들 뿐 원본을 지우지 않음. 이전 JAR이 남아 있으면 **이전 비밀번호로 계속 CLI를 쓸 수 있으므로** 배포 위치·작업 PC·백업에서 이전 JAR을 정리함(키·암호문은 같아 Tomcat 동작에는 영향 없음) |
+| 변경 후 이전 JAR | `admin password change`는 같은 경로에서 비밀번호를 바꿈. 변경 전 복사본이 남아 있으면 **이전 비밀번호로 계속 CLI를 쓸 수 있으므로** 배포 위치·작업 PC·백업에서 이전 JAR을 정리함(키·암호문은 같아 Tomcat 동작에는 영향 없음) |
 | 원본 미설정 JAR | 배포 JAR은 실행할 때마다 최초 설정을 요구함. 설정한 JAR과 혼동하지 않도록 이름·보관 위치를 구분하고, 운영에는 설정한 JAR만 둠 |
 | 비대화형 비밀번호 파일 | CI Secret 등을 실행할 때 권한을 좁힌 임시 파일(Linux `umask 077`, Windows는 본인만 읽는 폴더)로 만들어 `--admin-pass-file`로 주고, 끝나면 지움. Linux·macOS는 다른 사용자가 읽거나 쓸 수 있는 파일을 거부함(600·400, 통제된 그룹 640·440 허용). Git·ZIP·빌드 산출물·로그에 넣지 않음 |
 | 손상 탐지 | 관리자 검증값·변경 이력의 손상(이력 삭제, 관리자 기록 누락·중복·순서 오류, 해시 체인·설정 지문 불일치, 검증값 삭제)이면 그 JAR로는 CLI가 아무것도 하지 않음(`INTEGRITY`, [1.4절](../guide/cli.md#topic-admin--14-cli-관리자-비밀번호)). 이력의 해시 체인은 키 없는 SHA-256이라 이력 파일을 처음부터 다시 계산하는 위조까지는 막지 못함(실수·단순 수정·결손 탐지) |
@@ -125,7 +119,7 @@ JAR 압축을 풀어 설정 파일을 열었을 때 내장 키 값과 변경 이
 1. 같은 비밀번호를 아는 다른 관리자가 있으면 그 사람이 `admin password change`로 새 비밀번호를 정합니다.
 2. 이전 비밀번호를 아는 이전 JAR(변경 전 JAR·백업)이 있으면 그 JAR로 다시 `admin password change`를 합니다(키가 같으면 그대로 씀).
 3. 그것도 없으면 배포 JAR로 `admin setup`을 새로 한 뒤 키를 다시 등록합니다: key는 보관한 키 파일·`--export` 파일로, pass는 복원 백업으로 **같은 키 ID**에 등록하면 같은 지문이 되어 기존 암호문이 그대로 복호화됩니다([5.6절](../guide/key-management.md#topic-key-recovery--56-자동-생성한-passkey-보관재등록복구)). 비밀번호를 모르는 JAR에서는 `config key add --from-jar`·`config key show`로 키를 꺼낼 수 없습니다(그 JAR의 비밀번호를 확인하기 때문).
-**손상으로 거부될 때(`INTEGRITY`):** 그 JAR는 CLI로 고치지 않습니다(손상된 이력에서 새 이력을 시작하지 않음). 손상 전에 보관한 JAR(백업·이전 결과 JAR)로 돌아가거나, 위 3번처럼 배포 JAR로 `admin setup`을 한 뒤 키 백업으로 같은 키 ID에 다시 등록합니다.
+**손상으로 거부될 때(`INTEGRITY`):** 그 JAR는 CLI로 고치지 않습니다(손상된 이력에서 새 이력을 시작하지 않음). 손상 전에 사용자가 직접 보관한 JAR 사본으로 돌아가거나, 위 3번처럼 배포 JAR로 `admin setup`을 한 뒤 키 백업으로 같은 키 ID에 다시 등록합니다.
 
 Tomcat·Java API는 이 판단과 무관하게 그 JAR로 계속 동작합니다.
 

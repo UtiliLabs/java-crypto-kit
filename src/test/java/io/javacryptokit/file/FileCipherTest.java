@@ -266,7 +266,7 @@ class FileCipherTest {
         RANDOM.nextBytes(plain[0]);
         RANDOM.nextBytes(plain[1]);
         Path[] in = {Files.write(dir.resolve("a.bin"), plain[0]), Files.write(dir.resolve("b.bin"), plain[1])};
-        CredentialCrypto[] cryptos = {CredentialCrypto.fromRawKey("race01", key()), TestSupport.jarDefaults()};
+        CredentialCrypto[] cryptos = {CredentialCrypto.fromRawKey("race01", key()), TestSupport.managedCrypto()};
         String[] names = {"direct", "managed"};
         for (int c = 0; c < cryptos.length; c++) {
             CredentialCrypto crypto = cryptos[c];
@@ -386,7 +386,7 @@ class FileCipherTest {
 
     @Test
     void publicApiProtectsPathsKeepsOriginalAndLeavesNoTemporaryFiles() throws Exception {
-        CredentialCrypto crypto = TestSupport.jarDefaults();
+        CredentialCrypto crypto = TestSupport.managedCrypto();
         Path folder = Files.createDirectories(dir.resolve("월간 보고서 폴더"));
         Path in = folder.resolve("고객 목록 2026.csv");
         byte[] content = ("이름,전화\n홍길동,010-0000-0000\n" + new String(new char[100000]).replace('\0', 'x'))
@@ -432,7 +432,7 @@ class FileCipherTest {
         Path in = Files.write(dir.resolve("a.bin"), new byte[]{1, 2, 3});
         Path sealed = dir.resolve("a.bin.jck");
         // 공개 AES 키(default)로 만든 파일: 아래 설정에는 그 Key ID가 없다(crypto.key.*가 other01로 바뀜).
-        TestSupport.jarDefaults().encryptFile(in, sealed, io.javacryptokit.KeyType.KEY);
+        TestSupport.managedCrypto().encryptFile(in, sealed, io.javacryptokit.KeyType.KEY);
         Path config = TestSupport.writeConfig(dir, "other.properties", "crypto.key.source=file", "crypto.key.id=other01",
                 "crypto.key.file=" + TestSupport.propertiesPath(dir.resolve("does-not-exist.key")));
         CredentialCryptoException ex = assertThrows(CredentialCryptoException.class,
@@ -450,8 +450,8 @@ class FileCipherTest {
             assumeTrue(false, "이 환경에서는 심볼릭 링크를 만들 수 없음");
             return;
         }
-        TestSupport.jarDefaults().encryptFile(link, dir.resolve("link.txt.jck"));
-        TestSupport.jarDefaults().decryptFile(dir.resolve("link.txt.jck"), dir.resolve("back.txt"));
+        TestSupport.managedCrypto().encryptFile(link, dir.resolve("link.txt.jck"));
+        TestSupport.managedCrypto().decryptFile(dir.resolve("link.txt.jck"), dir.resolve("back.txt"));
         assertArrayEquals(Files.readAllBytes(target), Files.readAllBytes(dir.resolve("back.txt")));
     }
 }

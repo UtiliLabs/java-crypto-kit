@@ -85,11 +85,17 @@ class SettingCatalogTest {
             if (!example.startsWith(setting.key + "=")) continue;
             List<String> lines = new ArrayList<>();
             lines.add(example);
+            if (CryptoSettings.KEY_ACTIVE_PASS.equals(setting.key)) {
+                for (String value : TestSupport.managedSettings()) {
+                    if (value.startsWith("crypto.keys.test-pass.")) lines.add(value.replace("test-pass", "app-pass"));
+                }
+            }
             if (setting.key.startsWith("crypto.vault.") || setting.key.startsWith("crypto.aws.")
                     || setting.key.startsWith("crypto.key.file")) {
                 lines.add("crypto.key.source=" + (setting.key.startsWith("crypto.vault.") ? "vault"
                         : setting.key.startsWith("crypto.aws.") ? "aws-kms" : "file"));
             }
+            if (CryptoSettings.KEY_ACTIVE_KEY.equals(setting.key)) lines.add(TestSupport.managedSettings()[0]);
             Path config = TestSupport.writeConfig(dir, "example-" + setting.key + ".properties", lines.toArray(new String[0]));
             TestSupport.isolatedSettings(config);
         }

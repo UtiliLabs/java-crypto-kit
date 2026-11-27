@@ -57,6 +57,8 @@ public final class CryptoSelfTest {
      */
     public static void main(String[] args) throws Exception {
         // ===== 기존 1~3: 기본 암복호화 =====
+        check(CryptoSettings.load(null).profiles().isEmpty(), "배포 원본의 빈 키 목록");
+        System.setProperty(CryptoSettings.CONFIG_FILE_PROPERTY, TestSupport.managedConfig().toString());
         CryptoSettings defaultSettings = CryptoSettings.load(null);
         // 아래 엔진 검사는 crypto.key.* AES 키(key 유형, 키ID default)로 한다. 유형 미지정 기본은 pass(pass-default)다.
         String first = CryptoService.of(defaultSettings).encryptText("비밀번호:Ω!".toCharArray(), KeyType.KEY, null);
@@ -65,7 +67,7 @@ public final class CryptoSelfTest {
         check(first.startsWith("ENC[v1:default:"), "암호문 형식/키 식별자");
         check("비밀번호:Ω!".equals(CryptoService.of(defaultSettings).decryptText(first)), "UTF-8 복호화");
         String passToken = CryptoService.of(defaultSettings).encryptText("비밀번호:Ω!".toCharArray());
-        check(passToken.startsWith("ENC[v1:pass-default:"), "유형 미지정 기본은 pass(공개 pass 키 pass-default)");
+        check(passToken.startsWith("ENC[v1:test-pass:"), "유형 미지정 기본은 pass(공개 pass 키 pass-default)");
         check("비밀번호:Ω!".equals(CryptoService.of(defaultSettings).decryptText(passToken)), "pass 암호문도 키ID로 자동 복호화");
 
         // ===== 기존 4~6: 변조·형식 오류 거부 =====
@@ -177,7 +179,7 @@ public final class CryptoSelfTest {
                 () -> CryptoService.of(defaultSettings).decryptText(withPart(parts, 2, "")), "빈 IV 거부");
         // AAD 검증: 같은 키를 다른 키ID(other01)로 설정한 환경에서 봉투의 키ID만 바꿔치기하면,
         // 키ID 비교는 통과하지만 AAD가 달라 인증 태그 검증에서 실패해야 한다.
-        Path aliasConfig = writeProperties("crypto.key.id=other01");
+        Path aliasConfig = writeProperties("crypto.key.type=key", TestSupport.managedSettings()[0], "crypto.key.id=other01");
         try {
             CryptoSettings sameKeyOtherId = CryptoSettings.load(aliasConfig.toString());
             fails(GeneralSecurityException.class,

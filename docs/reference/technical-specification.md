@@ -1,6 +1,6 @@
 # Java Crypto Kit 기술 명세
 
-이 명세는 v0.2.0의 실행 경계, 공개 동작, 영속 데이터 규격 및 호환성 유지 기준을 정의한다. 도입과 실행은 [사용자 가이드](../user-guide.md), 메서드와 오버로드는 [Java API Reference](java-api-reference.md#api-members), 설정값은 [설정 사전](configuration.md#10-설정-사전)을 기준으로 찾는다.
+이 명세는 v0.2.1의 실행 경계, 공개 동작, 영속 데이터 규격 및 호환성 유지 기준을 정의한다. 도입과 실행은 [사용자 가이드](../user-guide.md), 메서드와 오버로드는 [Java API Reference](java-api-reference.md#api-members), 설정값은 [설정 사전](configuration.md#10-설정-사전)을 기준으로 찾는다.
 
 | 필요한 정보 | 바로가기 |
 |---|---|
@@ -47,7 +47,7 @@
 | B64 | `B64[<B64U(ASCII(ENC))>]`. 상한은 `5 + ceil(16384 × 4/3)` 문자. 외부 표현도 정규 Base64URL 및 엄격 UTF-8을 요구하며 내부 ENC 포장 1회만 허용 |
 | 실패 | 구문·길이 오류 `INVALID_TOKEN`, 선택 ID 불일치 `KEY_ID_MISMATCH`, 태그 불일치 `INTEGRITY`. 유효한 바이너리의 텍스트 디코딩 실패는 `INVALID_INPUT` |
 
-관리형과 직접 주입 `CredentialCrypto` 모두 위 포맷을 공유한다. 같은 ID·실제 AES 키가 필요하다. 키 유형·Salt·반복 횟수는 봉투에 들어가지 않는다. 길이 제한은 입력 바이트 수와 ID에 따른 포장 길이를 반영한다. 공개 기본 AES 호환 벡터는 `TokenCodecTest` 및 `ApiUsageExampleTest`가 사용한다.
+관리형과 직접 주입 `CredentialCrypto` 모두 위 포맷을 공유한다. 같은 ID·실제 AES 키가 필요하다. 키 유형·Salt·반복 횟수는 봉투에 들어가지 않는다. 길이 제한은 입력 바이트 수와 ID에 따른 포장 길이를 반영한다. 공개된 기본 AES 키로 만든 고정 벡터는 `TokenCodecTest`와 `ApiUsageExampleTest`가 포맷 확인에 사용한다.
 
 ```text
 ENC[v1:default:fiwaaeeeILgco85o:-uFGHK3H0eqZKIfj3MZhRG3cr9gLeQCjYJ7UHFdWCg4f4982fNx8]
@@ -133,10 +133,11 @@ AAD         = JCKH_header || u32(aad_length) || aad
 | Type·ID 함께 지정 | 등록 유형과 지정 유형의 일치 확인 후 사용 |
 | 복호화 | 암호문의 ID를 조회하고 일치하는 키 하나 사용. 미등록이면 `KEY_ID_MISMATCH` |
 
-- `crypto.key.*`의 이전 AES 슬롯과 `crypto.keys.<id>.*`를 함께 읽는다. 계층별 키 목록은 합집합이다. 지정 AES 슬롯과 새 공개 기본 키가 뒤섞이지 않아야 한다.
-- `default` 및 `pass-default`는 예약 ID다. `pass-default`의 공개 Passphrase는 `java-crypto-kit-public-passphrase-v1`, Salt는 `SHA-256(ASCII("java-crypto-kit/pass-default/salt/v1"))`의 앞 16바이트다. 기존 `default`의 값은 배포 `java-crypto-kit.properties`의 호환 입력과 고정 암호문 벡터로 확인할 수 있다.
-- 키 지문은 `lowerhex(SHA-256(ASCII("java-crypto-kit/key-fingerprint/v1") || NUL || aes_key))` 64자다. 단축 표시는 앞 12자와 뒤 8자다. 명시 조회는 자동 경고 없이 상태를 반환한다. 실제 공개 키 사용 경고는 고정 키 여부를 공급원과 무관하게 판정하며 경고가 켜져 있으면 JVM에서 해당 라이브러리 로딩 단위당 최대 한 번 출력된다.
-- ID 재사용은 기존 기록의 전체 지문·유형과 `pass`의 KDF·반복·Salt 지문이 모두 일치할 때 허용한다. 새 JAR에 비교할 과거 기록이 없으면 전체 지문과 실제 복호화로 확인한다. 새 키 등록이 활성 키를 자동 전환하지 않는다. 이전 키를 보존하면 해당 ID의 기존 토큰을 복호화할 수 있다. 제거 후 복구에는 같은 ID·실제 키가 필요하다.
+- `crypto.key.*`의 AES 슬롯과 `crypto.keys.<id>.*` 키 프로필을 함께 읽는다. 계층별 키 목록은 합집합이다. 지정한 AES 슬롯을 다른 프로필이나 공개된 기본 키로 대체하지 않는다.
+- 키 ID `default`와 `pass-default`는 예약 ID로 등록할 수 없다. 배포 원본의 내장 AES 슬롯과 활성 pass ID는 비어 있고 키 프로필은 0개다. 명시한 유형·ID로 외부 키만 사용하는 경우에도 다른 기본 유형으로 전환하지 않는다.
+- 최초 설정은 CSPRNG로 128비트 ID 두 개, 독립 AES-256 키, 32자 난수 Passphrase와 16바이트 Salt를 생성한다. pass 파생은 PBKDF2-HMAC-SHA256 600,000회다. 각 ID는 유형 접두사와 소문자 Hex 32자리로 구성한다. 최초 설정은 배포 JAR와 동일 경로를 갱신하며, 이후 SHA-256이 공식 배포본과 다른 것이 정상이다.
+- 키 지문은 `lowerhex(SHA-256(ASCII("java-crypto-kit/key-fingerprint/v1") || NUL || aes_key))` 64자다. 단축 표시는 앞 12자와 뒤 8자다. 명시 조회는 자동 경고 없이 상태를 반환한다. 관리형 공급원이 키를 반환하기 전에 실제 키의 SHA-256이 공개된 기본 AES 키의 SHA-256과 같으면 KEY_SOURCE로 거부한다. 직접 키 주입에는 적용하지 않는다.
+- ID 재사용은 기존 기록의 전체 지문·유형과 `pass`의 KDF·반복·Salt 지문이 모두 일치할 때 허용한다. 새 JAR에 비교할 과거 기록이 없으면 전체 지문과 실제 복호화로 확인한다. 새 키 등록이 활성 키를 자동 전환하지 않는다. AES 슬롯의 `config set crypto.key.id`도 같은 ID·이력 복원 검사를 거친다. 슬롯 ID 변경을 History에 기록하고 읽을 수 있는 키의 전체 지문을 남긴다. 같은 ID의 활성 공급원·재료 선택 설정을 바꾸면 후보의 유형·전체 지문을 이력과 대조한다. 지문이 있는 슬롯의 키를 목록으로 이관할 때도 이 조건을 적용한다. 이력 지문이 없는 레거시 슬롯과 실행 시 외부 설정은 기존 규칙을 따른다. 이전 키와 원래 ID를 보존하면 해당 ID의 기존 토큰을 복호화할 수 있다. 제거 후 복구에는 같은 ID·실제 키가 필요하다.
 
 ### 3.1 설정 해석과 공급원
 
@@ -146,6 +147,8 @@ AAD         = JCKH_header || u32(aad_length) || aad
 ```
 
 `crypto.jvm.override.enabled`로 JVM 오버라이드를 제한한다. 기존 ID·타입·키 재료·KDF·고정 지문 등 프로필의 정체성을 외부 계층에서 임의 재정의할 수 없다. 허용되는 위치·일반 설정의 목록과 값 검사는 [설정 사전](configuration.md#10-설정-사전) 및 `SettingCatalog`가 기준이다. 빈 값이 명시된 경로, 알 수 없는 설정과 형식 오류는 진단한다. 비밀 원문은 `-D` 입력으로 받지 않는다.
+
+파일·환경변수·Vault에서 읽은 관리형 Passphrase는 NFC 정규화 후 `PassKdf.isPublicPassphrase()`로 검사한다. 공개된 기본 Passphrase는 Salt·반복 횟수·고정 지문에 관계없이 파생 전에 거부한다. 직접 키 주입과 독립 API에는 관리형 정책을 적용하지 않는다.
 
 | 공급원 | 자료 및 검증 |
 |---|---|
@@ -159,7 +162,7 @@ AAD         = JCKH_header || u32(aad_length) || aad
 
 ### 3.2 생성, 이전 및 복구
 
-- 관리형 자동 생성은 대화형 콘솔에서 원문 한 줄을 한 번 표시한다. `key`는 표준 Base64, `pass`는 Passphrase 원문이다. 비대화형에서 필요한 보관 대상이 없으면 생성·KMS 호출 전에 중단한다. `--export`는 새 보호 파일을 만들며 기존 파일을 덮어쓰지 않는다. 독립 `kms datakey`는 보호된 데이터 키 파일을 만들고 원시 데이터 키를 표시하지 않는다.
+- 최초 설정 외에 명시적으로 요청한 관리형 자동 생성은 대화형 콘솔에서 원문 한 줄을 한 번 표시한다. `key`는 표준 Base64, `pass`는 Passphrase 원문이다. 비대화형에서 필요한 보관 대상이 없으면 생성·KMS 호출 전에 중단한다. `--export`는 새 보호 파일을 만들며 기존 파일을 덮어쓰지 않는다. 독립 `kms datakey`는 보호된 데이터 키 파일을 만들고 원시 데이터 키를 표시하지 않는다.
 - `--reason`은 관리형 생성·키 변경에 필요한 한 줄 1~200자다. JAR 자체가 바뀌는 변경은 작업자와 이력을 남긴다. 사유와 `CHANGE` 확인은 실제 키·키 선택 및 프로필 변경 경계에 배치하고 `--yes`는 확인만 대체한다. `keygen`·`kms datakey`의 사유는 대상 JAR 이력에 자동 저장되지 않는다.
 - `key`의 표준 Base64를 같은 ID로 재등록하면 기존 암호문을 복구할 수 있다. `pass`의 원문 한 줄 등록은 새 Salt를 만든다. 기존 데이터 복구는 원본 JAR에서 `--from-jar`로 동일 파생 키·메타데이터를 옮기거나 원래의 복구 파일을 써야 한다.
 - `pass` 복구 파일의 첫 줄은 `# java-crypto-kit pass-key-backup v1`이다. `key-id`·`kdf`·`kdf.iterations`·`salt`·`fingerprint`·`passphrase` 항목이 각 한 번 필요하다. Passphrase 최대 1KiB와 메타데이터 512바이트 제한 및 다시 파생한 키의 지문 검증을 적용한다. UTF-8에 앞 BOM 하나를 허용하며 헤더 다음의 빈 줄·`#` 주석을 건너뛴다. 첫 `=`의 오른쪽을 값으로 읽으므로 Passphrase 안의 `=`는 유지한다. `kdf`는 `pbkdf2-sha256`, `salt`는 16바이트의 패딩 포함 정규 표준 Base64, `fingerprint`는 64자리 소문자 Hex다. 전체 복구 절차는 [키 관리](../guide/key-management.md)를 따른다.
@@ -173,9 +176,9 @@ AAD         = JCKH_header || u32(aad_length) || aad
 
 ### 4.1 CLI 관리자 상태와 검증값
 
-`AdminPassword.statusOf`는 먼저 History와 설정 무결성을 검증한다. 관리자 클래스 표식이 없는 JAR는 이 확인 후 레거시로 처리한다. 현대 JAR는 검증 엔트리와 최초 설정 기록이 둘 다 없으면 미설정이다. 설정 완료 상태는 유효한 관리자 엔트리와 `admin setup` 한 건에 이은 0건 이상의 `admin password change`를 요구한다. 검증값이나 이력만 삭제되거나, 검증값 형식·이력·상태가 어긋나면 실제 CLI 작업에서 `INTEGRITY`로 중단한다.
+`AdminPassword.statusOf`는 먼저 History와 설정 무결성을 검증한다. 관리자 클래스 표식이 없는 JAR는 이 확인 후 관리자 기능이 없는 JAR로 처리한다. 관리자 기능이 있는 JAR는 검증 엔트리와 최초 설정 기록이 둘 다 없으면 미설정이다. 설정 완료 상태는 유효한 관리자 엔트리와 `admin setup` 한 건에 이은 0건 이상의 `admin password change`를 요구한다. 검증값이나 이력만 삭제되거나, 검증값 형식·이력·상태가 어긋나면 실제 CLI 작업에서 `INTEGRITY`로 중단한다.
 
-| 필드 | `META-INF/java-crypto-kit/admin.properties` 저장 계약 |
+| 필드 | 예약 영역의 관리자 검증값 저장 계약 |
 |---|---|
 | 파일 | ASCII, 최대 4,096바이트, `name=value` 줄. LF로 쓰고 읽을 때 CRLF도 허용. 빈 줄과 `#` 주석을 제외하고 아래 항목은 각각 정확히 한 번 |
 | `format.version` | `1` |
@@ -189,15 +192,17 @@ effective_salt = ASCII("java-crypto-kit/cli-admin-password/v1") || NUL || salt
 verifier       = PBKDF2-HMAC-SHA256(password, effective_salt, iterations, 32)
 ```
 
-입력을 다시 파생해 `MessageDigest.isEqual`로 비교한다. 비밀번호는 인쇄 가능한 ASCII 10~128자이며 영문·숫자·특수문자를 각각 포함하고 공백은 허용하지 않는다. 최초 설정은 작업자 ID와 새 비밀번호 2회, 변경은 현재 비밀번호 인증과 다른 새 비밀번호 2회를 요구한다. 대화형 인증은 숨김 입력으로 실행당 3회까지 허용한다. 변경은 대화형 전용이다. 보호된 `--admin-pass-file`은 UTF-8 한 줄, 파일 전체 1KiB, 앞 BOM 하나와 끝 LF 또는 CRLF 하나를 허용한다. 비밀 원문을 옵션 값·환경변수·`-D`로 받지 않는다.
+입력을 다시 파생해 `MessageDigest.isEqual`로 비교한다. 비밀번호는 인쇄 가능한 ASCII 10~128자이며 영문·숫자·특수문자를 각각 포함하고 공백은 허용하지 않는다. 최초 설정은 새 비밀번호 2회(작업자 기본 SYSTEM, --operator 선택), 변경은 현재 비밀번호 인증과 다른 새 비밀번호 2회를 요구한다. 대화형 인증은 숨김 입력으로 실행당 3회까지 허용한다. 변경은 대화형 전용이다. 보호된 `--admin-pass-file`은 UTF-8 한 줄, 파일 전체 1KiB, 앞 BOM 하나와 끝 LF 또는 CRLF 하나를 허용한다. 비밀 원문을 옵션 값·환경변수·`-D`로 받지 않는다.
 
-현재 JAR 인증과 별개로 `--jar`·`--from-jar`의 대상이 관리자 기능을 쓰면 대상 검증값으로 확인한다. 동일 입력이 대상 비밀번호에도 일치하면 재입력은 생략할 수 있다. 미설정·손상 대상은 거부한다. `rekey --to-jar`는 복호화키를 꺼내는 작업이 아니므로 대상 인증을 묻지 않으며 대상 무결성은 확인한다. 레거시 대상은 현재 JAR 인증으로 편집하고 관리자 정보를 덧붙이지 않는다. 공개 Help·Examples·버전 조회, Java API, Tomcat의 실행 경계가 이 검증값과 독립이다.
+현재 JAR 인증과 별개로 `--jar`·`--from-jar`의 대상이 관리자 기능을 쓰면 대상 검증값으로 확인한다. 동일 입력이 대상 비밀번호에도 일치하면 재입력은 생략할 수 있다. 미설정·손상 대상은 거부한다. `rekey --to-jar`는 복호화키를 꺼내는 작업이 아니므로 대상 인증을 묻지 않으며 대상 무결성은 확인한다. 예약 영역이 없는 대상은 읽기와 키 이관의 원본으로 지원한다. 내부 변경은 예약 영역이 있는 지원 JAR에 적용한다. 공개 Help·Examples·버전 조회, Java API, Tomcat의 실행 경계가 이 검증값과 독립이다.
 
 <a name="history"></a>
 
 ### 4.2 History 저장 및 해시 체인
 
-`META-INF/java-crypto-kit/config-history.properties`는 UTF-8 Properties 본문을 저장한다. 구형 평문을 읽으며, 대상 JAR가 `obf1`을 지원하면 그 표현으로 쓴다. 저장 입력 2MiB, 복원 본문 1MiB 상한을 적용한다. 기본 설정 및 수정 후 설정의 지문은 `"sha256:" + lowerhex(SHA-256(설정 엔트리 원본 바이트))[0:16]`이다. Properties 값만 정렬하거나 재직렬화해서 지문을 계산하면 일치하지 않는다.
+최초 설정은 verifier·두 키·활성 선택·이력 한 건을 같은 JAR에 기록한다. 기존 관리자 단일 요약과 신규 관리자 요약 + pass·key 생성 지문 기록을 모두 읽는다. 관리자 비밀번호 변경은 기존 키 설정 바이트를 보존한다. 선택한 `--pass-export`는 3.2의 기존 복원 형식을 사용한다.
+
+History의 논리 형식은 UTF-8 Properties 본문이다(엔트리 이름 `META-INF/java-crypto-kit/config-history.properties`). 예약 영역이 있는 JAR는 현재 History를 `obf1` 표현으로 ZIP 로컬 헤더 예약 영역의 프레임([4.4절](#44-jar-내부-예약-영역-갱신))에 저장하며, 같은 이름의 JAR 엔트리는 배포 원본 그대로 둔다. 예약 영역이 없는 JAR는 그 엔트리 본문을 읽으며 `obf1:` 표시가 없는 평문 본문도 읽는다. 저장 입력 2MiB, 복원 본문 1MiB 상한을 적용한다. 기본 설정 및 수정 후 설정의 지문은 `"sha256:" + lowerhex(SHA-256(설정 엔트리 원본 바이트))[0:16]`이다. Properties 값만 정렬하거나 재직렬화해서 지문을 계산하면 일치하지 않는다.
 
 | 위치 | 필드와 의미 |
 |---|---|
@@ -217,10 +222,10 @@ payload   = previous || LF || time || LF || operator || LF || command || LF
 hash      = lowerhex(SHA-256(UTF-8(payload)))
 ```
 
-`n`은 1부터이고 `settings` 뒤에 LF를 넣지 않는다. 해시는 Properties를 **읽은 값**에 대해 계산한다. 쓰는 줄의 값에서 역슬래시는 두 번, 맨 앞 공백은 역슬래시로 보호하고 LF로 줄을 끝낸다. `reason`이 없는 레거시 항목은 빈 문자열을 사용한다. 첫 `previous`는 배포 Manifest의 `Settings-Fingerprint`와 대응하는 `base.settings`다. 이력이 없고 Manifest 지문이 있으면 현재 설정 지문과 비교한다. 이력이 있으면 포맷, Manifest 기준값(있는 경우), 개수, 1부터 이어지는 항목 해시와 변경 값 연쇄, 추가 항목 표식, 최종 해시와 시각·작업자, 실제 설정의 최종 지문 순으로 확인한다. 전체 검증 후에만 유형별 필터를 적용한다.
+`n`은 1부터이고 `settings` 뒤에 LF를 넣지 않는다. 해시는 Properties를 **읽은 값**에 대해 계산한다. 쓰는 줄의 값에서 역슬래시는 두 번, 맨 앞 공백은 역슬래시로 보호하고 LF로 줄을 끝낸다. `reason`이 없는 항목은 빈 문자열을 사용한다. 첫 `previous`는 배포 Manifest의 `Settings-Fingerprint`와 대응하는 `base.settings`다. 이력이 없고 Manifest 지문이 있으면 현재 설정 지문과 비교한다. 이력이 있으면 포맷, Manifest 기준값(있는 경우), 개수, 1부터 이어지는 항목 해시와 변경 값 연쇄, 추가 항목 표식, 최종 해시와 시각·작업자, 실제 설정의 최종 지문 순으로 확인한다. 전체 검증 후에만 유형별 필터를 적용한다.
 
 - 비밀은 `[none]`, `[secret]`, `[replaced]` 표식으로만 추가·교체·삭제를 기록한다. 관리자 기록은 `admin.password` 한 행이며 최초 설정은 첫 표식에서 둘째, 변경은 둘째에서 셋째로 간다.
-- `key.<id>` 요약은 `name=value` 항목을 세미콜론으로 잇는다. 기록 순서는 `type`, `source`, `origin`, `slot=yes`, `public=yes`, `kdf`, `iterations`, `salt-sha256`, `fingerprint`이고 값이 없으면 생략한다. 요약의 Salt 지문은 원본 Salt의 SHA-256 64자리다. 설정 변경 행에 기록 가능한 키 파생 Salt 메타데이터와 구별한다. 레거시 누락값을 새로 추정해 쓰지 않는다.
+- `key.<id>` 요약은 `name=value` 항목을 세미콜론으로 잇는다. 기록 순서는 `type`, `source`, `origin`, `slot=yes`, `public=yes`, `kdf`, `iterations`, `salt-sha256`, `fingerprint`이고 값이 없으면 생략한다. 요약의 Salt 지문은 원본 Salt의 SHA-256 64자리다. 설정 변경 행에 기록 가능한 키 파생 Salt 메타데이터와 구별한다. 기록에 없는 값을 새로 추정해 쓰지 않는다.
 - `config history`는 기본 `pass` 이력, `--type key`는 AES 슬롯을 포함한 `key` 이력을 반환한다. `--all`은 일반 변경·관리자 항목을 포함하며 `--type`과 배타다. 양쪽에 영향을 주는 변경은 조회 양쪽에 나타날 수 있다. 원래 순번을 유지한다.
 - 체인은 키 없는 SHA-256이다. 파일이 없거나 일관성이 깨진 경우의 탐지와 JAR 전체에 다시 쓸 수 있는 주체의 위조 가능성을 구분한다. 영구 외부 감사 기록으로 사용하려면 별도의 신뢰 경계가 필요하다.
 
@@ -235,7 +240,7 @@ body = (check || data) XOR prefix(block[0] || block[1] || ..., 4 + len(data))
 value = "obf1:" + B64U(body)
 ```
 
-`i`는 0에서 시작하며 32바이트 블록마다 1 증가한다. JAR 내장 키 값에는 이 문자열을 사용하고 History 엔트리는 같은 ASCII 문자열 뒤에 LF 하나를 쓴다. 복원은 접두어 식별 → URL 안전 Base64 디코딩 → 4바이트 이상 확인 → 같은 패드로 XOR → 도메인 구분 체크 재계산 순이다. 형식 오류·체크 불일치·인식한 미지원 버전은 거부한다. 읽기는 JDK URL 디코더를 사용한다. 내장 키는 `obf[0-9]{1,3}:` 접두어를 식별하고, History는 원본 바이트의 처음에서 `obf` 뒤 1~4자리 숫자와 콜론을 식별한 다음 ASCII 문자열의 끝 줄바꿈을 제거한다. 레거시 표식이 없는 자료는 기존 표준 Base64 키 및 평문 History로 처리한다. 대상에 `config.LightObfuscation` 클래스 표식이 없으면 편집 결과에서도 기존 표현을 쓴다. 변환은 실제 AES 키·ID·해시 대상 이력 본문을 바꾸지 않으며 이 표현의 목적은 압축을 풀었을 때 즉시 읽히는 것을 줄이는 데 있다. 패드와 복원 로직은 공개되어 있다.
+`i`는 0에서 시작하며 32바이트 블록마다 1 증가한다. JAR 내장 키 값에는 이 문자열을 사용하고 History 엔트리는 같은 ASCII 문자열 뒤에 LF 하나를 쓴다. 복원은 접두어 식별 → URL 안전 Base64 디코딩 → 4바이트 이상 확인 → 같은 패드로 XOR → 도메인 구분 체크 재계산 순이다. 형식 오류·체크 불일치·인식한 미지원 버전은 거부한다. 읽기는 JDK URL 디코더를 사용한다. 내장 키는 `obf[0-9]{1,3}:` 접두어를 식별하고, History는 원본 바이트의 처음에서 `obf` 뒤 1~4자리 숫자와 콜론을 식별한 다음 ASCII 문자열의 끝 줄바꿈을 제거한다. `obf` 표식이 없는 자료는 표준 Base64 키 및 평문 History로 처리한다. 예약 영역이 없는 JAR는 읽기와 키 이관에 사용한다. 변환은 실제 AES 키·ID·해시 대상 이력 본문을 바꾸지 않으며 이 표현의 목적은 압축을 풀었을 때 즉시 읽히는 것을 줄이는 데 있다. 패드와 복원 로직은 공개되어 있다.
 
 | 합성 입력 | 체크값 | 첫 패드 7바이트 | 출력 |
 |---|---|---|---|
@@ -243,12 +248,15 @@ value = "obf1:" + B64U(body)
 
 <a name="jar-edit"></a>
 
-### 4.4 새 JAR와 원본 교체
+### 4.4 JAR 내부 예약 영역 갱신
 
-- 설정 여부는 파일명이 아니라 검증 엔트리와 무결성으로 결정한다. 기본 결과 이름은 `<이름>-cfg.jar`, 충돌 시 `-cfg-2.jar` 등이다. 새 편집 시 기존 `-cfg`·`-configured`와 순번 형태를 같은 계열로 인식한다. `--out`은 실행 중인 원본이나 기존 파일을 가리킬 수 없다. 최초 설정과 관리자 변경은 새 JAR를 만든다. [CLI 사용 가이드](../guide/cli.md)
-- `JarConfigEditor`는 JCK 표식·Manifest·설정·이력을 확인하고 서명 JAR나 교체 중인 대상은 거부한다. 새 출력은 배타적으로 **빈 이름을 먼저 예약**하고 같은 폴더 임시 JAR를 작성한다. 검증은 ZIP 구조·Main-Class·버전·기존 엔트리·설정·History·관리자 상태를 포함하며 변경에 해당하는 경우 암복호화 확인도 수행한다. 성공 시 예약 엔트리 자리에 원자 이동한다. 다른 프로세스는 완료 전에 빈 예약을 볼 수 있다.
-- `--replace`는 실행 중인 JAR를 바꾸지 않는다. 옆의 `.lock`으로 협력 편집 작업을 직렬화하고 이전 스냅샷의 전체 SHA-256과 원본을 다시 대조한다. `<파일명>.bak-<UTC 초>[-순번]` 백업 뒤 같은 파일시스템에서 원자적으로 전환한다. 원자 이동을 지원하지 않으면 실패한다. 새 JAR와 백업은 POSIX 600, 교체 JAR는 원래 POSIX 권한을 유지한다. Windows는 디렉터리 ACL을 확인한다.
-- 처리 중 실패의 임시·예약·잠금 정리는 최선 노력이다. `.lock` 또는 비어 있는 예약 엔트리가 남으면 다른 편집 작업이 없는지 확인하고 소유자가 정리한다. 수동 복구는 백업을 검사한 후 원본과 구분된 경로에서 적용한다. JAR 편집과 [JCKF 파일 공개](#file-io)는 서로 다른 프로토콜을 사용한다.
+Java 8 표준 I/O로 동일 파일을 갱신한다. Manifest의 JCK-State-Format=1과 META-INF/jck-state/ 운반 엔트리를 사용한다. ZIP 로컬 헤더의 0x4a43 extra field 본문만 쓰기 대상으로 삼는다. 매니페스트, ZIP 디렉터리, 클래스, 리소스 본문 및 CRC는 그대로 유지한다.
+
+선택자 1바이트와 A/B 두 영역으로 구성한다. 영역당 60 KiB 세그먼트 39개(2,396,160바이트)다. 프레임은 SHA-256 32바이트, 빅 엔디언 길이 세 개, 설정·History·관리자 검증 바이트 및 0 패딩으로 구성한다. 기존 설정 256 KiB와 History 저장 2 MiB 및 관리자 검증값의 상한을 수용한다. Passphrase 원문은 저장하지 않는다.
+
+명령은 인증 스냅샷의 SHA-256을 배타적 파일 잠금 아래 다시 확인한다. 비활성 영역을 쓰고 디스크 동기화 및 읽기 대조를 마친 뒤 선택자를 발행하고 동기화한다. 이전 영역은 0으로 지우고 다시 동기화한 뒤 성공을 반환한다. 발행 전 중단은 이전 상태, 발행 후 중단은 새 상태를 사용한다. 발행 후 정리 전 강제 종료의 경우 다음 승인된 갱신이 미사용 영역을 마저 덮어쓴다. 선택된 영역이 손상되면 실패 처리한다. 다른 영역을 복구 후보로 사용하지 않는다. 파일시스템의 스냅샷이나 물리 저장장치의 과거 사본 제거를 보장하지 않는다.
+
+최초 설정 시 POSIX 권한 600을 사용한다. Windows는 원래 파일 ACL을 사용한다. 서명·동시 변경·쓰기 권한 부족·저장 상한 초과는 안전하게 실패한다. 예약 영역이 없는 JAR는 읽기·암호문 사용·키 이관의 원본으로 지원하며, 그 파일에는 새 저장 영역을 만들지 않는다.
 
 <a name="java-security"></a>
 
@@ -277,7 +285,7 @@ $pbkdf2-sha256$v=1$i=<iterations>$<standard-base64-salt-no-pad>$<standard-base64
 $pbkdf2-sha512$v=1$i=<iterations>$<standard-base64-salt-no-pad>$<standard-base64-dk-no-pad>
 ```
 
-생성에는 새 16바이트 Salt, 기본 SHA256 600,000회, SHA512 권장 210,000회, 생성 허용 100,000~5,000,000회를 사용한다. 결과 32/64바이트와 Salt를 그림의 형식에 맞춘다. 기존 문자열은 길이 256자 이하, Salt 16~64바이트, 반복 1,000~5,000,000회 및 알고리즘 일치 길이를 확인한다. 파생 전에 형식과 상한을 검증하고 일정 시간 비교한다. 해시 가능한 비밀번호가 다르거나 비밀번호 내용이 규칙에 맞지 않으면 `verify`는 false를 반환한다. 저장 문자열이 손상됐거나 비밀번호 인자가 null이면 입력 오류다. `needsRehash`는 알고리즘 변경 또는 요청한 정책보다 낮은 반복 횟수에서 참을 반환한다. 애플리케이션은 일치 확인 후 새 해시로 교체할 수 있다. JAR의 [관리자 검증 엔트리](#admin-verifier)는 별개의 저장 포맷이다.
+생성에는 새 16바이트 Salt, 기본 SHA256 600,000회, SHA512 권장 210,000회, 생성 허용 100,000~5,000,000회를 사용한다. 결과 32/64바이트와 Salt를 그림의 형식에 맞춘다. 기존 문자열은 길이 256자 이하, Salt 16~64바이트, 반복 1,000~5,000,000회 및 알고리즘 일치 길이를 확인한다. 파생 전에 형식과 상한을 검증하고 일정 시간 비교한다. 해시 가능한 비밀번호가 다르거나 비밀번호 내용이 규칙에 맞지 않으면 `verify`는 false를 반환한다. 저장 문자열이 손상됐거나 비밀번호 인자가 null이면 입력 오류다. `needsRehash`의 목표 반복 횟수는 신규 해시와 같은 100,000~5,000,000회다. 올바른 목표 정책에서 알고리즘 변경 또는 저장 반복 횟수가 목표보다 낮으면 참을 반환한다. 애플리케이션은 일치 확인 후 새 해시로 교체할 수 있다. JAR의 [관리자 검증 엔트리](#admin-verifier)는 별개의 저장 포맷이다.
 
 <a name="authentication"></a>
 
@@ -288,7 +296,7 @@ $pbkdf2-sha512$v=1$i=<iterations>$<standard-base64-salt-no-pad>$<standard-base64
 ### 6.1 JWT/JWKS
 
 - `UTF-8 JSON header`와 `UTF-8 JSON claims`를 각각 B64U 한다. 서명 입력은 `ASCII(header_segment + "." + claims_segment)`, 최종 형식은 `header_segment.claims_segment.B64U(signature)`다. HS256은 HMAC-SHA256 키 32바이트 이상, RS256은 RSA 2048비트 이상과 PKCS#1 v1.5 SHA-256, ES256은 P-256 SHA-256이다. ES256 JOSE 서명은 32바이트 빅엔디언 `r`과 `s`를 왼쪽 0으로 채워 잇는 64바이트 표현이다. JCA DER ECDSA와 교환할 때 길이·정수 표현을 검증한다.
-- 입력 전체 65,536자, 세 구간 모두 비어 있지 않고 무패딩 Base64URL 정규형, 엄격 UTF-8/JSON을 사용한다. `StrictJson`은 중복 멤버를 거부하고 JOSE 제한(깊이 16, 개체 멤버 1,000, 배열 10,000, 문자열 65,536)을 적용한다. `alg`는 지원 목록으로 제한한다. `crit`·`b64`가 있는 형태, `none`·JWE·중첩 JWT는 지원하지 않는다. `typ`의 기본 허용은 생략 또는 `JWT`이며 정책으로 지정할 수 있다.
+- 입력 전체 65,536자, 세 구간 모두 비어 있지 않고 무패딩 Base64URL 정규형, 엄격 UTF-8/JSON을 사용한다. `StrictJson`은 중복 멤버를 거부하고 JOSE 제한(깊이 16, 객체당 멤버 1,000, 배열당 원소 10,000, 문자열 65,536, 숫자 표기 64자)을 적용한다. 생성 시에도 자동 `iat`·`exp` 등을 포함한 최종 헤더·페이로드에 같은 상한을 적용한다. `alg`는 지원 목록으로 제한한다. `crit`·`b64`가 있는 형태, `none`·JWE·중첩 JWT는 지원하지 않는다. `typ`의 기본 허용은 생략 또는 `JWT`이며 정책으로 지정할 수 있다.
 - 신뢰 키는 호출자 입력으로만 결정한다. `kid`는 인쇄 ASCII 최대 256자이며 허용 알고리즘과 일치하는 신뢰 키 하나를 선택한다. 같은 ID를 반복 등록하거나 키 없는 선택이 모호하면 거부한다. 토큰의 `jku`·`x5u`·`jwk`·`x5c`로 키를 읽지 않는다. `Jwks`는 제공한 JSON에서 최대 100개의 공개 키 후보를 읽고 RSA/P-256·사용 목적·알고리즘과 필드를 검증한다. 대칭·개인 키 자료와 자체 URL 조회는 JWKS 처리에 포함되지 않는다.
 - 서명 확인 후 등록 Claim의 타입과 정책을 적용한다. `exp`·`nbf`·`iat`의 NumericDate는 기본적으로 0~253402300799 범위의 정수 초만 허용한다. Java 검증기에서 `JwtVerifier.Builder.allowFractionalTimes(true)`를 설정하면 같은 범위의 유한한 소수 초도 허용한다. ClockSkew는 기본 0초, 허용 0~300초의 정수다. 만료, 아직 유효하지 않음, 정책상 필수 `iat`와 미래 발급, issuer·subject·audience·필수/일치 Claim 및 typ 정책을 검증한다. `aud`는 문자열 하나 또는 문자열 배열을 읽고 설정한 대상과 대조한다. `inspect`는 구조·내용을 읽을 수 있으나 업무상 권한 증명으로 쓰려면 신뢰 키로 검증해야 한다. [검증 정책과 예제](../guide/authentication.md#api-jwt) · [JWT Builder 및 결과](java-api-reference.md#api-jwt)
 
@@ -333,7 +341,7 @@ mac = B64U(HMAC(key, input))
 |---|---|
 | 공개 조회 | 두 JAR 상태 모두 전체·그룹·명령 Help, Examples 및 전체 Help의 버전 정보를 인증 없이 확인한다. 키·설정·외부 서비스 호출과 JAR 편집이 발생하지 않는다. Examples의 설정 여부 안내는 JAR 관리자 엔트리 **이름**의 존재만 확인한다 |
 | 최신 미설정 배포본에서 실제 실행 | 대화형에서는 초기 설정 안내 및 설정으로 이동하고 원래 요청은 실행하지 않는다. 비대화형은 `ADMIN_SETUP`로 중단한다 |
-| `SETUP` | `admin setup`만 해당. 설정하지 않은 배포 JAR로 새 설정 JAR를 만든다 |
+| `SETUP` | `admin setup`만 해당. 미설정 JAR의 예약 영역을 같은 경로에서 갱신해 설정 완료 상태로 전환한다 |
 | `OPEN` | 설정 완료 상태 확인 후 별도 비밀번호 질문 없이 실행한다 |
 | `ADMIN` | 부작용 없는 인자·경로 사전 검사 후 인증한다. 그 뒤 파일 내용·키·기록 읽기, 대상 조건 확인, 사유·재료·확인 및 변경을 수행한다 |
 
@@ -405,7 +413,7 @@ JNDI용 JAR는 `CATALINA_BASE/lib`에 둔다. 하위 Factory는 JCK를 로드한
 
 ### 9.3 빌드와 공개 변경
 
-Gradle Wrapper의 `gradlew.bat clean build` 또는 `./gradlew clean build`로 빌드하고 Java 8 실행 가능·major 52를 유지한다. 빌드 버전과 Manifest `Implementation-Version`은 `0.2.0`이다. `Main-Class`는 `io.javacryptokit.cli.CryptoCli`이며 `Build-Time`과 `Settings-Fingerprint`를 포함한다. 배포물은 실행형 기본 JAR `java-crypto-kit-0.2.0.jar`와 선택 의존성 `java-crypto-kit-aws-kms-lib-0.2.0.zip`이다. SHA-256은 `SHA256SUMS.txt`를 확인한다. 기본 JAR는 fat JAR·WAR·JDBC 드라이버·AWS SDK를 포함하지 않는다. Java 7, 자체 Pool, 새 서버 및 별도 보안 런타임은 지원 범위 밖이다. [빌드 및 배포 준비](getting-started.md) · [실행·검증 환경](compatibility.md) · [버전 이력](../../CHANGELOG.md)
+Gradle Wrapper의 `gradlew.bat clean build` 또는 `./gradlew clean build`로 빌드하고 Java 8 실행 가능·major 52를 유지한다. 빌드 버전과 Manifest `Implementation-Version`은 `0.2.1`이다. `Main-Class`는 `io.javacryptokit.cli.CryptoCli`이며 `Build-Time`과 `Settings-Fingerprint`를 포함한다. 배포물은 실행형 기본 JAR `java-crypto-kit-0.2.1.jar`와 선택 의존성 `java-crypto-kit-aws-kms-lib-0.2.1.zip`이다. SHA-256은 `SHA256SUMS.txt`를 확인한다. 기본 JAR는 fat JAR·WAR·JDBC 드라이버·AWS SDK를 포함하지 않는다. Java 7, 자체 Pool, 새 서버 및 별도 보안 런타임은 지원 범위 밖이다. [빌드 및 배포 준비](getting-started.md) · [실행·검증 환경](compatibility.md) · [버전 이력](../../CHANGELOG.md)
 
 기능 추가 시 기존 등록부의 목적·옵션·접근 정책을 정의하고 입력 계층, 공개 API 및 결과 처리의 공통 구조를 재사용한다. Help·Examples는 같은 정의에 연결한다. 변경된 계약의 문서와 표적 시험을 갱신한다. 공개 Reason·시그니처·명령·기본값·데이터 형식과 호환을 먼저 확인하며 호환성·보안 경계에 영향이 있는 변경에는 승인과 교차 호환 검증이 필요하다. 내부 리팩터링은 영향받는 계약만 검토한다. [개발·QA 규칙](../../AGENTS.md)
 
@@ -413,7 +421,7 @@ Gradle Wrapper의 `gradlew.bat clean build` 또는 `./gradlew clean build`로 �
 
 ## 10. 요구사항 추적
 
-표의 시험 이름은 기존 테스트 소스 및 QA 기록의 추적 경로다. 문서 검수에서 새로 실행한 검증은 제출 ZIP의 `build/qa/v0.2.0-QA.md`에서 확인한다. 명령 열의 경로에는 모두 `api` 접두어를 붙여 실행한다. R2 18개 영역에서 AES 두 요구사항은 같은 실행 경로를 공유한다. 좁은 화면에서는 표를 좌우로 움직여 구현·검증 근거 열을 확인할 수 있다.
+표의 시험 이름은 기존 테스트 소스 및 QA 기록의 추적 경로다. 문서 검수에서 새로 실행한 검증은 제출 ZIP의 `build/qa/v0.2.1-QA.md`에서 확인한다. 명령 열의 경로에는 모두 `api` 접두어를 붙여 실행한다. R2 18개 영역에서 AES 두 요구사항은 같은 실행 경로를 공유한다. 좁은 화면에서는 표를 좌우로 움직여 구현·검증 근거 열을 확인할 수 있다.
 
 ### 10.1 독립 CLI와 공개 API
 
@@ -450,7 +458,7 @@ Gradle Wrapper의 `gradlew.bat clean build` 또는 `./gradlew clean build`로 �
 | `admin setup/password change` · 공개 조회 · 별칭 | [관리자](#admin-verifier) · [CLI](#cli) | `AdminPassword`, `AdminCommand`, `CryptoCli`, `CliCommands`, `CliHelp`, `ApiHelp` | 무부작용 조회, 미/완료 설정 경계, 저장값 삭제·교체 탐지, 정식명 및 단축형 일치. 고정 TOTP 실무 예제 재현 | `AdminCliTest`, `AdminIntegrityTest`, `AdminPasswordTest`, `DoctorAndHelpTest`, `ApiCliTest`, 직전 Examples XML |
 | Tomcat 공식 Pool과 이중 JAR | [Tomcat](#integrations) | `EncryptedDataSourceFactory`, `CryptoService` | 기존 Reference 및 키 격리, 평문 비밀번호·신뢰하지 않는 Factory 또는 복호화 오류 차단 | `FactoryEntryPointTest`, `PoolFactoryTrustBoundaryTest`, `PoolFailureSanitizationTest`, [실서버 검증 범위](compatibility.md#111-검증-상태) |
 | Vault KV v2 및 KMS · `kms datakey` | [외부 서비스](#integrations) | `VaultKeyProvider`, `AwsKmsKeyProvider`, `AwsKmsSupport`, `KeyProvider` | 고정 계약 TLS·인증·컨텍스트·지문. 외부 실패 시 키 대체 금지. 기본 JAR에서 SDK 분리 | `VaultKeyProviderTest`, `AwsKmsKeyProviderTest`, `KmsDataKeyCliTest`, [검증 상태](compatibility.md#111-검증-상태) |
-| 레거시와 배포물 | [빌드](#maintenance) · [호환 가이드](compatibility.md) | `build.gradle`, 최종 JAR Manifest, `RealLegacyJarTest` | Java 8, 검사 가능한 SHA, 이전 AES 토큰과 JAR 수정 호환 | 기존 조립·비교·실행 기록, `BoundaryRegressionTest`, `RealLegacyJarTest` |
+| 호환과 배포물 | [빌드](#maintenance) · [호환 가이드](compatibility.md) | `build.gradle`, 최종 JAR Manifest, `RealLegacyJarTest` | Java 8, 검사 가능한 SHA, 기존 AES 토큰과 JAR 수정 호환 | 기존 조립·비교·실행 기록, `BoundaryRegressionTest`, `RealLegacyJarTest` |
 | OPT-01~OPT-07 및 R2 취소·제외 범위 | [제품 및 작업 원칙](../../AGENTS.md#1-제품-범위와-작업-원칙) · [배포 계약](#maintenance) | `CliCommands`, `ApiCommands`, 공개 패키지와 배포 범위 | `UniqueIds`·`SequenceRange`, 영속 시퀀스 및 날짜별 순번, Nonce·OTP 재사용 상태, HOTP 저장 Counter, JWT 폐기 상태, 결정적 GCM IV 카운터를 제외. PKCS12/JKS·PKIX·안전 비교 전용 CLI와 신규 Vault/KMS 관리 CLI를 제외. 별도 백업·재처리·inspect/dry-run·감사 서버·전체 난독화 제외 | 승인 범위 및 등록부 대조 |
 
 ### 10.3 이전 검증 ID 교차 참조

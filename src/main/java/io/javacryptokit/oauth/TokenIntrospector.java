@@ -96,13 +96,13 @@ public final class TokenIntrospector {
         if (active == null) throw failure(OAuthClientException.Reason.INVALID_RESPONSE, "oauth.err.active", status);
         if (!active) return new IntrospectionResult(false, JwtClaims.parse("{\"active\":false}"));
         try {
-            for (String name : new String[] {"scope", "client_id", "username", "token_type", "sub", "iss", "jti"}) claims.getString(name);
+            for (String name : new String[] {"client_id", "username", "token_type", "sub", "iss", "jti"}) claims.getString(name);
             for (String name : new String[] {"exp", "iat", "nbf"}) claims.getInstant(name);
             claims.audience();
+            return new IntrospectionResult(true, claims);
         } catch (IllegalArgumentException e) {
             throw failure(OAuthClientException.Reason.INVALID_RESPONSE, "oauth.err.response", status);
         }
-        return new IntrospectionResult(true, claims);
     }
 
     private static IntrospectionException failure(OAuthClientException.Reason reason, String key, int status) {

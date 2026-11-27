@@ -1,6 +1,6 @@
 config key - JAR 내부 키 목록 관리(재빌드 없음)
 
-명령(모든 키 변경은 새 JAR를 만들 때도 CHANGE 입력 또는 --yes)
+명령(모든 키 변경은 CHANGE 입력 또는 --yes)
   config key add      키 추가(기본 키는 --active일 때만 바뀜)
   config key use      유형별 기본 키 변경(다른 유형은 그대로)
   config key remove   키 제거(기본 키·crypto.key.* AES 키 제외)
@@ -11,11 +11,11 @@ config key - JAR 내부 키 목록 관리(재빌드 없음)
 유형
   pass   Passphrase에서 AES 키 파생(PBKDF2, 키마다 새 Salt). 기본 유형
   key    32바이트 AES 키(keygen 형식)
-  공식 JAR의 공개 기본 키: pass-default(pass), default(key, 기존 키)
+  배포 원본에는 키가 없습니다. admin setup이 두 키를 생성합니다.
   복호화는 암호문의 키 ID로 키를 고릅니다. 사용한 ID는 같은 키를 복원할 때만
   다시 쓸 수 있습니다. 키 교체는 새 ID로 추가 → use → rekey → remove 순입니다.
 
 예제
-  java -jar {jar} config key add --key-id p2 --operator ops
-  java -jar {jar} config key use --key-id p2 --operator ops
+  {update} config key add --key-id p2 --operator ops
+  {update} config key use --key-id p2 --operator ops
 상세(공급원별 예제·회전·원문 확인): docs/user-guide.md 2.18~2.20·2.24절, 부록 A

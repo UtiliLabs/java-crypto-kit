@@ -123,27 +123,27 @@ final class CliCommands {
             spec("doctor", "doctor", list("--config"), list("--offline"), Access.OPEN),
             spec("config show", "config-show", list("--jar", ADMIN_FILE), list(), Access.ADMIN),
             spec("config history", "config-history", list("--type", "--jar", ADMIN_FILE), list("--all"), Access.ADMIN),
-            new Spec("config set", "config-set", list("--jar", "--out", "--operator", "--reason", ADMIN_FILE),
+            new Spec("config set", "config-set", list("--jar", "--operator", "--reason", ADMIN_FILE),
                     list("--replace", "--yes"), true, Access.ADMIN),
             spec("config embed-key", "config-embed-key",
-                    list("--from-file", "--key-id", "--operator", "--reason", "--source", "--jar", "--out", ADMIN_FILE),
+                    list("--from-file", "--key-id", "--operator", "--reason", "--source", "--jar", ADMIN_FILE),
                     list("--replace", "--yes"), Access.ADMIN),
             spec("config key add", "config-key-add",
                     list("--key-id", "--type", "--from-file", "--from-jar", "--source", "--location", "--export",
-                            "--operator", "--reason", "--jar", "--out", ADMIN_FILE),
+                            "--operator", "--reason", "--jar", ADMIN_FILE),
                     list("--generate", "--active", "--replace", "--yes"), Access.ADMIN),
             spec("config key use", "config-key-use",
-                    list("--key-id", "--type", "--operator", "--reason", "--jar", "--out", ADMIN_FILE),
+                    list("--key-id", "--type", "--operator", "--reason", "--jar", ADMIN_FILE),
                     list("--replace", "--yes"), Access.ADMIN),
             spec("config key remove", "config-key-remove",
-                    list("--key-id", "--operator", "--reason", "--jar", "--out", ADMIN_FILE), list("--replace", "--yes"),
+                    list("--key-id", "--operator", "--reason", "--jar", ADMIN_FILE), list("--replace", "--yes"),
                     Access.ADMIN),
             spec("config key show", "config-key-show", list("--key-id", "--jar", "--export", ADMIN_FILE), list("--show"),
                     Access.ADMIN),
             spec("kms datakey", "kms-datakey", list("--out", "--from-file", "--config", "--reason", "--operator", ADMIN_FILE),
                     list(), Access.ADMIN),
-            spec("admin setup", "admin-setup", list("--operator", "--out", ADMIN_FILE), list(), Access.SETUP),
-            spec("admin password change", "admin-password-change", list("--operator", "--reason", "--out"), list(),
+            spec("admin setup", "admin-setup", list("--pass-export", "--operator", ADMIN_FILE), list("--replace"), Access.SETUP),
+            spec("admin password change", "admin-password-change", list("--operator", "--reason"), list("--replace"),
                     Access.ADMIN)));
 
     /** 명령이 아닌 도움말 주제(설정 묶음 안내, config key 묶음 안내, 미설정 JAR의 초기 설정 안내). */
@@ -277,6 +277,26 @@ final class CliCommands {
     }
 
     /** @return 도움말 주제 전체(명령 주제 + 설정 안내 주제) */
+    /**
+     * @return {@code help} 뒤에 그대로 쓸 수 있는 주제: 명령(별칭이 있으면 가장 짧은 표기), 명령 묶음, 명령이 아닌 안내 주제, 독립 API.
+     *         잘못된 주제를 받았을 때 안내에 쓴다(내부 도움말 자원 이름은 넣지 않는다).
+     */
+    static List<String> helpPaths() {
+        List<String> paths = new ArrayList<>();
+        for (Spec spec : ALL) {
+            String alias = commandAlias(spec.name);
+            paths.add(alias != null ? alias : spec.name);
+        }
+        paths.addAll(NESTED_GROUPS.keySet());
+        for (String group : GROUPS) if (!paths.contains(group)) paths.add(group);
+        for (String topic : EXTRA_TOPICS) {
+            // config·config-key는 위의 묶음(config, config key)으로 이미 안내한다.
+            if (!GROUPS.contains(topic) && !NESTED_GROUPS.containsValue(topic)) paths.add(topic);
+        }
+        paths.add("api");
+        return paths;
+    }
+
     static List<String> topics() {
         List<String> topics = new ArrayList<>();
         topics.add("overview");

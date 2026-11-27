@@ -1,7 +1,7 @@
 encrypt - encrypt a value (DB password, user name, ...)
 
 Usage
-  java [-D...] -jar {jar} encrypt
+  java [-D...] -jar {jar} enc
        [--type pass|key] [--key-id <ID>] [--config <file>] [--lang en|ko]
 
 Options
@@ -16,7 +16,7 @@ Options
 
 Result
   Value to encrypt (hidden):
-  ENC[v1:pass-default:...]
+  ENC[v1:app-pass:...]
   The whole line is the ciphertext (different every time). It holds the key
   ID, so decryption needs no type. With the base64 setting it is B64[...].
   Put it as is into password="..." of the Tomcat Resource (help tomcat).

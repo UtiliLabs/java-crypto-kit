@@ -3,11 +3,11 @@ config help - JAR 내부 설정 관리와 전체 설정 목록
 명령(JAR 파일만 다룸, 재빌드 없음)
   config show                         JAR 내부 설정·키 목록
   config history                      설정 변경 이력
-  config set <설정>=<값> ...          설정을 바꾼 새 JAR 생성
-  config embed-key --from-file <키>   AES 키를 내장한 새 JAR 생성
+  config set <설정>=<값> ...          설정을 바꾼 현재 JAR 갱신
+  config embed-key --from-file <키>   AES 키를 내장한 현재 JAR 갱신
   config key add|use|remove           키 추가·기본 키 변경·제거(help config key)
   명령별 옵션: config set --help 처럼 명령 뒤에 --help
-  키가 바뀌는 변경은 새 JAR를 만들 때도 CHANGE 입력 또는 --yes가 필요합니다.
+  키가 바뀌는 변경은 CHANGE 입력 또는 --yes가 필요합니다.
 
 설정 우선순위: JVM -D > 외부 Properties > JAR 내부 값
   외부 Properties: --config <파일>, -Dcrypto.config.file=<파일>,
@@ -16,7 +16,7 @@ config help - JAR 내부 설정 관리와 전체 설정 목록
   crypto.jvm.override.enabled는 -D 무시). 설정은 시작할 때 읽습니다.
 
 예제
-  java -jar {jar} config set crypto.lang=en --operator ops
+  {update} config set crypto.lang=en --operator ops
   java -Dcrypto.config.file=app.properties -jar {jar} info
 
 {settings}

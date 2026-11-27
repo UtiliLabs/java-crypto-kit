@@ -1,7 +1,7 @@
 file decrypt - file encrypt로 만든 파일(JCKF v1/v2) 복호화
 
 사용법
-  java [-D...] -jar {jar} file decrypt --in <파일>
+  java [-D...] -jar {jar} file dec --in <파일>
        --out <파일> [--config <파일>]
        [--admin-pass-file <파일>] [--lang en|ko]
 

@@ -57,9 +57,9 @@ public final class AccessTokens {
             return this;
         }
 
-        /** @param value 주체(사용자 ID, 클라이언트 자격 흐름이면 클라이언트 ID) @return this */
+        /** @param value 주체(사용자 ID 또는 클라이언트 ID, 공백뿐인 값·제어문자 거부) @return this */
         public Builder subject(String value) {
-            jwt.subject(OAuthText.require(value, "sub"));
+            jwt.subject(OAuthText.requireIdentifier(value, "sub"));
             subject = true;
             return this;
         }
@@ -71,9 +71,9 @@ public final class AccessTokens {
             return this;
         }
 
-        /** @param value 요청한 클라이언트 ID @return this */
+        /** @param value 요청한 클라이언트 ID(공백뿐인 값·제어문자 거부) @return this */
         public Builder clientId(String value) {
-            jwt.claim("client_id", OAuthText.require(value, "client_id"));
+            jwt.claim("client_id", OAuthText.requireIdentifier(value, "client_id"));
             clientId = true;
             return this;
         }
@@ -83,7 +83,7 @@ public final class AccessTokens {
             if (scopes == null || scopes.length == 0) throw OAuthText.invalid("oauth.err.required", "scope");
             StringBuilder joined = new StringBuilder();
             for (String scope : scopes) {
-                if (OAuthText.require(scope, "scope").indexOf(' ') >= 0) throw OAuthText.invalid("oauth.err.scopeFormat");
+                if (!OAuthText.validScope(OAuthText.require(scope, "scope"))) throw OAuthText.invalid("oauth.err.scopeFormat");
                 if (joined.length() > 0) joined.append(' ');
                 joined.append(scope);
             }
@@ -93,6 +93,10 @@ public final class AccessTokens {
 
         /** @param values 역할({@code roles} 문자열 배열) @return this */
         public Builder roles(List<String> values) {
+            if (values == null || values.isEmpty()) throw OAuthText.invalid("oauth.err.required", "roles");
+            for (String role : values) {
+                if (!OAuthText.validIdentifier(role)) throw OAuthText.invalid("oauth.err.roleFormat");
+            }
             jwt.claim("roles", values);
             return this;
         }
@@ -104,9 +108,9 @@ public final class AccessTokens {
             return this;
         }
 
-        /** @param value 토큰 ID(지정하지 않으면 256비트 보안 난수) @return this */
+        /** @param value 토큰 ID(공백뿐인 값·제어문자 거부, 생략 시 256비트 보안 난수) @return this */
         public Builder jwtId(String value) {
-            jwt.jwtId(OAuthText.require(value, "jti"));
+            jwt.jwtId(OAuthText.requireIdentifier(value, "jti"));
             jwtId = true;
             return this;
         }

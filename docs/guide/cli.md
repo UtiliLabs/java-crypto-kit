@@ -26,25 +26,33 @@
 | AWS KMS 데이터 키 준비 | `kms datakey` | [AWS KMS](external-key-providers.md#topic-aws-kms) |
 | 직접 키 암복호화, 데이터·토큰 검증 | `api aes`, `api sig`, `api jwt`, `api oauth` 등 | [독립 명령과 옵션](#api-cli) |
 
-JAR를 `java -jar`로 실행합니다. Help와 Examples는 관리자 설정 전에도 조회할 수 있으며, 업무 명령은 먼저 관리자 설정을 마쳐야 합니다. 키·설정 변경 결과로 새 JAR가 만들어지는 경우 그 새 JAR를 다음 단계에서 사용합니다.
+JAR를 `java -jar`로 실행합니다. Help와 Examples는 관리자 설정 전에도 조회할 수 있으며, 업무 명령은 먼저 관리자 설정을 마쳐야 합니다. Windows와 Linux 모두 같은 java -jar 명령으로 내부 설정을 갱신합니다.
 
 독립 CLI는 AES-128/256·AAD, RSA·Hybrid, HMAC·해시·전자서명, 비밀번호·난수, OTP·JWT·OAuth, X.509 정보·키 변환을 제공합니다. PKCS12/JKS 읽기, PKIX 체인 검증, 안전 비교는 Java API에서 사용합니다. [업무별 선택](../user-guide.md#업무별-java-api와-독립-cli)
 
 <a name="topic-cli-encryption--첫-실행-예제"></a>
 ## 처음 실행하는 순서
 
-최초 1회 관리자 비밀번호를 설정합니다(10~128자, 영문·숫자·특수문자 필수). 원본 옆에 `-cfg.jar`가 생성됩니다. 기존 `-configured.jar`는 그대로 실행할 수 있습니다. 그 파일을 수정해 새 JAR를 만들면 `-cfg-2.jar`부터 이어집니다.
+최초 등록과 이후 내부 변경은 같은 JAR 안에 저장합니다. 예약 영역이 없는 JAR는 조회·키 이관용 원본으로 사용합니다.
+
+최초 1회 관리자 비밀번호를 설정합니다(10~128자, 영문·숫자·특수문자 필수). 관리자 검증값과 키는 같은 파일에 저장합니다. 변경 전 복제본이 필요하면 JAR를 직접 복사하세요.
 
 ```bash
-java -jar java-crypto-kit-0.2.0.jar admin setup --operator example-admin
+# 관리자 비밀번호를 등록하고 같은 JAR에 랜덤 PASS (Passphrase)·KEY (AES Key) 저장
+java -jar java-crypto-kit-0.2.1.jar admin setup
 ```
 
-새 JAR로 암호화·복호화합니다. `enc`(`encrypt`)는 평문을, `dec`(`decrypt`)는 관리자 비밀번호와 암호문을 입력받습니다. 민감 입력은 숨김 처리합니다. `verify`는 암호문을 확인하며 평문을 출력하지 않습니다.
+같은 JAR로 암호화·복호화합니다. `enc`(`encrypt`)는 평문을, `dec`(`decrypt`)는 관리자 비밀번호와 암호문을 입력받습니다. 민감 입력은 숨김 처리합니다. `verify`는 암호문을 확인하며 평문을 출력하지 않습니다.
 
 ```bash
-java -jar java-crypto-kit-0.2.0-cfg.jar enc
-java -jar java-crypto-kit-0.2.0-cfg.jar dec
-java -jar java-crypto-kit-0.2.0-cfg.jar verify
+# 입력한 값을 활성 키로 암호화
+java -jar java-crypto-kit-0.2.1.jar enc
+
+# 관리자 인증 후 암호문을 복호화
+java -jar java-crypto-kit-0.2.1.jar dec
+
+# 평문 표시 없이 암호문의 무결성 확인
+java -jar java-crypto-kit-0.2.1.jar verify
 ```
 
 - 암호화 기본값: `pass`. AES 키 유형은 `encrypt --type key`.
@@ -52,7 +60,7 @@ java -jar java-crypto-kit-0.2.0-cfg.jar verify
 - 검증: 평문을 표시하지 않고 `OK` 또는 오류를 반환합니다.
 
 > [!IMPORTANT]
-> 기본 내장 키는 공개 예제 키입니다. 실제 데이터에는 [사용자 지정 키](key-management.md#topic-key-selection--13-체험용-내장-키와-운영용-사용자-지정-키)를 사용하세요. 관리자 인증은 CLI 전용입니다.
+> 최초 설정 키는 JAR별로 다릅니다. 같은 암호문을 사용할 서버에는 동일 키와 ID가 필요합니다.
 
 [관리자 인증](#topic-admin--14-cli-관리자-비밀번호) · [CLI 명령·옵션](#topic-cli)
 
@@ -68,7 +76,7 @@ java -jar java-crypto-kit-0.2.0-cfg.jar verify
 | 암호문 복원 | `decrypt` | 관리자 인증 후 전체 암호문 입력. 키 ID 자동 선택 |
 | 평문 노출 없이 확인 | `verify` | 암호문 무결성·복호화 가능 여부 확인. DB 로그인 검사는 아님 |
 
-`pass`는 PBKDF2로 AES 키를 파생하는 방식이며 `key`는 AES 키를 그대로 쓰는 방식입니다. 둘 다 AES-256-GCM입니다. 공개 JAR는 두 유형의 공개 예제 키를 포함하지만 운영용으로 쓸 수 없습니다. `--type`은 유형별 기본 키, `--key-id`는 특정 등록 키를 선택합니다. `--type`과 `--key-id`를 함께 쓰면 일치해야 합니다. 키 등록 시 `--active`는 해당 유형의 기본 키만 바꾸므로 `crypto.key.type`과 구분합니다.
+`pass`는 PBKDF2로 AES 키를 파생하는 방식이며 `key`는 AES 키를 그대로 쓰는 방식입니다. 둘 다 AES-256-GCM입니다. 최초 설정은 두 유형에 각각 새 키를 생성합니다. `--type`은 유형별 기본 키, `--key-id`는 특정 등록 키를 선택합니다. `--type`과 `--key-id`를 함께 쓰면 일치해야 합니다. 키 등록 시 `--active`는 해당 유형의 기본 키만 바꾸므로 `crypto.key.type`과 구분합니다.
 
 최초 관리자 설정과 명령마다의 인증도 구분합니다. `encrypt`, `verify`, `file encrypt`, `info`, `doctor`, `fingerprint`는 최초 설정 이후 관리자 비밀번호를 매번 묻지 않습니다. `decrypt`, `file decrypt`, 키·설정 변경 및 민감 조회는 매번 인증합니다. 전체 구분은 [명령 목록](#topic-cli--22-명령-목록)을 참고하세요. 비대화형 실행은 해당 명령의 입력 및 인증 옵션을 모두 갖춰야 합니다.
 
@@ -83,7 +91,7 @@ java -jar java-crypto-kit-0.2.0-cfg.jar verify
 | 키 값을 파일로 보관 | `config key add --generate`의 `--export`는 생성값 백업입니다. 이미 등록한 키는 `config key show --key-id <ID> --export <새 파일>`을 씁니다. 내장·KMS pass 키는 파생된 키만 있으므로 Passphrase 원문을 다시 내보낼 수 없습니다. |
 | 기존 AES 키 파일의 지문 비교 | `fingerprint --key-file <파일>`은 파일만 읽습니다. 설정에 등록한 키를 조사하는 `--config`, `--type`, `--key-id`와 함께 쓸 수 없습니다. |
 | 기존 문자열 암호문의 키 교체 | `rekey`의 읽는 쪽은 `--from-config` 또는 `--from-jar`, 쓰는 쪽은 `--to-config` 또는 `--to-jar`입니다. 한쪽을 생략하면 실행 설정을 씁니다. 같은 설정에서도 `--key-id`로 대상 키를 고를 수 있습니다. 유형을 따로 고르지 않고 대상 ID도 생략하면 원래 유형의 기본 키로 옮깁니다. |
-| 결과 JAR 저장 | `--out`은 새 경로에 쓰고 `--replace`는 백업 후 대상 JAR를 교체합니다. 둘은 함께 쓸 수 없습니다. `--yes`는 키 변경의 `CHANGE` 확인만 생략합니다. |
+| JAR 저장 | 현재 파일의 이름과 경로를 유지합니다. --replace는 기존 스크립트 호환용이며 키 변경 확인은 --yes로 생략할 수 있습니다. |
 | 이력 범위 선택 | `config history`는 pass 이력, `--type key`는 key 이력, `--all`은 일반 설정·관리자 기록을 포함한 전체 이력입니다. `--all`과 `--type`은 함께 쓸 수 없습니다. |
 
 [명령별 전체 옵션·필수값·실행 예제](#topic-cli--22-명령-목록)
@@ -105,22 +113,24 @@ CLI는 키를 만들고 바꾸며 복호화한 평문과 키 원문을 보여 �
 <a name="topic-admin--최초-설정"></a>
 #### 최초 설정
 
-배포 JAR(그리고 소스에서 빌드한 JAR)은 관리자 비밀번호가 없는 상태입니다. 설정 전에는 `admin setup`과 설정 안내 도움말 외에 어떤 명령도 실행하지 않습니다.
+배포 JAR(그리고 소스에서 빌드한 JAR)은 관리자 비밀번호가 없는 상태입니다. 설정 전에도 전체·기능별 Help, Examples 및 버전 정보를 조회할 수 있습니다. 실제 업무 명령은 최초 설정을 요구합니다.
 
 
 | 단계 | 내용 |
 |---|---|
 | 1 | 배포 JAR로 [`admin setup`](#topic-admin--222-admin-setup--관리자-비밀번호-최초-설정)을 실행합니다. 다른 명령을 처음 실행해도 같은 설정 절차로 들어갑니다(그 명령은 실행하지 않음). |
-| 2 | 작업자 ID(`--operator`가 없을 때) → 새 비밀번호 → 비밀번호 확인 순서로 입력합니다(비밀번호는 화면에 보이지 않고 2회 입력). |
-| 3 | 원본 옆에 관리자 비밀번호의 검증값·Salt를 저장한 새 JAR(`<이름>-cfg.jar`)이 생깁니다. 비밀번호 원문은 저장하지 않고 원본은 미설정 상태로 남습니다. |
-| 4 | 이후 CLI는 새 JAR로 실행합니다. 원본 JAR로 실행하면 매번 처음부터 설정을 요구합니다. |
+| 2 | 새 비밀번호 → 비밀번호 확인 순서로 입력합니다(비밀번호는 화면에 보이지 않고 2회 입력). |
+| 3 | 독립 랜덤 pass·AES 키를 자동 생성하고 비밀번호 검증값과 함께 같은 JAR에 저장합니다. 작업자를 지정하지 않으면 `SYSTEM`으로 기록합니다. |
+| 4 | 같은 파일명과 경로로 계속 실행합니다. 내부 내용이 바뀌므로 갱신 이후 SHA-256이 공식 배포본과 다른 것이 정상입니다. |
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0.jar admin setup --operator example-admin
+# 관리자 비밀번호를 등록하고 같은 JAR에 랜덤 PASS (Passphrase)·KEY (AES Key) 저장
+java -jar java-crypto-kit-0.2.1.jar admin setup
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0.jar admin setup --operator example-admin
+# 관리자 비밀번호를 등록하고 같은 JAR에 랜덤 PASS (Passphrase)·KEY (AES Key) 저장
+java -jar ./java-crypto-kit-0.2.1.jar admin setup
 ```
 
 ```text
@@ -131,30 +141,44 @@ java -jar ./java-crypto-kit-0.2.0.jar admin setup --operator example-admin
 비밀번호 확인(입력 숨김):
 
 관리자    : 비밀번호 설정 완료
-생성 JAR  : C:\work\java-crypto-kit-0.2.0-cfg.jar
-원본 JAR  : java-crypto-kit-0.2.0.jar (그대로, 관리자 비밀번호 미설정)
-작업자    : example-admin
-안내      : 이후에는 생성 JAR로 CLI를 실행하세요.
+활성 키   : pass=pass-0123456789abcdef0123456789abcdef
+            key=key-<자동 생성 ID>
+갱신 JAR  : C:\work\java-crypto-kit-0.2.1.jar
+작업자    : SYSTEM
+설정 JAR를 안전하게 백업하고 CLI·내장 키 Java/Tomcat에 사용하세요. 내장 pass 원문은 다시 조회할 수 없습니다.
 ```
 
-설정 전에 다른 명령(예: `encrypt`)을 실행하면 대화형 터미널에서는 같은 설정을 진행하고, 요청한 명령은 실행하지 않은 채 새 JAR로 다시 실행하라고 알립니다(종료 코드 1). 대화형이 아니면 아무것도 바꾸지 않고 `[사유: ADMIN_SETUP]` 오류로 끝납니다.
+위 경로와 키 ID는 예시입니다. 결과의 `갱신 JAR`는 설정을 실행한 파일입니다. POSIX에서는 갱신 경로 다음에 `권한      : 소유자만(600). 배포할 때 서비스 계정이 읽게 정하세요(가이드 12.2).`가 표시됩니다.
+
+영문 설정 완료 출력도 같은 정보를 표시합니다.
+
+```text
+Admin       : password set
+Active keys : pass=pass-0123456789abcdef0123456789abcdef
+              key=key-<자동 생성 ID>
+Updated JAR: C:\work\java-crypto-kit-0.2.1.jar
+Operator    : SYSTEM
+Back up this JAR securely for Java, Tomcat and CLI use. The embedded passphrase cannot be retrieved.
+```
+
+대화형 CLI는 미설정 상태에서 다른 명령을 실행하면 최초 설정을 시작합니다. 설정을 마친 뒤 같은 JAR로 요청한 명령을 다시 실행합니다. Windows에서도 같은 명령으로 최초 설정합니다. 비대화형 미설정 JAR에서 업무 명령은 ADMIN_SETUP으로 끝납니다.
 
 ```text
 [CLI 초기 설정 필요]
-실제 CLI 명령을 실행하려면 관리자 비밀번호를 먼저 설정하세요.
-지금 설정하면 새 JAR(java-crypto-kit-0.2.0-cfg.jar)을 만들고 원본은 그대로 둡니다.
+이 JAR은 관리자 비밀번호가 설정되지 않아 CLI 기능을 쓸 수 없습니다.
+현재 JAR java-crypto-kit-0.2.1.jar에 설정을 저장합니다.
 비밀번호 규칙: 10~128자, 영문자·숫자·특수문자 각 1자 이상(공백·한글 불가)
 
-작업자 ID: example-admin
 새 관리자 비밀번호(입력 숨김):
 비밀번호 확인(입력 숨김):
 
 관리자    : 비밀번호 설정 완료
-생성 JAR  : C:\work\java-crypto-kit-0.2.0-cfg.jar
-원본 JAR  : java-crypto-kit-0.2.0.jar (그대로, 관리자 비밀번호 미설정)
-작업자    : example-admin
-안내      : 이후에는 생성 JAR로 CLI를 실행하세요.
-[java-crypto-kit] [사유: ADMIN_SETUP] 요청한 명령(encrypt)은 실행하지 않았습니다. 생성 JAR로 다시 실행하세요: java -jar java-crypto-kit-0.2.0-cfg.jar encrypt
+활성 키   : pass=pass-0123456789abcdef0123456789abcdef
+            key=key-<자동 생성 ID>
+갱신 JAR  : C:\work\java-crypto-kit-0.2.1.jar
+작업자    : SYSTEM
+설정 JAR를 안전하게 백업하고 CLI·내장 키 Java/Tomcat에 사용하세요. 내장 pass 원문은 다시 조회할 수 없습니다.
+[java-crypto-kit] [사유: ADMIN_SETUP] 설정을 마쳤습니다. java-crypto-kit-0.2.1.jar에서 encrypt 명령을 다시 실행하세요.
 ```
 
 <a name="topic-admin--비밀번호-규칙"></a>
@@ -205,18 +229,18 @@ java -jar ./java-crypto-kit-0.2.0.jar admin setup --operator example-admin
 
   `rekey --to-jar`는 그 JAR의 키로 암호화만 하고 JAR를 바꾸지 않으므로 비밀번호를 묻지 않지만, 그 JAR가 손상되었으면(아래 저장 방식) 쓰지 않습니다.
 
-  관리자 비밀번호가 없는 이전 형식 JAR은 실행 중인 JAR의 인증만으로 편집하고 그 JAR에는 관리자 정보를 쓰지 않습니다(그 JAR의 코드가 읽지 못함).
+  예약 설정 영역이 없는 JAR는 읽기와 키 이관의 원본으로 지원합니다. 변경은 예약 영역이 있는 대상 JAR에 적용합니다.
 - **비대화형(CI·Docker·배포 자동화):** `--admin-pass-file <파일>`로 비밀번호 한 줄(UTF-8, 1KiB 이하, 앞의 BOM 하나와 끝의 줄바꿈 하나는 무시)을 줍니다.
 
-  최초 설정(`admin setup --operator <ID> --admin-pass-file <파일>`, 같은 규칙 검사, 2회 입력 대신 파일 1회)과 민감 명령의 인증에 쓰며, 파일 내용은 저장된 검증값과 실제로 대조합니다. 이 옵션 없이 비대화형으로 실행하면 아무것도 하지 않고 실패합니다.
+  최초 설정(`admin setup --admin-pass-file <파일>`, 같은 규칙 검사, 2회 입력 대신 파일 1회)과 민감 명령의 인증에 쓰며, 파일 내용은 저장된 검증값과 실제로 대조합니다. 이 옵션 없이 비대화형으로 실행하면 아무것도 하지 않고 실패합니다.
 
   비밀번호를 명령행 인자·환경변수·`-D`로 받는 기능은 없습니다. 비밀번호 파일 하나로 모든 대상 JAR를 확인하므로 비밀번호가 다른 JAR을 함께 다루려면 대화형으로 실행합니다. `admin password change`는 대화형 전용입니다.
 - **비밀번호 파일 권한:** Linux·macOS에서는 다른 사용자(other)가 읽거나 쓸 수 있는 파일을 거부합니다(`[사유: ADMIN_AUTH]`, 설정은 `ADMIN_PASSWORD`, 파일 내용을 읽기 전에 확인). `umask 077`이나 `chmod 600`으로 만들고, 통제된 그룹만 읽게 하는 640·440도 허용합니다.
 
   심볼릭 링크는 최종 대상 파일의 권한을 봅니다(Kubernetes Secret 볼륨은 `defaultMode: 0400` 또는 `0440`). Windows(NTFS)에는 이 권한이 없어 검사하지 않으므로, 사용자 프로필 아래처럼 다른 사용자가 읽을 수 없는 폴더에 두고 작업이 끝나면 지웁니다([12.2절](../reference/security.md#122-키-파일과-키-내장-jar-보관)).
 - **실패·재시도:** 대화형은 한 실행에 3번까지 다시 입력하고, 3번 틀리거나 빈 입력(취소)이면 아무것도 하지 않고 끝납니다(`[사유: ADMIN_AUTH]`). 새로 실행하면 다시 3번이며 영구 잠금은 없습니다(운영 중단을 막기 위함). 대신 검증값마다 PBKDF2 600,000회를 거쳐 대입 속도를 늦춥니다.
-- **저장 방식:** JAR 안 `META-INF/java-crypto-kit/admin.properties`에 PBKDF2-HMAC-SHA256(16바이트 보안 난수 Salt, 600,000회, 32바이트) 결과만 둡니다. 원문·가역 표현은 없고, 저장된 값을 비밀번호로 넣어도 통과하지 않습니다. 이 항목은 설정이 아니어서 `-D`·외부 Properties로 바꿀 수 없고, 어떤 조회에도 원문·검증값·인증용 Salt를 보여 주지 않습니다(이력에는 설정·변경 사실과 작업자·사유만).
-- **손상(Fail Closed):** 다음 JAR는 손상으로 보고 CLI가 그 JAR로는 아무것도 하지 않습니다(`[사유: INTEGRITY]`와 원인 한 줄, 관리정보 조회·키 원문 표시·내보내기·복호화·새 JAR 생성 모두 거부, 원본 그대로). 실행 중인 JAR뿐 아니라 `--jar`·`--from-jar`·`--to-jar`로 지정한 JAR도 같은 기준입니다. Java API·Tomcat은 이 판단을 쓰지 않으므로 그대로 동작합니다.
+- **저장 방식:** JAR 예약 영역의 관리자 필드에 PBKDF2-HMAC-SHA256(16바이트 보안 난수 Salt, 600,000회, 32바이트) 결과만 둡니다. 원문·가역 표현은 없고, 저장된 값을 비밀번호로 넣어도 통과하지 않습니다. 이 항목은 설정이 아니어서 `-D`·외부 Properties로 바꿀 수 없고, 어떤 조회에도 원문·검증값·인증용 Salt를 보여 주지 않습니다(이력에는 설정·변경 사실과 작업자·사유만).
+- **손상(Fail Closed):** 다음 JAR는 손상으로 보고 CLI가 그 JAR로는 아무것도 하지 않습니다(`[사유: INTEGRITY]`와 원인 한 줄, 관리정보 조회·키 원문 표시·내보내기·복호화·내부 갱신 모두 거부, 원본 그대로). 실행 중인 JAR뿐 아니라 `--jar`·`--from-jar`·`--to-jar`로 지정한 JAR도 같은 기준입니다. Java API·Tomcat은 관리자 상태를 검사하지 않으며, 설정을 읽을 때 예약 영역의 무결성을 검증합니다.
   - 검증값 형식 손상·알 수 없는 버전·반복 횟수 범위 밖
   - 검증값은 있는데 변경 이력이 없음(이력 삭제), 또는 이력의 관리자 기록이 맞지 않음(최초 설정 기록 누락·중복·순서 오류)
   - 이력에 관리자 설정 기록이 있는데 검증값 항목이 없음(검증값 삭제)
@@ -228,39 +252,50 @@ java -jar ./java-crypto-kit-0.2.0.jar admin setup --operator example-admin
 <a name="topic-admin--222-admin-setup--관리자-비밀번호-최초-설정"></a>
 ### `admin setup` — 관리자 비밀번호 최초 설정 (2.22)
 
-**사용 상황:** 배포 JAR(또는 빌드한 JAR)로 CLI를 처음 쓸 때 한 번. 관리자 비밀번호가 없는 JAR에서만 실행되며(이미 설정된 JAR은 덮어쓰지 않고 거부), 결과는 비밀번호 검증값이 든 **새 JAR**입니다.
+**사용 상황:** 배포 JAR(또는 빌드한 JAR)로 CLI를 처음 쓸 때 한 번. 관리자 비밀번호가 없는 JAR에서만 실행되며(이미 설정된 JAR은 덮어쓰지 않고 거부), 독립 랜덤 pass·AES 키를 자동 생성해 현재 JAR에 검증값과 함께 저장합니다.
 
 개념·규칙·인증 대상은 [1.4절](#topic-admin--14-cli-관리자-비밀번호)에 있습니다.
 
 ```text
-java -jar <미설정 JAR> admin setup [--operator <작업자>] [--admin-pass-file <파일>] [--out <결과 JAR>] [--lang ko|en]
+java -jar <미설정 JAR> admin setup [--operator <작업자>] [--admin-pass-file <파일>] [--pass-export <파일>] [--replace] [--lang ko|en]
 ```
 
 | 옵션 | 필수 | 의미·기본값 |
 |---|---|---|
-| `--operator <ID>` | 비대화형이면 예 | 이력에 남길 작업자 식별자(문자·숫자·`.`·`_`·`@`·`-`, 1~64자). 대화형에서 생략하면 `작업자 ID:`를 묻고(빈 값이면 중단), 비대화형에서 생략하면 아무것도 하지 않고 실패 |
+| `--replace` | 아니요 | 같은 파일을 갱신하는 기존 스크립트 호환 옵션. |
+| `--pass-export <파일>` | 아니요 | 최초 pass 키의 보호된 복원 파일을 새 경로에 저장합니다. |
+| `--operator <ID>` | 아니요 | 이력에 남길 작업자 식별자(문자·숫자·`.`·`_`·`@`·`-`, 1~64자). 대화형·비대화형 모두 생략 시 `SYSTEM` |
 | `--admin-pass-file <파일>` | 비대화형이면 예 | 새 비밀번호 한 줄이 든 파일(UTF-8, 1KiB 이하, 앞의 BOM 하나·끝의 줄바꿈 하나 무시). 대화형 2회 입력 대신 파일을 1회 읽어 같은 규칙으로 검사. CI에서는 Secret을 권한을 좁힌 임시 파일로 만들고 실행 뒤 지움 |
-| `--out <JAR>` | 아니요 | 결과 JAR 경로. 생략하면 원본 옆 `<이름>-cfg.jar`(이미 있으면 덮어쓰지 않고 쓸 수 있는 이름을 안내) |
 | `--lang ko\|en` | 아니요 | 이번 실행의 메시지 언어 |
 
 **예제**
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0.jar admin setup --operator example-admin
+# 관리자 비밀번호를 등록하고 같은 JAR에 랜덤 PASS (Passphrase)·KEY (AES Key) 저장
+java -jar java-crypto-kit-0.2.1.jar admin setup
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0.jar admin setup --operator example-admin
+# 관리자 비밀번호를 등록하고 같은 JAR에 랜덤 PASS (Passphrase)·KEY (AES Key) 저장
+java -jar ./java-crypto-kit-0.2.1.jar admin setup
+
 # 비대화형(CI): Secret을 권한 600 임시 파일로 만들어 쓰고 바로 지웁니다(값을 명령 줄·로그에 적지 않음).
 umask 077; printf '%s\n' "$JCK_ADMIN_PASSWORD" > "$RUNNER_TEMP/admin.pw"
-java -jar ./java-crypto-kit-0.2.0.jar admin setup --operator ci --admin-pass-file "$RUNNER_TEMP/admin.pw" --out ./jck-ci.jar
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar ./jck-ci.jar
+
+# 관리자 비밀번호를 등록하고 같은 JAR에 랜덤 PASS (Passphrase)·KEY (AES Key) 저장
+java -jar ./jck-ci.jar admin setup --admin-pass-file "$RUNNER_TEMP/admin.pw"
 ```
 
-**결과:** 대화형은 제목·규칙 한 줄 뒤에 (작업자 ID →) 새 비밀번호 → 비밀번호 확인을 받습니다.
+선택 옵션 `--pass-export <새 보호 파일>`은 생성된 pass 원문과 원래 ID·Salt·KDF를 복원 백업에 저장합니다. 작업자는 기본 SYSTEM이며 기존 자동화는 `--operator <ID>`를 지정할 수 있습니다.
 
-규칙 위반·두 입력 불일치면 이유(`규칙에 맞지 않습니다: 특수문자 없음.`, `두 입력이 다릅니다.`)와 남은 기회를 보여 주고 다시 받으며, 3번 실패·빈 입력이면 아무것도 만들지 않습니다(`[사유: ADMIN_PASSWORD]`). 성공하면 결과 JAR·원본 JAR·작업자와 사용할 JAR 안내를 출력합니다.
+**결과:** 대화형은 제목·규칙 한 줄 뒤에 새 비밀번호 → 비밀번호 확인을 받습니다.
 
-키·키 ID·설정은 그대로이고 이력에 `admin setup [관리자]` 기록 1건(사유 `최초 설정`, 비밀번호·검증값 없음)이 더해집니다.
+규칙 위반·두 입력 불일치면 이유(`규칙에 맞지 않습니다: 특수문자 없음.`, `두 입력이 다릅니다.`)와 남은 기회를 보여 주고 다시 받으며, 3번 실패·빈 입력이면 아무것도 만들지 않습니다(`[사유: ADMIN_PASSWORD]`). 성공하면 생성된 키 ID, 갱신된 현재 JAR 경로 및 작업자를 표시합니다.
+
+생성된 키와 키 ID를 검증값과 함께 저장하며 이력에 `admin setup [관리자]` 기록 1건(사유 `최초 설정`, 비밀번호·검증값 없음)이 더해집니다.
 
 ```text
 [CLI 관리자 비밀번호 설정]
@@ -272,43 +307,46 @@ java -jar ./java-crypto-kit-0.2.0.jar admin setup --operator ci --admin-pass-fil
 비밀번호 확인(입력 숨김):
 
 관리자    : 비밀번호 설정 완료
-생성 JAR  : C:\work\java-crypto-kit-0.2.0-cfg.jar
-원본 JAR  : java-crypto-kit-0.2.0.jar (그대로, 관리자 비밀번호 미설정)
-작업자    : example-admin
-안내      : 이후에는 생성 JAR로 CLI를 실행하세요.
+활성 키   : pass=pass-0123456789abcdef0123456789abcdef
+            key=key-<자동 생성 ID>
+갱신 JAR  : C:\work\java-crypto-kit-0.2.1.jar
+작업자    : SYSTEM
+설정 JAR를 안전하게 백업하고 CLI·내장 키 Java/Tomcat에 사용하세요. 내장 pass 원문은 다시 조회할 수 없습니다.
 ```
 
-**오류·주의:** 이미 설정된 JAR은 `[사유: ADMIN_SETUP] 이 JAR은 관리자 비밀번호가 이미 설정되어 있습니다(덮어쓰기 불가)`로 거부합니다(바꾸려면 [2.23절](#topic-admin--223-admin-password-change--관리자-비밀번호-변경)). 검증값이 손상됐거나 이력에 설정 기록이 있는데 검증값이 없는 JAR은 다시 설정할 수 없습니다(`INTEGRITY`, 신뢰하는 원본·백업으로 다시 준비). 관리자 비밀번호를 모르는 이전 형식 JAR에는 설정하지 않습니다(새 버전 JAR로 키를 옮긴 뒤 설정, [9.4절](../reference/troubleshooting.md#94-이전-형식-설정jar에서-올리기)). 원본 JAR을 다시 실행하면 매번 설정을 요구하므로 이후에는 결과 JAR만 씁니다.
+**오류·주의:** 이미 설정된 JAR은 `[사유: ADMIN_SETUP] 이 JAR은 관리자 비밀번호가 이미 설정되어 있습니다(덮어쓰기 불가)`로 거부합니다(바꾸려면 [2.23절](#topic-admin--223-admin-password-change--관리자-비밀번호-변경)). 검증값이 손상됐거나 이력에 설정 기록이 있는데 검증값이 없는 JAR은 다시 설정할 수 없습니다(`INTEGRITY`, 신뢰하는 원본·백업으로 다시 준비). 관리자 기능이 없는 JAR에는 설정하지 않습니다(이 버전 JAR를 먼저 설정한 뒤 키 이관, [9.4절](../reference/troubleshooting.md#94-이전-형식-설정jar에서-올리기)). 최초 설정 후에는 같은 경로의 JAR로 계속 실행합니다.
 
 <a name="topic-admin--223-admin-password-change--관리자-비밀번호-변경"></a>
 ### `admin password change` — 관리자 비밀번호 변경 (2.23)
 
-**사용 상황:** 관리자 비밀번호를 바꿀 때(정기 변경, 담당자 교체 등). 현재 비밀번호를 알아야 하며 대화형 터미널에서만 실행합니다(새 비밀번호를 두 번 입력해 확인). 결과는 새 JAR이고 원본 JAR은 그대로입니다.
+**사용 상황:** 관리자 비밀번호를 바꿀 때(정기 변경, 담당자 교체 등). 현재 비밀번호를 알아야 하며 대화형 터미널에서만 실행합니다(새 비밀번호를 두 번 입력해 확인). 변경은 같은 JAR에 저장합니다.
 
 ```text
-java -jar <설정된 JAR> admin password change [--operator <작업자>] [--reason <사유>] [--out <결과 JAR>] [--lang ko|en]
+java -jar <설정된 JAR> admin password change [--operator <작업자>] [--reason <사유>] [--replace] [--lang ko|en]
 ```
 
 | 옵션 | 필수 | 의미·기본값 |
 |---|---|---|
+| `--replace` | 아니요 | 같은 파일을 갱신하는 기존 스크립트 호환 옵션. |
 | `--operator <ID>` | 아니요 | 이력에 남길 작업자 식별자. 생략하면 `작업자 ID:`를 물음 |
 | `--reason <사유>` | 사유 필수, 대화형은 질문 | 변경 사유(한 줄, 200자 이하, 비밀값 금지). 생략하면 `사유(비밀값 제외):`를 물음 |
-| `--out <JAR>` | 아니요 | 결과 JAR 경로. 생략하면 다음 번호(`-cfg-2.jar` 등) |
 | `--lang ko\|en` | 아니요 | 이번 실행의 메시지 언어 |
 
 **예제**
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar admin password change --operator example-admin --reason "정기 변경"
+# 현재 비밀번호로 인증한 뒤 새 관리자 비밀번호 설정
+java -jar java-crypto-kit-0.2.1.jar admin password change --operator example-admin --reason "정기 변경"
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg.jar admin password change --operator example-admin --reason "정기 변경"
+# 현재 비밀번호로 인증한 뒤 새 관리자 비밀번호 설정
+java -jar ./java-crypto-kit-0.2.1.jar admin password change --operator example-admin --reason "정기 변경"
 ```
 
 **결과:** 현재 비밀번호 → (작업자 ID·사유) → 새 비밀번호 → 비밀번호 확인 순서로 받습니다.
 
-현재 비밀번호가 3번 틀리면 바꾸지 않습니다(`ADMIN_AUTH`). 새 비밀번호가 규칙에 맞지 않거나, 두 입력이 다르거나, **현재 비밀번호와 같으면** 이유를 알리고 다시 받으며 3번 실패하면 바꾸지 않습니다(`ADMIN_PASSWORD`). 성공하면 새 JAR에서는 새 비밀번호만 통하고, 키·키 ID·Salt·KDF·기존 암호문·이력은 그대로이며 이력에 `admin password change [관리자]` 기록(작업자·사유)이 더해집니다.
+현재 비밀번호가 3번 틀리면 바꾸지 않습니다(`ADMIN_AUTH`). 새 비밀번호가 규칙에 맞지 않거나, 두 입력이 다르거나, **현재 비밀번호와 같으면** 이유를 알리고 다시 받으며 3번 실패하면 바꾸지 않습니다(`ADMIN_PASSWORD`). 성공하면 갱신된 JAR에서는 새 비밀번호만 통하고, 키·키 ID·Salt·KDF·기존 암호문·이력은 그대로이며 이력에 `admin password change [관리자]` 기록(작업자·사유)이 더해집니다.
 
 ```text
 [CLI 관리자 비밀번호 변경]
@@ -318,32 +356,47 @@ java -jar ./java-crypto-kit-0.2.0-cfg.jar admin password change --operator examp
 비밀번호 확인(입력 숨김):
 
 관리자    : 비밀번호 변경 완료
-생성 JAR  : C:\work\java-crypto-kit-0.2.0-cfg-2.jar
-원본 JAR  : java-crypto-kit-0.2.0-cfg.jar (그대로, 이전 비밀번호 유지)
+갱신 JAR  : C:\work\java-crypto-kit-0.2.1.jar
 작업자    : example-admin
 사유      : 정기 변경
-안내      : 생성 JAR을 쓰고, 필요 없는 원본 JAR은 직접 폐기하세요.
+안내      : 같은 JAR에서 새 관리자 비밀번호를 사용하세요.
 ```
 
-**주의:** 원본 JAR은 자동으로 폐기되지 않고 **이전 비밀번호로 계속 열립니다.** 서버·작업 PC에 남은 이전 JAR의 보관·폐기를 직접 정합니다([12.8절](../reference/security.md#128-cli-관리자-인증의-범위와-한계)). 현재 비밀번호를 모르면 이 명령을 쓸 수 없고, 인증 없이 초기화하는 기능도 없습니다.
+**주의:** 변경 전에 직접 복사한 JAR는 **이전 비밀번호로 계속 열립니다.** 서버·작업 PC에 보관한 복사본의 보관·폐기를 직접 정합니다([12.8절](../reference/security.md#128-cli-관리자-인증의-범위와-한계)). 현재 비밀번호를 모르면 이 명령을 쓸 수 없고, 인증 없이 초기화하는 기능도 없습니다.
 
 <a name="topic-admin--a1-준비-관리자-비밀번호와-보호된-폴더"></a>
 ### 준비: 관리자 비밀번호와 보호된 폴더 (A.1)
 
-키를 둘 보호된 폴더를 만들고, 배포 JAR로 관리자 비밀번호를 설정합니다(설정 전에는 어떤 명령도 실행되지 않음). 마지막 두 줄은 스크립트·CI 예제([A.5](key-management.md#topic-key-registration--a5-키-생성-화면에-한-번-보이는-생성값과---export)·[A.15](../reference/troubleshooting.md#a15-자주-보는-오류)·[A.16](#topic-admin--a16-관리자-비밀번호-변경인증-실패자동화))에서 쓸 관리자 비밀번호 파일을 화면에 보이지 않게 입력받아 만듭니다(비밀번호를 명령 줄·셸 기록에 남기지 않음).
+키를 둘 보호된 폴더를 만들고, 배포 JAR로 `admin setup`을 실행합니다. 이 명령은 관리자 비밀번호를 설정하고 독립된 랜덤 PASS·KEY를 함께 생성합니다(설정 전에는 Help·Examples 조회와 `admin setup`만 실행됩니다). 마지막 두 줄은 스크립트·CI 예제([A.5](key-management.md#topic-key-registration--a5-키-생성-화면에-한-번-보이는-생성값과---export)·[A.15](../reference/troubleshooting.md#a15-자주-보는-오류)·[A.16](#topic-admin--a16-관리자-비밀번호-변경인증-실패자동화))에서 쓸 관리자 비밀번호 파일을 화면에 보이지 않게 입력받아 만듭니다(비밀번호를 명령 줄·셸 기록에 남기지 않음).
 
 ```powershell
+# 비밀 파일을 보관할 디렉터리 지정
 $SECURE = "$HOME\jck-secure"
+
+# 비밀 파일용 디렉터리 생성
 New-Item -ItemType Directory -Force -Path $SECURE | Out-Null
-java -jar .\java-crypto-kit-0.2.0.jar admin setup --operator example-admin
+
+# 관리자 비밀번호를 등록하고 같은 JAR에 랜덤 PASS (Passphrase)·KEY (AES Key) 저장
+java -jar java-crypto-kit-0.2.1.jar admin setup
+
+# 관리자 비밀번호 숨김 입력
 $pw = Read-Host '관리자 비밀번호(파일용)' -AsSecureString
+
+# 비밀값을 UTF-8 파일에 저장
 [IO.File]::WriteAllText("$SECURE\admin.pw", [pscredential]::new('x', $pw).GetNetworkCredential().Password, [Text.UTF8Encoding]::new($false)); Remove-Variable pw
 ```
 
 ```bash
+# 비밀 파일을 보관할 디렉터리 지정
 SECURE=~/jck-secure
+
+# 소유자 전용 디렉터리 생성
 mkdir -p -m 700 "$SECURE"
-java -jar ./java-crypto-kit-0.2.0.jar admin setup --operator example-admin
+
+# 관리자 비밀번호를 등록하고 같은 JAR에 랜덤 PASS (Passphrase)·KEY (AES Key) 저장
+java -jar ./java-crypto-kit-0.2.1.jar admin setup
+
+# 입력값을 소유자 전용 파일에 저장
 IFS= read -r -s -p '관리자 비밀번호(파일용): ' pw; echo; (umask 077 && printf '%s\n' "$pw" > "$SECURE/admin.pw"); unset pw
 ```
 
@@ -355,10 +408,11 @@ IFS= read -r -s -p '관리자 비밀번호(파일용): ' pw; echo; (umask 077 &&
 비밀번호 확인(입력 숨김):                     ← 같은 값 다시 입력
 
 관리자    : 비밀번호 설정 완료
-생성 JAR  : C:\work\java-crypto-kit-0.2.0-cfg.jar
-원본 JAR  : java-crypto-kit-0.2.0.jar (그대로, 관리자 비밀번호 미설정)
-작업자    : example-admin
-안내      : 이후에는 생성 JAR로 CLI를 실행하세요.
+활성 키   : pass=pass-0123456789abcdef0123456789abcdef
+            key=key-<자동 생성 ID>
+갱신 JAR  : C:\work\java-crypto-kit-0.2.1.jar
+작업자    : SYSTEM
+설정 JAR를 안전하게 백업하고 CLI·내장 키 Java/Tomcat에 사용하세요. 내장 pass 원문은 다시 조회할 수 없습니다.
 ```
 
 이 부록의 `$SECURE`는 이 폴더입니다(키 파일·Passphrase 파일·내보낸 키와 복원 백업·관리자 비밀번호 파일). Windows에서 `C:\` 바로 아래 폴더를 쓰면 권한을 따로 제한합니다([12.2절](../reference/security.md#122-키-파일과-키-내장-jar-보관)). 운영 서버·CI에서는 비밀번호 파일을 Secret 저장소 값으로 작업할 때만 만들고 끝나면 지웁니다([12.8절](../reference/security.md#128-cli-관리자-인증의-범위와-한계)).
@@ -366,17 +420,33 @@ IFS= read -r -s -p '관리자 비밀번호(파일용): ' pw; echo; (umask 077 &&
 <a name="topic-admin--a16-관리자-비밀번호-변경인증-실패자동화"></a>
 ### 관리자 비밀번호 변경·인증 실패·자동화 (A.16)
 
-비밀번호 변경은 대화형 전용입니다(현재 비밀번호 → 새 비밀번호 2회). 결과는 새 JAR이고, 원본 JAR은 **이전 비밀번호로 계속 열리므로** 필요 없으면 직접 정리합니다.
+비밀번호 변경은 대화형 전용입니다(현재 비밀번호 → 새 비밀번호 2회). 변경 전에 복사한 JAR은 이전 비밀번호로 계속 열립니다.
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar admin password change --operator example-admin --reason "정기 변경" --out admin2.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination admin2.jar
+
+# 현재 비밀번호로 인증한 뒤 새 관리자 비밀번호 설정
+java -jar admin2.jar admin password change --operator example-admin --reason "정기 변경"
+
+# 설정 변경 이력과 작업 사유 확인
 java -jar .\admin2.jar config history --all
+
+# 관리자 인증 후 암호문을 복호화
 java -jar .\admin2.jar dec
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg.jar admin password change --operator example-admin --reason "정기 변경" --out admin2.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar admin2.jar
+
+# 현재 비밀번호로 인증한 뒤 새 관리자 비밀번호 설정
+java -jar admin2.jar admin password change --operator example-admin --reason "정기 변경"
+
+# 설정 변경 이력과 작업 사유 확인
 java -jar ./admin2.jar config history --all
+
+# 관리자 인증 후 암호문을 복호화
 java -jar ./admin2.jar dec
 ```
 
@@ -388,11 +458,10 @@ java -jar ./admin2.jar dec
 비밀번호 확인(입력 숨김):
 
 관리자    : 비밀번호 변경 완료
-생성 JAR  : C:\work\admin2.jar
-원본 JAR  : java-crypto-kit-0.2.0-cfg.jar (그대로, 이전 비밀번호 유지)
+갱신 JAR  : C:\work\admin2.jar
 작업자    : example-admin
 사유      : 정기 변경
-안내      : 생성 JAR을 쓰고, 필요 없는 원본 JAR은 직접 폐기하세요.
+안내      : 같은 JAR에서 새 관리자 비밀번호를 사용하세요.
 
 #2  2026-11-23T06:10:02Z  수정자 example-admin  admin password change  [관리자]   ← config history --all
     사유: 정기 변경
@@ -404,20 +473,22 @@ java -jar ./admin2.jar dec
 [java-crypto-kit] [사유: ADMIN_AUTH] 관리자 비밀번호가 맞지 않습니다(3번 실패). 아무것도 하지 않았습니다. 분실했다면 사용자 가이드 12.8을 보세요.
 ```
 
-새 JAR에서는 새 비밀번호만 통합니다. 실패해도 다음 실행은 다시 3번 시도할 수 있습니다(영구 잠금 없음). 스크립트·CI에서는 관리자 비밀번호를 파일로 줍니다.
+갱신된 JAR에서는 새 비밀번호만 통합니다. 실패해도 다음 실행은 다시 3번 시도할 수 있습니다(영구 잠금 없음). 스크립트·CI에서는 관리자 비밀번호를 파일로 줍니다.
 
 비밀번호 파일은 한 줄(UTF-8)이며 권한을 좁히고(Linux·macOS는 `chmod 600` 등 다른 사용자가 읽을 수 없어야 받음) 작업 뒤 지웁니다.
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config history --type key --admin-pass-file "$SECURE\admin.pw"
+# 설정 변경 이력과 작업 사유 확인
+java -jar .\java-crypto-kit-0.2.1.jar config history --type key --admin-pass-file "$SECURE\admin.pw"
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config history --type key --admin-pass-file "$SECURE/admin.pw"
+# 설정 변경 이력과 작업 사유 확인
+java -jar ./java-crypto-kit-0.2.1.jar config history --type key --admin-pass-file "$SECURE/admin.pw"
 ```
 
 ```text
-JAR 설정 변경 이력: java-crypto-kit-0.2.0-cfg.jar (버전 0.2.0)
+JAR 설정 변경 이력: java-crypto-kit-0.2.1.jar (버전 0.2.1)
 빌드 일시 : 2026-11-23T05:05:18Z
 이력 검증 : 정상(1건, 해시 체인·현재 설정 일치)
 표시 범위 : key 관련 0건(전체 1건)
@@ -437,13 +508,13 @@ JAR 설정 변경 이력: java-crypto-kit-0.2.0-cfg.jar (버전 0.2.0)
 <a name="topic-cli--실행-환경과-기본-옵션"></a>
 #### 실행 환경과 기본 옵션
 
-- **형식:** `java [-D<설정>=<값> ...] -jar <JAR> <명령> [옵션]`. 체험은 관리자 비밀번호만 설정한 JAR, 운영은 키 내장 JAR(또는 외부 키 설정)로 실행합니다. 배포 JAR은 먼저 [1.4절](#topic-admin--14-cli-관리자-비밀번호)대로 관리자 비밀번호를 설정합니다(설정 전에는 어떤 명령도 실행하지 않음).
+- **형식:** `java [-D<설정>=<값> ...] -jar <JAR> <명령> [옵션]`. 체험은 `admin setup`이 만든 PASS·KEY로, 운영은 업무 키를 등록한 JAR(또는 외부 키 설정)로 실행합니다. 배포 JAR은 먼저 [1.4절](#topic-admin--14-cli-관리자-비밀번호)대로 `admin setup`을 실행합니다(관리자 비밀번호 설정과 PASS·KEY 생성). 설정 전에도 Help·Examples는 조회할 수 있고, 그 밖의 명령은 최초 설정을 요구합니다.
 
 - **관리자 비밀번호:** 민감 명령(복호화·키 생성/등록/변경/삭제·키와 설정 조회, [2.2절](#topic-cli--22-명령-목록)의 `*`)은 실행할 때마다 `관리자 비밀번호(입력 숨김):`를 먼저 묻습니다(3번까지, 취소하면 아무것도 하지 않음). 비대화형은 `--admin-pass-file <파일>`로 줍니다.
 
   순서는 인자·경로 검사 → 관리자 인증 → 대상 JAR의 키 확인 → 사유 → 재료 입력·생성 → `CHANGE` 확인이며(인증 전에는 키 등록 여부 같은 JAR 내용을 알리지 않음), `--yes`는 관리자 인증을 생략하지 않습니다.
 
-- **`-Dcrypto.*`** 는 `java`와 `-jar` **사이**에 둡니다. PowerShell은 따옴표로 감쌉니다(예: `java "-Dcrypto.lang=en" -jar .\java-crypto-kit-0.2.0-cfg-2.jar info`).
+- **`-Dcrypto.*`** 는 `java`와 `-jar` **사이**에 둡니다. PowerShell은 따옴표로 감쌉니다(예: `java "-Dcrypto.lang=en" -jar .\java-crypto-kit-0.2.1.jar info`).
 
 - **`--lang ko|en`** 은 그 실행 한 번의 언어만 바꿉니다. 기본 언어는 설정 `crypto.lang`(기본 `ko`)입니다.
 
@@ -472,7 +543,7 @@ JAR 설정 변경 이력: java-crypto-kit-0.2.0-cfg.jar (버전 0.2.0)
 
   JAR를 바꾸는 명령의 사유는 JAR 변경 이력([`config history`](key-management.md#topic-history--211-config-history--설정-변경-이력))에 남고, JAR를 바꾸지 않는 `keygen`·`kms datakey`의 사유는 결과 화면에만 나오며 **어디에도 저장되지 않습니다**(결과의 `이력 : 저장 안 함`).
 
-- **키 변경 확인:** 실제 키나 기본 키·기본 유형이 바뀌는 JAR 변경(`config embed-key`, `config key add|use|remove`, 키에 영향을 주는 `config set`)은 새 JAR를 만들 때도 확인 화면에 기존 암호문에 주는 영향(제목), 결과 JAR, 사유, 바뀌는 항목(이전 -> 이후)을 보여 주고 `CHANGE` 입력을 받습니다. 무인 자동화는 `--yes`로 생략합니다. 취소·실패하면 원본 JAR와 이력은 그대로입니다.
+- **키 변경 확인:** 실제 키나 기본 키·기본 유형이 바뀌는 JAR 변경(`config embed-key`, `config key add|use|remove`, 키에 영향을 주는 `config set`)은 확인 화면에 기존 암호문에 주는 영향(제목), 대상 JAR, 사유, 바뀌는 항목(이전 -> 이후)을 보여 주고 `CHANGE` 입력을 받습니다. 무인 자동화는 `--yes`로 생략합니다. 확인 전에 취소하거나 갱신을 시작하기 전에 실패하면 JAR의 설정·키·이력은 그대로입니다. 갱신은 비활성 영역에 새 상태를 쓰고 다시 읽어 확인한 뒤 선택자를 바꾸므로, 선택자를 바꾸기 전에 중단되면 이전 상태가, 바꾼 뒤에 중단되면 새 상태가 사용됩니다([4.4절](../reference/technical-specification.md#44-jar-내부-예약-영역-갱신)). 선택자를 바꾼 뒤의 동기화·이전 영역 정리 단계에서 오류가 보고되면 새 상태가 이미 적용됐을 수 있으므로, 다시 실행하기 전에 `config show`와 `config history --all`로 적용 상태를 먼저 확인합니다.
 
 - **비밀값은 인자로 넘기지 않습니다.** 평문 비밀번호·AES 키·Passphrase·Vault 토큰·관리자 비밀번호를 받는 명령 옵션이나 `-D`는 없습니다(키 재료와 관리자 비밀번호는 파일·숨김 입력·생성으로만 받음).
 
@@ -485,9 +556,8 @@ JAR 설정 변경 이력: java-crypto-kit-0.2.0-cfg.jar (버전 0.2.0)
 
   여러 항목(바꾼 설정, 적용·무시한 `-D` 등)은 한 줄에 하나씩 값 열에 맞춰 보여 주고, 한 항목이 80열을 넘으면 설정 이름 다음과 `->` 앞에서만 줄을 바꿉니다(경로·URL·지문·암호문 같은 값은 자르지 않음).
 
-- **자동 경고:** 실제로 쓰는 키가 공개 기본 키일 때만 표준 오류에 `[WARN] 공개 기본 키 사용 중 (별도 키 설정 권장)` 한 줄이 나옵니다(키 공급 방식과 무관, JVM당 1회). CLI는 명령마다 새 JVM이므로 명령마다 한 번 나올 수 있습니다.
-
-  `crypto.warning.enabled=false`면 나오지 않습니다. 키 상태를 직접 보여 주는 `info`·`doctor`·`fingerprint`는 이 경고 대신 키 상태(`공개 기본 키`/`사용자 지정`)를 표시합니다. 자세한 조건은 [12.1절](../reference/security.md#121-공개-기본-키-경고)에 있습니다.
+- **키 미설정:** 두 유형을 지원합니다. PASS (Passphrase)는 `--type pass`, KEY (AES Key)는 `--type key`로 선택합니다. 특정 유형의 활성 키가 없으면 그 유형의 등록 및 활성 키 ID를 확인합니다.
+- **공개 키 차단:** 어느 공급원에서든 공개된 기본 키는 사용할 수 없습니다. 파일·환경변수·Vault의 공개된 기본 Passphrase도 Salt와 반복 횟수와 관계없이 차단합니다.
 
 - **키 지문·관리정보 표시:** 관리자 인증 뒤 보는 `config show`·`config history`·`config key show`는 관리정보(64자 전체 지문, pass는 KDF·반복 횟수·Salt·Salt SHA-256, 작업자·사유)를 마스킹 없이 보여 줍니다.
 
@@ -508,10 +578,10 @@ JAR 설정 변경 이력: java-crypto-kit-0.2.0-cfg.jar (버전 0.2.0)
 
 | 구분 | 명령 | 용도 |
 |---|---|---|
-| 관리자 | [`admin setup`](#topic-admin--222-admin-setup--관리자-비밀번호-최초-설정) · [`admin password change`](#topic-admin--223-admin-password-change--관리자-비밀번호-변경) `*` | 관리자 비밀번호 최초 설정 / 변경(모두 새 JAR) |
+| 관리자 | [`admin setup`](#topic-admin--222-admin-setup--관리자-비밀번호-최초-설정) · [`admin password change`](#topic-admin--223-admin-password-change--관리자-비밀번호-변경) `*` | 관리자 비밀번호 최초 설정 / 변경(같은 JAR 갱신) |
 | 문자열 | [`encrypt`](#topic-cli-encryption--23-encrypt--문자열-암호화) · [`decrypt`](#topic-cli-encryption--24-decrypt--문자열-복호화) `*` · [`verify`](#topic-cli-encryption--25-verify--복호화-가능-여부-확인) | DB 비밀번호 등 암호화 / 평문 표시 / 평문 없이 검증 |
-| 키 | [`keygen`](key-management.md#topic-key-generation--26-keygen--새-키-파일-만들기) `*` · [`config embed-key`](key-management.md#topic-key-generation--27-config-embed-key--사용자-지정-키-내장) `*` · [`fingerprint`](key-management.md#topic-key-generation--28-fingerprint--키가-같은지-비교) · [`rekey`](key-management.md#topic-key-rotation--29-rekey--기존-암호문을-새-키로-바꾸기) `*` | 새 AES 키 파일 / AES 키 내장 JAR 만들기 / 키 비교 / 다른 키로 재암호화 |
-| 키 목록 | [`config key add`](key-management.md#topic-key-registration--218-config-key-add--키-추가) `*` · [`config key use`](key-management.md#topic-key-defaults--219-config-key-use--기본-키-변경) `*` · [`config key remove`](key-management.md#topic-key-defaults--220-config-key-remove--키-제거) `*` · [`config key show`](key-management.md#topic-key-export--224-config-key-show--키-관리정보원문-확인) `*` | pass·key 키 추가 / 유형별 기본 키 변경 / 키 제거(모두 새 JAR) / 키 관리정보·원문 확인 |
+| 키 | [`keygen`](key-management.md#topic-key-generation--26-keygen--새-키-파일-만들기) `*` · [`config embed-key`](key-management.md#topic-key-generation--27-config-embed-key--사용자-지정-키-내장) `*` · [`fingerprint`](key-management.md#topic-key-generation--28-fingerprint--키가-같은지-비교) · [`rekey`](key-management.md#topic-key-rotation--29-rekey--기존-암호문을-새-키로-바꾸기) `*` | 새 AES 키 파일 / 현재 JAR에 AES 키 내장 / 키 비교 / 다른 키로 재암호화 |
+| 키 목록 | [`config key add`](key-management.md#topic-key-registration--218-config-key-add--키-추가) `*` · [`config key use`](key-management.md#topic-key-defaults--219-config-key-use--기본-키-변경) `*` · [`config key remove`](key-management.md#topic-key-defaults--220-config-key-remove--키-제거) `*` · [`config key show`](key-management.md#topic-key-export--224-config-key-show--키-관리정보원문-확인) `*` | pass·key 키 추가 / 유형별 기본 키 변경 / 키 제거(같은 JAR 갱신) / 키 관리정보·원문 확인 |
 | JAR 설정 | [`config show`](#topic-cli-settings--210-config-show--jar-내장값-조회) `*` · [`config history`](key-management.md#topic-history--211-config-history--설정-변경-이력) `*` · [`config set`](#topic-cli-settings--212-config-set--jar-기본-설정-변경) `*` | 내장값 조회 / 변경 이력 / 기본 설정 변경 |
 | 점검 | [`info`](#topic-cli-settings--213-info--실행-시-적용-설정과-출처) · [`doctor`](#topic-cli-settings--214-doctor--설정과-키-진단) | 최종 적용 설정과 출처 / 설정·키·암복호화 진단 |
 | 파일 | [`file encrypt`](file-encryption.md#topic-file-encryption--215-file-encrypt--파일-암호화) · [`file decrypt`](file-encryption.md#topic-file-encryption--216-file-decrypt--파일-복호화) `*` | CSV·PDF·이미지 등 파일 암복호화 |
@@ -525,26 +595,37 @@ JAR 설정 변경 이력: java-crypto-kit-0.2.0-cfg.jar (버전 0.2.0)
 |---|---|---|
 | 어떤 기능이 있나 | `help` | 버전, 전체 명령 목록, 외부 설정 지정 방법, 오류 형식 |
 | 설정 값 | `config help` | `config` 하위 명령, 설정 우선순위, `crypto.*` 설정의 이름·허용값·기본값 표(80열)와 키 목록 항목 이름. 목적·예제·주의는 이 가이드 [10장](../reference/configuration.md#10-설정-사전) |
-| 키 목록 | `help config key`, `config key add --help` 등 | 키 추가·기본 키 변경·제거 명령, 유형, 공개 기본 키 |
+| 키 목록 | `help config key`, `config key add --help` 등 | 키 추가·기본 키 변경·제거 명령, 유형 및 공개된 기본 키 차단 |
 | Tomcat 설정 | `help tomcat` | 적용 5단계와 Resource 핵심 속성, 지원 버전. 전체 Resource 예제는 [3장](tomcat-jdbc.md#topic-tomcat--3-tomcat-jndi-연동) |
 | Vault·KMS | `help vault`, `help aws-kms` | 필수 설정·준비 항목·확인 명령 |
 | 명령 하나의 옵션 | `<명령> --help` | 그 명령의 용도, 실제 옵션 전체, 결과 모양, 예제 |
 | 복사용 예제 | `file --examples`, `config key add --examples`, `api jwt --examples` | 명령이나 기능군의 실행 예제 |
 | 관리자 비밀번호 | `admin setup --help`, `admin password change --help` | 최초 설정·변경 방법과 비밀번호 규칙 |
 
-전체·기능별 Help와 Examples는 관리자 비밀번호 없이 배포 JAR와 설정 완료 JAR에서 조회할 수 있습니다. 기존 명령과 `api`의 Examples는 같은 초기 설정 안내를 표시합니다. 배포 JAR에서 조회했다면 `admin setup`을 그 JAR로 실행하고, 암복호화 등 실무 예제는 생성된 설정 JAR로 실행하세요. `admin setup --examples`는 최초 설정용 배포 JAR를 안내합니다. 조회는 사용자 설정·키 파일을 읽거나, 인증 상태를 검사하거나, 외부에 접속하지 않습니다. 인자 없이 미설정 JAR를 실행하면 초기 설정 절차와 조회 방법을 함께 표시합니다. 실제 업무 명령에는 명령별 관리자 정책이 적용됩니다. Help는 기본 배포 JAR 이름 기준 80열로 표시합니다.
+전체·기능별 Help와 Examples는 관리자 비밀번호 없이 배포 JAR와 설정 완료 JAR에서 조회할 수 있습니다. 기존 명령과 `api`의 Examples는 같은 초기 설정 안내를 표시합니다. 배포 JAR에서 조회했다면 `admin setup`을 그 JAR로 실행하고, 최초 설정이 완료되면 암복호화 등 실무 명령도 같은 파일명과 경로의 JAR로 실행하세요. `admin setup --examples`는 최초 설정용 배포 JAR를 안내합니다. 조회는 사용자 설정·키 파일을 읽거나, 인증 상태를 검사하거나, 외부에 접속하지 않습니다. 인자 없이 미설정 JAR를 실행하면 초기 설정 절차와 조회 방법을 함께 표시합니다. 실제 업무 명령에는 명령별 관리자 정책이 적용됩니다. Help는 기본 배포 JAR 이름 기준 80열로 표시합니다.
 
 예외는 필수 옵션을 모두 쓴 복사용 예제 세 줄(`config embed-key`, `config key remove`, 비대화형 `admin setup`)입니다(사유를 생략하는 대화형 명령은 실행할 때 물어봄). 그 밖의 긴 예제(`config set --replace`·키 파일 전환·Pool 선택, `config key add`의 공급원별 예제, KMS `--from-file`·`--config`, 셸별 `CP` 만들기)는 이 가이드의 명령별 절과 [부록 A](#topic-cli--부록-a-실무-명령어집)에 있습니다.
 
 `tomcat`·`vault`·`aws-kms`는 도움말 주제이며 실행 명령이 아닙니다.
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0.jar --help
-java -jar .\java-crypto-kit-0.2.0.jar config help
-java -jar .\java-crypto-kit-0.2.0.jar help tomcat
-java -jar .\java-crypto-kit-0.2.0.jar config set --help --lang en
-java -jar .\java-crypto-kit-0.2.0.jar config key add --examples
-java -jar .\java-crypto-kit-0.2.0.jar api jwt --examples
+# 명령의 옵션과 사용법 조회
+java -jar .\java-crypto-kit-0.2.1.jar --help
+
+# 설정 이름과 허용값 조회
+java -jar .\java-crypto-kit-0.2.1.jar config help
+
+# CLI 사용법 조회
+java -jar .\java-crypto-kit-0.2.1.jar help tomcat
+
+# 명령의 옵션과 사용법 조회
+java -jar .\java-crypto-kit-0.2.1.jar config set --help --lang en
+
+# 실행 전 명령별 실무 예제 확인
+java -jar .\java-crypto-kit-0.2.1.jar config key add --examples
+
+# 실행 전 명령별 실무 예제 확인
+java -jar .\java-crypto-kit-0.2.1.jar api jwt --examples
 ```
 
 
@@ -553,16 +634,16 @@ java -jar .\java-crypto-kit-0.2.0.jar api jwt --examples
 
 자주 하는 작업을 순서대로 모은 명령입니다. 각 상황에 Windows PowerShell과 Linux bash 명령을 나눠 적고, 입력 프롬프트와 기대 결과를 붙였습니다.
 
-모든 명령은 이 버전의 배포 JAR로 Windows PowerShell 5.1(JDK 8, 한국어 콘솔)과 Linux bash(JDK 21)에서 실제로 실행해 확인했습니다. 옵션의 전체 의미는 [2장](#topic-cli--2-cli-명령)에 있습니다.
+ 옵션의 전체 의미는 [2장](#topic-cli--2-cli-명령)에 있습니다.
 
-- 명령은 [A.1](#topic-admin--a1-준비-관리자-비밀번호와-보호된-폴더)에서 관리자 비밀번호를 설정한 JAR(`java-crypto-kit-0.2.0-cfg.jar`)이 있는 폴더에서 실행합니다. 결과 JAR는 상황마다 `--out`으로 이름을 정해 서로 겹치지 않게 했습니다(생략하면 `<이름>-cfg.jar`). 결과 JAR에도 같은 관리자 비밀번호가 이어집니다.
+- 명령은 [A.1](#topic-admin--a1-준비-관리자-비밀번호와-보호된-폴더)에서 관리자 비밀번호를 설정한 JAR(`java-crypto-kit-0.2.1.jar`)이 있는 폴더에서 실행합니다. 일부 예제는 독립된 구성을 위해 먼저 JAR를 직접 복사합니다. 복사한 JAR에도 같은 관리자 비밀번호가 이어집니다.
 - 복호화·키 관리·`config show`·`config history`·`config key show` 같은 민감 명령은 `관리자 비밀번호(입력 숨김):`를 먼저 묻습니다(아래 화면의 그 줄). 스크립트·CI에서는 `--admin-pass-file <파일>`을 붙입니다.
 - 키를 만들거나 바꾸는 명령에는 사유(`--reason`)를 붙였습니다. 빼면 대화형 터미널에서 `사유(비밀값 제외):`를 묻고([A.7](key-management.md#topic-key-defaults--a7-기본-키기본-유형-바꾸기)), 스크립트·CI에서는 아무것도 바꾸기 전에 오류로 끝납니다.
 - 지문·Salt·암호문은 실행할 때마다 달라집니다. 아래 결과의 값은 예시이며 모양만 같으면 정상입니다. 자동 생성값(비밀 원문)은 `<생성 결과>`로 적었습니다.
 - 명령의 `'ENC[v1:<키 ID>:...]'`는 **자리표시자**입니다. 그 키로 앞 단계에서 실제로 만든 암호문 한 줄 전체(대괄호 포함)로 바꿔 실행합니다. **실패 시연**이라고 적은 명령은 오류 화면을 보여 주려고 일부러 틀리게 적은 것입니다.
 - 숨김 입력(`(입력 숨김):`)·사유 질문·`CHANGE` 확인은 실제 터미널에서 입력합니다. 무인 실행에는 `--yes`를 붙입니다(키 변경 확인만 생략, 사유는 필요). 숨김 입력이 필요한 명령은 스크립트·파이프에서 실행하지 않습니다.
-- 공개 기본 키를 쓰는 명령은 표준 오류에 `[WARN] 공개 기본 키 사용 중 (별도 키 설정 권장)` 한 줄이 함께 나옵니다(결과 줄과 섞이지 않음).
-- 결과 화면은 Windows 예입니다. Linux·macOS에서는 새 JAR를 만드는 명령의 `생성 JAR` 다음 줄에 `권한      : 소유자만(600). 배포할 때 서비스 계정이 읽게 정하세요(가이드 12.2).`가 더 나옵니다([12.2절](../reference/security.md#122-키-파일과-키-내장-jar-보관)).
+- 공개된 기본 키로 만든 데이터는 격리된 환경에서 이전 버전 JAR로 복호화한 뒤 새 키로 다시 암호화하세요.
+- 최초 설정은 Linux에서 소유자 전용 권한(600)으로 저장합니다. 배포 시 서비스 계정의 접근 권한을 확인합니다.
 
 [이 문서의 목차로 ↑](#guide-contents)
 
@@ -578,7 +659,7 @@ java -jar .\java-crypto-kit-0.2.0.jar api jwt --examples
 **사용 상황:** DB 비밀번호(필요하면 DB 계정도)를 `ENC[...]`로 바꿔 Tomcat Resource 등에 넣을 때. 운영에서는 **WAS가 쓰는 것과 같은 키·키ID를 가진 JAR(또는 같은 외부 설정)** 로 실행합니다.
 
 ```text
-java -jar <JAR> encrypt [--type pass|key] [--key-id <키 ID>] [--config <외부 Properties>] [--lang ko|en]
+java -jar <JAR> enc [--type pass|key] [--key-id <키 ID>] [--config <외부 Properties>] [--lang ko|en]
 ```
 
 | 옵션 | 필수 | 의미·기본값 |
@@ -591,22 +672,32 @@ java -jar <JAR> encrypt [--type pass|key] [--key-id <키 ID>] [--config <외부 
 **예제**
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar enc                        # 체험: 공개 pass 키(키ID pass-default)
-java -jar .\java-crypto-kit-0.2.0-cfg.jar enc --type key             # 체험: 공개 AES 키(키ID default)
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar enc             # 운영: 그 JAR의 기본 키
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar enc --key-id key01
+# 설정 JAR의 활성 pass 키
+java -jar .\java-crypto-kit-0.2.1.jar enc
+
+# 최초 설정에서 생성한 활성 AES 키로 암호화
+java -jar .\java-crypto-kit-0.2.1.jar enc --type key
+
+# 운영: 그 JAR의 기본 키
+java -jar .\java-crypto-kit-0.2.1.jar enc
+
+# 입력한 값을 활성 키로 암호화
+java -jar .\java-crypto-kit-0.2.1.jar enc --key-id key01
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar enc
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar enc --type key --config /etc/java-crypto-kit/app.properties
+# 입력한 값을 활성 키로 암호화
+java -jar ./java-crypto-kit-0.2.1.jar enc
+
+# 입력한 값을 활성 키로 암호화
+java -jar ./java-crypto-kit-0.2.1.jar enc --type key --config /etc/java-crypto-kit/app.properties
 ```
 
-정식 명령으로 실행하려면 `java -jar ./java-crypto-kit-0.2.0-cfg-2.jar encrypt --lang ko`를 사용합니다.
+정식 명령으로 실행하려면 `java -jar ./java-crypto-kit-0.2.1.jar encrypt --lang ko`를 사용합니다.
 
 **결과:** 키를 먼저 고른 뒤 평문을 화면에 보이지 않게 입력받고, 표준 출력에 암호문 한 줄만 씁니다(설정이 `base64`면 `B64[...]`). 이 한 줄 전체(대괄호 포함)를 Tomcat Resource의 `password`에 넣습니다.
 
-암호문에 키 ID가 들어 있으므로 복호화할 때 유형을 고르지 않습니다. 같은 평문도 매번 다른 암호문이 나오는 것이 정상입니다. 공개 기본 키로 실행하면 표준 오류에 공통 경고 한 줄이 함께 나오며 암호문 줄과 섞이지 않습니다(리다이렉트해도 암호문만 저장됨).
+암호문에 키 ID가 들어 있으므로 복호화할 때 유형을 고르지 않습니다. 같은 평문도 매번 다른 암호문이 나오는 것이 정상입니다. 공개된 기본 키를 선택하면 실행이 실패합니다.
 
 ```text
 암호화할 값(입력 숨김):
@@ -623,7 +714,7 @@ ENC[v1:app-pass:...]
 **사용 상황:** 암호문의 실제 값을 확인할 때. 복호화 가능 여부만 보려면 [`verify`](#topic-cli-encryption--25-verify--복호화-가능-여부-확인)를 씁니다.
 
 ```text
-java -jar <JAR> decrypt [--config <외부 Properties>] [--admin-pass-file <파일>] [--lang ko|en]
+java -jar <JAR> dec [--config <외부 Properties>] [--admin-pass-file <파일>] [--lang ko|en]
 ```
 
 | 옵션 | 필수 | 의미·기본값 |
@@ -635,14 +726,16 @@ java -jar <JAR> decrypt [--config <외부 Properties>] [--admin-pass-file <파�
 **예제**
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar dec
+# 관리자 인증 후 암호문을 복호화
+java -jar .\java-crypto-kit-0.2.1.jar dec
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar dec
+# 관리자 인증 후 암호문을 복호화
+java -jar ./java-crypto-kit-0.2.1.jar dec
 ```
 
-정식 명령으로 실행하려면 `java -jar ./java-crypto-kit-0.2.0-cfg-2.jar decrypt --lang ko`를 사용합니다.
+정식 명령으로 실행하려면 `java -jar ./java-crypto-kit-0.2.1.jar decrypt --lang ko`를 사용합니다.
 
 **결과:** 먼저 관리자 비밀번호를 확인하고([1.4절](#topic-admin--14-cli-관리자-비밀번호), `--admin-pass-file`을 주면 묻지 않음), 그다음 `ENC[...]`/`B64[...]` 암호문을 화면에 보이지 않게 **한 번** 입력하면, 암호문의 키 ID로 등록된 키(pass·key 모두)를 찾아 AES-GCM 인증 태그 검증에 성공한 경우에만 표준 출력에 `복호화 결과: <평문>`을 바로 표시합니다.
 
@@ -679,13 +772,15 @@ java -jar <JAR> verify [--config <외부 Properties>] [--value <암호문>] [--l
 
 ```powershell
 # 대화형(권장: 암호문이 셸 기록에 남지 않음)
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar verify
+java -jar .\java-crypto-kit-0.2.1.jar verify
+
 # 자동화에서만: 셸 기록에 암호문이 남습니다
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar verify --value 'ENC[v1:key01:실제IV:실제암호문]'
+java -jar .\java-crypto-kit-0.2.1.jar verify --value 'ENC[v1:key01:실제IV:실제암호문]'
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar verify
+# 평문 표시 없이 암호문의 무결성 확인
+java -jar ./java-crypto-kit-0.2.1.jar verify
 ```
 
 **결과:** 암호문의 키 ID로 등록된 키를 찾아 키·AES-GCM 인증 태그가 맞으면 `OK` 한 줄(종료 0)이며 평문은 표시하지 않습니다. 맞지 않으면 사유 코드와 함께 종료 코드 1입니다. DB 계정·비밀번호가 실제 DB에 맞는지는 검사하지 않습니다.
@@ -693,44 +788,20 @@ java -jar ./java-crypto-kit-0.2.0-cfg-2.jar verify
 **오류·주의:** `KEY_ID_MISMATCH`면 키 내장 JAR의 키 목록(`config show`·`info`)과 암호문의 키ID를 비교하고, `INTEGRITY`면 키 지문과 암호문 변조 여부를, `INVALID_TOKEN`이면 암호문 전체를 다시 복사했는지 확인합니다.
 
 <a name="topic-cli-encryption--a2-체험-공개-키로-암호화복호화검증"></a>
-### 체험: 공개 키로 암호화·복호화·검증 (A.2)
+### 설정 JAR로 암호화·복호화·검증 (A.2)
 
-```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar enc
-java -jar .\java-crypto-kit-0.2.0-cfg.jar enc --type key
-java -jar .\java-crypto-kit-0.2.0-cfg.jar enc --key-id default
-java -jar .\java-crypto-kit-0.2.0-cfg.jar dec
-java -jar .\java-crypto-kit-0.2.0-cfg.jar verify --value 'ENC[v1:pass-default:...]'
+```sh
+# 활성 pass 키로 입력값을 암호화
+java -jar java-crypto-kit-0.2.1.jar enc
+
+# 이전 단계에서 복사한 암호문 전체를 입력해 인증 태그 확인
+java -jar java-crypto-kit-0.2.1.jar verify
+
+# 관리자 비밀번호와 같은 암호문을 입력해 원문 확인
+java -jar java-crypto-kit-0.2.1.jar dec
 ```
 
-```bash
-java -jar ./java-crypto-kit-0.2.0-cfg.jar enc
-java -jar ./java-crypto-kit-0.2.0-cfg.jar enc --type key
-java -jar ./java-crypto-kit-0.2.0-cfg.jar enc --key-id default
-java -jar ./java-crypto-kit-0.2.0-cfg.jar dec
-java -jar ./java-crypto-kit-0.2.0-cfg.jar verify --value 'ENC[v1:pass-default:...]'
-```
-
-```text
-암호화할 값(입력 숨김):                      ← example-value 입력(화면에 보이지 않음)
-[WARN] 공개 기본 키 사용 중 (별도 키 설정 권장)
-ENC[v1:pass-default:NTt5gULD4iRiN4dv:OYTKXNyDgAYNUFTldIraNZvm7sB1i54lP3jRt-w]
-
-ENC[v1:default:...]                          ← --type key(key 유형의 기본 키)
-ENC[v1:default:...]                          ← --key-id default(키 ID만 지정, 유형은 자동)
-
-관리자 비밀번호(입력 숨김):                  ← decrypt는 관리자 비밀번호를 먼저 확인
-암호문(입력 숨김):                           ← 위 암호문 한 줄 전체
-복호화 결과: example-value
-
-OK                                           ← verify
-```
-
-`verify --value`의 `'ENC[v1:pass-default:...]'`는 자리표시자이므로 바로 위 `encrypt`가 출력한 한 줄로 바꿉니다.
-
-같은 JAR가 pass·key 두 유형으로 암호화하고, 복호화·검증은 유형을 고르지 않습니다(암호문의 키 ID `pass-default`·`default`로 자동 선택). `encrypt`·`verify`는 관리자 비밀번호를 묻지 않습니다.
-
-공개 키는 시험 데이터에만 씁니다.
+AES 유형의 활성 키를 쓰려면 첫 단계에서 `enc --type key`를 실행하세요. 복호화할 때는 암호문에 기록된 키 ID를 읽습니다.
 
 [이 문서의 목차로 ↑](#guide-contents)
 
@@ -757,13 +828,22 @@ java -jar <실행 JAR> config show [--jar <조회할 JAR>] [--admin-pass-file <�
 **예제**
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar config show
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config show --jar .\java-crypto-kit-0.2.0-cfg-2.jar
+# JAR에 저장된 키 목록과 설정 조회
+java -jar .\java-crypto-kit-0.2.1.jar config show
+
+# 보호된 backup 폴더의 다른 JAR 설정 조회
+java -jar .\java-crypto-kit-0.2.1.jar config show --jar .\backup\java-crypto-kit-0.2.1.jar
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar config show
+# JAR에 저장된 키 목록과 설정 조회
+java -jar ./java-crypto-kit-0.2.1.jar config show
+
+# 보호된 backup 폴더의 다른 JAR 설정 조회
+java -jar ./java-crypto-kit-0.2.1.jar config show --jar ./backup/java-crypto-kit-0.2.1.jar
 ```
+
+다른 JAR를 조회하려면 `backup`에 해당 파일이 있어야 합니다. 대상 JAR의 관리자 인증 규칙도 적용하며 두 JAR를 모두 읽기 전용으로 엽니다.
 
 **결과:** 첫 줄에 JAR 내부 값임을 밝히고, JAR 파일·버전, 이력 상태(변경 횟수·마지막 시각·수정자), 관리자 비밀번호 상태, 빌드 일시, **기본 유형·유형별 기본 키·키 목록**(키마다 유형·공급원·상태 한 줄과 그 아래 64자 전체 지문, pass는 KDF·반복 횟수·Salt·Salt SHA-256), 설정 파일 지문, 설정 검증 결과를 한 번 보여 준 뒤 내장 설정값 전체를 한 번만 나열합니다.
 
@@ -772,18 +852,18 @@ java -jar ./java-crypto-kit-0.2.0-cfg-2.jar config show
 ```text
 관리자 비밀번호(입력 숨김):
 JAR 내부 설정 (외부 설정·-D 미반영, 실행 시 적용값은 info)
-JAR 파일  : java-crypto-kit-0.2.0-cfg-2.jar (버전 0.2.0)
+JAR 파일  : java-crypto-kit-0.2.1.jar (버전 0.2.1)
 상태      : 변경 2회 - 마지막 2026-11-22T05:30:12Z, 수정자 example-admin
 관리자    : 비밀번호 설정됨(민감 명령은 관리자 인증 필요)
 빌드 일시 : 2026-11-21T00:00:00Z
 기본 유형 : pass
-기본 키   : pass=pass-default, key=key01
+기본 키   : pass=app-pass, key=key01
 키 목록   :
   key01: key, embedded, 사용자 지정, crypto.key.*
     키 지문: ab12cd34...(64자 전체)
-  default: key, embedded, 공개 기본 키
+  key-<생성 ID>: key, embedded, 사용자 지정
     키 지문: aac695cbd2498e97131ae49579a219c5e7f41e87e2738ba49199847c00e41a49
-  pass-default: pass, embedded, 공개 기본 키
+  app-pass: pass, embedded, 사용자 지정
     키 지문: 3dca588c78a17aad886e9403e8743990d79d479bbe610664adc3ff7e94453656
     KDF: pbkdf2-sha256, 600,000회
     Salt: Bt9HhTFtDOVUgGsvFtnzMw==
@@ -799,11 +879,11 @@ crypto.key.embedded = (비공개)
 ...
 ```
 
-`설정 지문`은 JAR 안의 설정 파일 내용을 식별하는 값이며 **키 지문이 아닙니다**. 키 목록의 `crypto.key.*`는 `crypto.key.source`·`crypto.key.id` 등 고정 설정으로 정하는 AES 키(이전 형식와 같은 자리)라는 표시입니다.
+`설정 지문`은 JAR 안의 설정 파일 내용을 식별하는 값이며 **키 지문이 아닙니다**. 키 목록의 `crypto.key.*`는 `crypto.key.source`·`crypto.key.id` 등 고정 설정으로 정하는 AES 키 슬롯이라는 표시입니다.
 
 외부 공급원 키는 읽지 않고 `외부 키`와 등록할 때 고정한 지문(`<64자> (고정 지문)`, 없으면 `모름(외부 키, 고정 지문 없음)`)만 보여 줍니다.
 
-한 줄이 80열을 넘으면 키 ID·항목 이름 다음에서 줄을 바꿉니다(값은 자르지 않음). `관리자` 줄은 이 JAR의 관리자 비밀번호 상태(`비밀번호 설정됨`, 이전 형식 JAR이면 `지원 안 함(이전 버전 JAR, CLI 인증 없음)`)이며 비밀번호·검증값은 보여 주지 않습니다.
+한 줄이 80열을 넘으면 키 ID·항목 이름 다음에서 줄을 바꿉니다(값은 자르지 않음). `관리자` 줄은 이 JAR의 관리자 비밀번호 상태(`비밀번호 설정됨`, 관리자 기능이 없는 JAR이면 `지원 안 함(이전 버전 JAR, CLI 인증 없음)`)이며 비밀번호·검증값은 보여 주지 않습니다.
 
 **주의:** 외부 Properties와 JVM `-D`(외부 설정에 추가한 키 포함)는 반영하지 않습니다.
 
@@ -812,11 +892,11 @@ WAS가 실제로 쓰는 값과 키는 [`info`](#topic-cli-settings--213-info--�
 <a name="topic-cli-settings--212-config-set--jar-기본-설정-변경"></a>
 ### `config set` — JAR 기본 설정 변경 (2.12)
 
-**사용 상황:** WAS마다 외부 Properties나 `-D`를 반복하지 않고 JAR의 기본 설정(언어, 경고, 키 공급원, Pool 종류 등)을 바꿀 때. 실행 중인 프로세스의 설정을 바꾸는 명령이 아니며, 바뀐 결과 JAR를 다시 배포해야 적용됩니다.
+**사용 상황:** WAS마다 외부 Properties나 `-D`를 반복하지 않고 JAR의 기본 설정(언어, 경고, 키 공급원, Pool 종류 등)을 바꿀 때. 실행 중인 프로세스의 설정을 바꾸는 명령이 아니며, 갱신한 JAR를 다시 배포해야 적용됩니다.
 
 ```text
 java -jar <입력 JAR> config set <설정>=<값> [<설정>=<값> ...] --operator <수정자>
-    [--reason <사유>] [--jar <대상 JAR>] [--out <결과 JAR> | --replace] [--yes] [--admin-pass-file <파일>] [--lang ko|en]
+    [--reason <사유>] [--jar <대상 JAR>] [--replace] [--yes] [--admin-pass-file <파일>] [--lang ko|en]
 ```
 
 | 옵션 | 필수 | 의미·기본값 |
@@ -825,41 +905,46 @@ java -jar <입력 JAR> config set <설정>=<값> [<설정>=<값> ...] --operator
 | `--operator <ID>` | 예 | 변경 이력에 남길 수정자 식별자(문자·숫자·`.`·`_`·`@`·`-`, 1~64자) |
 | `--reason <사유>` | 키 관련 설정이면 예 | 이력에 남길 변경 사유(한 줄, 200자 이하, 비밀값 금지). 키 관련 설정(키 공급원·키ID·기본 유형·기본 키·키 위치 등)을 바꾸면 필수: 빠지면 대화형 터미널에서 묻고, 스크립트·CI에서는 바꾸기 전에 오류. 키와 무관한 설정만 바꿀 때는 선택 |
 | `--jar <JAR>` | 아니요 | 실행 중인 JAR 대신 다른 JAR를 바꿀 때 |
-| `--out <JAR>` | 아니요 | 결과 JAR 경로. 생략하면 `-cfg.jar`(이미 바꾼 JAR면 다음 번호). 같은 이름의 파일이 있으면 오류 |
-| `--replace` | 아니요 | 백업(`<이름>.bak-<UTC>`)을 만든 뒤 대상 JAR 교체. `--out`과 함께 쓸 수 없음 |
-| `--yes` | 아니요 | 키 관련 설정(키 공급원·키ID·기본 유형·기본 키·키 위치 등)을 바꿀 때의 `CHANGE` 확인 생략(무인 자동화). 키 관련 설정은 새 JAR를 만들 때도 확인하고, 키와 무관한 설정은 확인하지 않음 |
+| `--replace` | 아니요 | 기존 스크립트 호환용. 생략해도 같은 경로를 갱신합니다. |
+| `--yes` | 아니요 | 키 관련 설정(키 공급원·키ID·기본 유형·기본 키·키 위치 등)을 바꿀 때의 `CHANGE` 확인 생략(무인 자동화). 키 관련 설정은 확인하고, 키와 무관한 설정은 확인하지 않음 |
 | `--admin-pass-file <파일>` | 아니요 | 관리자 비밀번호 파일(한 줄, 비대화형 인증). 생략하면 대화형 터미널에서 묻고, 비대화형이면 아무것도 하지 않고 실패([1.4절](#topic-admin--14-cli-관리자-비밀번호)) |
 | `--lang ko\|en` | 아니요 | 이번 실행의 메시지 언어 |
 
 **예제**
 
 ```powershell
-# 키 내장 JAR를 바꾸면 -cfg-2.jar가 새로 만들어집니다(원본 그대로).
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar config set crypto.lang=en --operator example-admin --reason "English messages"
-java -jar .\java-crypto-kit-0.2.0-cfg-3.jar config show
+# 키·설정을 같은 JAR 경로에서 변경합니다.
+java -jar java-crypto-kit-0.2.1.jar config set crypto.lang=en --operator example-admin --reason "English messages"
+
+# JAR에 저장된 키 목록과 설정 조회
+java -jar .\java-crypto-kit-0.2.1.jar config show
+
 # XML에서 cryptoPool을 생략한 Resource의 기본 Pool 변경
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar config set crypto.pool.factory=org.apache.tomcat.jdbc.pool.DataSourceFactory --operator example-admin
+java -jar java-crypto-kit-0.2.1.jar config set crypto.pool.factory=org.apache.tomcat.jdbc.pool.DataSourceFactory --operator example-admin
 ```
 
 ```bash
-# 공개 기본 키 경고 끄기(경고 한 줄만 없어지며 공개 키의 위험은 그대로)
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar config set crypto.warning.enabled=false --operator example-admin
-# 키 파일 공급으로 바꾸기(경로는 실행할 때 -D나 외부 Properties로 줘도 됨). 키 관련 설정이므로 CHANGE 확인
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar config set crypto.key.source=file crypto.key.file=/etc/java-crypto-kit/app.key --operator example-admin --reason "파일 키로 전환"
-# 유형을 정하지 않은 새 암호화의 기본 유형을 key로(이전 형식처럼 crypto.key.* AES 키가 기본)
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar config set crypto.key.type=key --operator example-admin --reason "기본 유형 key" --yes
-# 다른 JAR를 그 자리에서 바꾸기(<이름>.bak-<UTC> 백업 후 교체. 키 관련 설정이면 CHANGE 확인 또는 --yes)
-java -jar ./tools/java-crypto-kit-0.2.0-cfg.jar config set crypto.lang=ko --jar /opt/tomcat/lib/java-crypto-kit-0.2.0-cfg-2.jar --replace --operator example-admin
+# 경고 옵션 변경(공개된 기본 키 차단은 항상 적용)
+java -jar ./java-crypto-kit-0.2.1.jar config set crypto.warning.enabled=false --operator example-admin
+
+# 기존 AES 슬롯과 같은 키를 담은 파일로 공급 위치 변경
+java -jar ./java-crypto-kit-0.2.1.jar config set crypto.key.source=file crypto.key.file=/etc/java-crypto-kit/app.key --operator example-admin --reason "같은 키를 파일에서 공급"
+
+# 유형을 정하지 않은 새 암호화의 기본 유형을 key로
+java -jar ./java-crypto-kit-0.2.1.jar config set crypto.key.type=key --operator example-admin --reason "기본 유형 key" --yes
+
+# 같은 JAR의 내부 설정 갱신(키 관련 설정은 CHANGE 확인 또는 --yes)
+java -jar ./tools/java-crypto-kit-0.2.1.jar config set crypto.lang=ko --jar /opt/tomcat/lib/java-crypto-kit-0.2.1.jar --replace --operator example-admin
 ```
 
-**결과:** 출력된 **결과 JAR 경로**가 다음 실행·배포 대상입니다. 어떤 설정이든 먼저 관리자 비밀번호를 확인합니다.
+**결과:** 출력된 **갱신 JAR** 경로(같은 경로)가 다음 실행·배포 대상입니다. 어떤 설정이든 먼저 관리자 비밀번호를 확인합니다.
 
-키와 무관한 설정은 확인 입력 없이 바로 만들고, 키 관련 설정은 사유를 받은 뒤 확인 화면(`키 관련 설정을 바꿉니다(키 위치·키 ID가 바뀌면 그 키의 기존 암호문에 영향):`, `결과: 새 JAR ...` 또는 `결과: 원본 JAR 교체(백업 생성)`, 사유, 설정마다 한 줄)을 보여 주고 `CHANGE` 입력(또는 `--yes`)을 받습니다.
+키와 무관한 설정은 확인 입력 없이 같은 JAR를 갱신하고, 키 관련 설정은 사유를 받은 뒤 확인 화면(`키 관련 설정을 바꿉니다(키 위치·키 ID가 바뀌면 그 키의 기존 암호문에 영향):`, 갱신 대상, 사유, 설정마다 한 줄)을 보여 주고 `CHANGE` 입력(또는 `--yes`)을 받습니다.
 
-출력은 `생성 JAR`와 `변경 항목`(바뀐 설정마다 한 줄)입니다(`--replace`면 `교체 JAR`·`백업`·`변경 항목`).
+갱신이 끝나면 대상 JAR 경로와 변경 항목을 표시합니다.
 
 ```text
-생성 JAR  : /opt/app/java-crypto-kit-0.2.0-cfg-3.jar
+갱신 JAR  : /opt/app/java-crypto-kit-0.2.1.jar
 변경 항목 : crypto.lang (ko -> en)
 ```
 
@@ -871,17 +956,17 @@ java -jar ./tools/java-crypto-kit-0.2.0-cfg.jar config set crypto.lang=ko --jar 
               -> org.apache.tomcat.jdbc.pool.DataSourceFactory)
 ```
 
-바꾼 뒤 전체 설정을 실행 시와 같은 규칙으로 다시 검증하고, 결과 JAR를 다시 읽어 확인한 뒤에만 자리에 둡니다.
+바꾼 뒤 전체 설정을 실행 시와 같은 규칙으로 다시 검증하고, 비활성 영역에 쓴 새 상태를 다시 읽어 확인한 뒤에만 선택자를 바꿉니다.
 
 `config show`는 그 JAR의 내장값, `config history`는 누적 이력, `info`는 외부 Properties·허용된 `-D`까지 반영한 실제 값을 보여 줍니다.
 
-`crypto.key.source=file`만 바꾸고 `crypto.key.file`은 실행할 때 `-D`·외부 Properties로 주는 구성도 정상입니다. 실행 시에도 경로가 없으면 내장 키로 바꾸지 않고 실패합니다(`doctor`로 미리 확인).
+이력에 확인된 키 지문이 없는 레거시 슬롯은 `crypto.key.source=file`을 먼저 설정하고 `crypto.key.file`은 실행 시 `-D`·외부 Properties로 지정할 수 있습니다. 이력에 지문이 있는 슬롯을 같은 ID로 옮길 때는 같은 키를 읽을 수 있도록 새 위치를 먼저 준비합니다. 활성 공급원이나 위치를 변경할 때 키가 이력과 다르거나 읽을 수 없으면 `KEY_SOURCE`로 거부합니다.
 
-**오류·주의:** 결과 파일이 이미 있으면 다른 `--out` 경로를 씁니다. 잘못된 설정 이름·값은 [10장](../reference/configuration.md#10-설정-사전)을 확인합니다.
+**오류·주의:** 대상 JAR가 사용 중이면 잠금을 해제한 뒤 실행합니다. 잘못된 설정 이름·값은 [10장](../reference/configuration.md#10-설정-사전)을 확인합니다.
 
-키 공급원·키ID 변경은 기존 암호문에 영향을 줍니다(`rekey` 필요). 키 목록에 없는 키 프로필 항목은 이 명령으로 추가할 수 없습니다(`config key add`). 실행 중인 JAR·서명된 JAR·이력이 손상된 JAR는 바꾸지 않습니다.
+실행 대상 JAR의 내부 설정을 동일 경로에 갱신합니다. 쓰기 권한이나 변경에 필요한 파일 잠금을 얻지 못하면 실패합니다. 서명된 JAR, 설정·이력이 손상된 JAR, 예약 영역이 없는 구형 JAR는 편집할 수 없습니다. 키 목록에 새 프로필을 추가하려면 `config key add`를 사용합니다. 다른 키 재료로 교체하거나 키 ID를 바꾸면 기존 암호문에 영향이 있습니다. 이전 키와 ID를 쓸 수 있을 때 `rekey`로 이전하고 복호화 결과를 확인하세요.
 
-`--replace` 뒤 원래대로 돌리려면 출력된 백업 파일을 원래 이름으로 되돌립니다(Linux `mv <백업> <JAR>`, Windows `Move-Item -Force <백업> <JAR>`).
+이전 상태가 필요하면 변경 전에 보호된 위치에 JAR를 직접 복사하세요.
 
 <a name="topic-cli-settings--213-info--실행-시-적용-설정과-출처"></a>
 ### `info` — 실행 시 적용 설정과 출처 (2.13)
@@ -900,12 +985,16 @@ java -jar <JAR> info [--config <외부 Properties>] [--lang ko|en]
 **예제**
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar info
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar info --config C:/secure/app.properties
+# 적용된 설정과 활성 키 조회
+java -jar .\java-crypto-kit-0.2.1.jar info
+
+# 적용된 설정과 활성 키 조회
+java -jar .\java-crypto-kit-0.2.1.jar info --config C:/secure/app.properties
 ```
 
 ```bash
-java -Dcrypto.config.file=/etc/java-crypto-kit/app.properties -jar ./java-crypto-kit-0.2.0-cfg-2.jar info
+# 적용된 설정과 활성 키 조회
+java -Dcrypto.config.file=/etc/java-crypto-kit/app.properties -jar ./java-crypto-kit-0.2.1.jar info
 ```
 
 **결과:** 먼저 **기본 유형과 유형별 기본 키**를, 이어서 **등록된 키마다** 꼬리표(유형, 그 유형의 기본 키면 `기본`, `crypto.key.*` AES 키면 `crypto.key.*`)·공급원·위치·(pass는 KDF)·키 상태·짧은 키 지문·조회 결과를, 마지막으로 알고리즘·출력 형식·언어·경고·Pool·외부 설정·`-D` 정책과 적용·무시한 `-D`(한 줄에 하나씩)·JAR 이력을 보여 줍니다.
@@ -975,12 +1064,16 @@ java -jar <JAR> doctor [--config <외부 Properties>] [--offline] [--lang ko|en]
 **예제**
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar doctor
+# 키 공급원과 암복호화 동작 진단
+java -jar .\java-crypto-kit-0.2.1.jar doctor
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar doctor --config /etc/java-crypto-kit/app.properties
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar doctor --offline
+# 키 공급원과 암복호화 동작 진단
+java -jar ./java-crypto-kit-0.2.1.jar doctor --config /etc/java-crypto-kit/app.properties
+
+# 키 공급원과 암복호화 동작 진단
+java -jar ./java-crypto-kit-0.2.1.jar doctor --offline
 ```
 
 **점검 항목:** JAR 내장 설정, JAR 설정 이력, 설정 로딩(외부 Properties·`-D` 포함, 오타·충돌·잘못된 키 목록 항목은 여기서 중단), 적용·무시된 `-D`, 알고리즘, 기본 유형·유형별 기본 키, **등록된 키마다** 공급원 준비(키 파일 존재·종류·읽기 권한, 키 환경변수, Vault 필수 설정·토큰·CA 파일, AWS SDK·KMS 키 ID·데이터 키 파일·리전)와 실제 키 로딩(외부 키는 고정 지문 일치 확인, 키 상태·짧은 지문), 암호화·복호화·변조 거부 자체 검사(읽은 키 하나로, 가능하면 새 암호화의 기본 키). 한 키가 실패해도 다른 키 점검은 계속합니다.
@@ -1021,7 +1114,7 @@ java -jar ./java-crypto-kit-0.2.0-cfg-2.jar doctor --offline
 
 마지막 줄은 `결과: PASS` 또는 `결과: FAIL n건`이며 WARN·SKIP이 있으면 `(WARN 1, SKIP 1)`처럼 개수를 덧붙입니다.
 
-공개 기본 키(`pass-default`·`default`)가 키 목록에 있으면 키 로딩 줄의 키 상태가 `공개 기본 키`로 보일 뿐 따로 경고하지 않습니다(동작 점검은 PASS). 한 줄이 80열을 넘으면 키 꼬리표 다음에서 줄을 바꿉니다.
+공개된 기본 키가 등록된 경우 실제 키 로딩은 실패합니다. 진단의 키 ID와 공급원을 확인하세요.
 
 키 파일 권한 범위, Vault 버전 고정, KMS 엔드포인트·자격증명 방식 같은 운영 판단은 점검하지 않습니다([12장](../reference/security.md#12-운영보안-참고)).
 
@@ -1033,10 +1126,17 @@ java -jar ./java-crypto-kit-0.2.0-cfg-2.jar doctor --offline
 `api <기능> <동작>`은 키와 정책을 직접 공급하는 기존 Java 보안 API를 호출합니다. 관리형 키 목록과 History는 그대로입니다. 실행에는 CLI 최초 설정이 필요하고, 보안 데이터·비밀키·개인키·토큰을 다루는 명령은 기존 관리자 인증을 매번 수행합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0.jar api --help
-java -jar java-crypto-kit-0.2.0.jar api jwt --help
-java -jar java-crypto-kit-0.2.0.jar api jwt create --help
-java -jar java-crypto-kit-0.2.0.jar api jwt --examples
+# 명령의 옵션과 사용법 조회
+java -jar java-crypto-kit-0.2.1.jar api --help
+
+# 명령의 옵션과 사용법 조회
+java -jar java-crypto-kit-0.2.1.jar api jwt --help
+
+# 명령의 옵션과 사용법 조회
+java -jar java-crypto-kit-0.2.1.jar api jwt create --help
+
+# 실행 전 명령별 실무 예제 확인
+java -jar java-crypto-kit-0.2.1.jar api jwt --examples
 ```
 
 `api --help`는 암복호화·데이터 검증·보안 유틸리티·키와 인증서·인증과 인가를 업무별로 보여 줍니다. 개별 `--help`에서 필수 옵션·기본값·한도와 배타 조건을, `--examples`에서 연결 명령을 확인하세요. 조회에 함께 지정할 수 있는 옵션은 언어(`--lang ko|en`)입니다. 미설정 JAR에서 예제를 조회했다면 [공통 초기 설정 안내](#topic-cli--221-도움말-명령)에 따라 실행합니다. 독립 명령의 키는 옵션 또는 숨김 입력으로 제공합니다.
@@ -1063,8 +1163,11 @@ java -jar java-crypto-kit-0.2.0.jar api jwt --examples
 옵션 단축어는 해당 정식 옵션을 지원하는 독립 명령에서 사용합니다. TOTP 등록 URI의 발급자 표지에는 `--issuer`를 사용합니다. `--alg sha256`와 `--alg=sha256`를 모두 쓸 수 있습니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api hash generate --algorithm sha256 --in sample.jar
-java -jar java-crypto-kit-0.2.0-cfg.jar api hash gen --alg=sha256 --in sample.jar
+# 입력 파일의 해시 계산
+java -jar java-crypto-kit-0.2.1.jar api hash generate --algorithm sha256 --in sample.jar
+
+# 입력 파일의 해시 계산
+java -jar java-crypto-kit-0.2.1.jar api hash gen --alg=sha256 --in sample.jar
 ```
 
 | 입력·출력 | 대화형 | 스크립트·CI |

@@ -1,7 +1,7 @@
 decrypt - decrypt a ciphertext (shows the plaintext, interactive terminal only)
 
 Usage
-  java [-D...] -jar {jar} decrypt
+  java [-D...] -jar {jar} dec
        [--config <file>] [--admin-pass-file <file>] [--lang en|ko]
 
 Options

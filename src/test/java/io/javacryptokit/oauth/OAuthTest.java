@@ -35,6 +35,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -160,7 +161,20 @@ class OAuthTest {
         https.createContext("/token-negative", json(200, "application/json", "{\"access_token\":\"a\",\"token_type\":\"Bearer\",\"expires_in\":-1}"));
         https.createContext("/token-string-expiry", json(200, "application/json", "{\"access_token\":\"a\",\"token_type\":\"Bearer\",\"expires_in\":\"300\"}"));
         https.createContext("/token-empty", json(200, "application/json", "{\"access_token\":\"\",\"token_type\":\"Bearer\"}"));
+        // Bearer 토큰 형식(RFC 6750 b64token)이 아닌 값: 공백, 줄바꿈이 든 값
+        https.createContext("/token-blank", json(200, "application/json", "{\"access_token\":\" \",\"token_type\":\"Bearer\"}"));
+        https.createContext("/token-newline", json(200, "application/json", "{\"access_token\":\"fixture\\nvalue\",\"token_type\":\"Bearer\"}"));
         https.createContext("/token-duplicate", json(200, "application/json", "{\"access_token\":\"a\",\"access_token\":\"b\",\"token_type\":\"Bearer\"}"));
+        String[] invalidScopes = {"\"orders.read\\torders.write\"", "\"orders\\u0001read\"",
+                "\"orders\\\\write\"", "\"orders\\\"write\"", "\"orders.read  orders.write\"", "\"\"", "null", "[]"};
+        for (int i = 0; i < invalidScopes.length; i++) {
+            String field = "\"scope\":" + invalidScopes[i];
+            https.createContext("/bad-scope-" + i, json(200, "application/json", "{\"active\":true," + field + "}"));
+            https.createContext("/bad-token-scope-" + i, json(200, "application/json",
+                    "{\"access_token\":\"dummy-at\",\"token_type\":\"Bearer\"," + field + "}"));
+        }
+        https.createContext("/active-no-scope", json(200, "application/json", "{\"active\":true}"));
+        https.createContext("/inactive-bad-scope", json(200, "application/json", "{\"active\":false,\"scope\":[123]}"));
         https.start();
         return https;
     }
@@ -297,6 +311,52 @@ class OAuthTest {
     }
 
     @Test
+    void oauthIdentifiersMustHaveMeaningWithoutRewritingUnicode() throws Exception {
+        JwtKey signing = JwtKey.rs256(signer.getPrivate());
+        JwtKey trust = JwtKey.rs256(signer.getPublic());
+        AccessTokenVerifier standard = AccessTokenVerifier.rfc9068().issuer(ISSUER).audience("orders-api").key(trust).clock(CLOCK).build();
+        AccessTokenVerifier custom = AccessTokenVerifier.profile().issuer(ISSUER).audience("orders-api").key(trust)
+                .types("at+jwt").clientIdClaim("azp").clock(CLOCK).build();
+        for (String invalid : Arrays.asList("", " ", "\t", "\u00a0")) {
+            assertThrows(IllegalArgumentException.class, () -> AccessTokens.builder(CLOCK).subject(invalid));
+            assertThrows(IllegalArgumentException.class, () -> AccessTokens.builder(CLOCK).jwtId(invalid));
+            assertThrows(IllegalArgumentException.class, () -> AccessTokens.builder(CLOCK).clientId(invalid));
+            Jwt.Builder token = Jwt.builder(CLOCK).type("at+jwt").issuer(ISSUER).audience("orders-api")
+                    .expiresIn(Duration.ofMinutes(1)).subject("사용자").jwtId("jti").claim("client_id", "Web");
+            assertEquals(JwtException.Reason.INVALID_CLAIM, reason(standard, token.subject(invalid).sign(signing)));
+            assertEquals(JwtException.Reason.INVALID_CLAIM, reason(standard, token.subject("사용자").jwtId(invalid).sign(signing)));
+            token.jwtId("jti").claim("client_id", invalid).claim("azp", invalid);
+            JwtException.Reason expected = invalid.isEmpty() ? JwtException.Reason.MISSING_CLAIM : JwtException.Reason.INVALID_CLAIM;
+            assertEquals(expected, reason(standard, token.sign(signing)));
+            assertEquals(expected, reason(custom, token.sign(signing)));
+        }
+        String valid = AccessTokens.builder(CLOCK).issuer(ISSUER).subject("사용자 A").audience("orders-api")
+                .clientId("Web-한글").jwtId("토큰A").expiresIn(Duration.ofMinutes(1)).sign(signing);
+        AccessToken claims = standard.verify(valid);
+        assertEquals("사용자 A", claims.subject());
+        assertEquals("Web-한글", claims.clientId());
+        assertEquals("토큰A", claims.jwtId());
+    }
+
+    @Test
+    void httpsClientsValidatePresentScopesAndPreserveOmittedOrInactiveScopes() throws Exception {
+        for (int i = 0; i < 8; i++) {
+            assertEquals(OAuthClientException.Reason.INVALID_RESPONSE,
+                    tokenFailure(client(server, "/bad-token-scope-" + i, false), null));
+            assertEquals(OAuthClientException.Reason.INVALID_RESPONSE, failure(introspector(server, "/bad-scope-" + i)));
+        }
+        TokenResponse omitted = client(server, "/token-noexpiry", false).requestToken();
+        assertFalse(omitted.scopeInResponse());
+        assertTrue(omitted.grantedScopes().isEmpty());
+        IntrospectionResult active = introspector(server, "/active-no-scope").introspect(TOKEN);
+        assertTrue(active.active());
+        assertTrue(active.scopes().isEmpty());
+        IntrospectionResult inactive = introspector(server, "/inactive-bad-scope").introspect(TOKEN);
+        assertFalse(inactive.active());
+        assertTrue(inactive.scopes().isEmpty());
+    }
+
+    @Test
     void configurableProfilesNeedAnEffectiveFinalRule() {
         JwtKey key = JwtKey.rs256(signer.getPublic());
         AccessTokenVerifier.Builder profile = AccessTokenVerifier.profile().issuer(ISSUER).audience("orders-api").key(key);
@@ -389,6 +449,46 @@ class OAuthTest {
         assertEquals(JwtException.Reason.KEY_NOT_FOUND, reason(keycloak, foreign));
     }
 
+    @Test
+    void blankOrControlPermissionsAreNeverCountedAsPermissions() throws Exception {
+        JwtKey signing = JwtKey.rs256(signer.getPrivate()).withKeyId("idp-1");
+        AccessTokenVerifier verifier = AccessTokenVerifier.profile().issuer(ISSUER).audience("orders-api")
+                .key(JwtKey.rs256(signer.getPublic()).withKeyId("idp-1")).types("JWT").requirePermissionClaim(true).clock(CLOCK).build();
+        // 값이 비었거나 공백뿐이면 권한 없음(SCOPE), 형식이 틀린 이름이 섞이면 클레임 형식 오류(INVALID_CLAIM)
+        assertEquals(JwtException.Reason.SCOPE, reason(verifier, permissionToken(signing, "roles", Collections.<String>emptyList())));
+        assertEquals(JwtException.Reason.INVALID_CLAIM, reason(verifier, permissionToken(signing, "roles", Arrays.asList(""))));
+        assertEquals(JwtException.Reason.INVALID_CLAIM, reason(verifier, permissionToken(signing, "roles", Arrays.asList(" "))));
+        assertEquals(JwtException.Reason.INVALID_CLAIM, reason(verifier, permissionToken(signing, "roles", Arrays.asList("reader", "\u0001"))));
+        assertTrue(verifier.verify(permissionToken(signing, "roles", Arrays.asList("reader"))).hasRole("reader"));
+        assertEquals(JwtException.Reason.SCOPE, reason(verifier, permissionToken(signing, "scope", "")));
+        assertEquals(JwtException.Reason.SCOPE, reason(verifier, permissionToken(signing, "scope", " ")));
+        assertEquals(JwtException.Reason.INVALID_CLAIM, reason(verifier, permissionToken(signing, "scope", "\t")));
+        assertEquals(JwtException.Reason.INVALID_CLAIM, reason(verifier, permissionToken(signing, "scope", "read\u0000")));
+        assertTrue(verifier.verify(permissionToken(signing, "scope", "read")).hasScope("read"));
+        // 요구 권한·발급 권한 입력도 같은 규칙(입력 오류)
+        AccessTokenVerifier.Builder profile = AccessTokenVerifier.profile();
+        for (String scope : new String[] {"a\tb", "a b", "a\"b"}) {
+            assertThrows(IllegalArgumentException.class, () -> profile.requireScopes(scope), scope);
+            assertThrows(IllegalArgumentException.class, () -> AccessTokens.builder(CLOCK).scopes(scope), scope);
+        }
+        for (String role : new String[] {" ", "\t", "x\u0000"}) {
+            assertThrows(IllegalArgumentException.class, () -> profile.requireRoles(role), role);
+            assertThrows(IllegalArgumentException.class, () -> AccessTokens.builder(CLOCK).roles(Arrays.asList(role)), role);
+        }
+        assertThrows(IllegalArgumentException.class, () -> AccessTokens.builder(CLOCK).roles(Collections.<String>emptyList()));
+        AccessTokens.builder(CLOCK).roles(Arrays.asList("Orders.ReadAll", "app reader"));
+    }
+
+    private static String permissionToken(JwtKey signing, String claim, String value) throws Exception {
+        return Jwt.builder(CLOCK).issuer(ISSUER).subject("u").audience("orders-api").claim(claim, value)
+                .expiresIn(Duration.ofMinutes(5)).sign(signing);
+    }
+
+    private static String permissionToken(JwtKey signing, String claim, java.util.List<String> value) throws Exception {
+        return Jwt.builder(CLOCK).issuer(ISSUER).subject("u").audience("orders-api").claim(claim, value)
+                .expiresIn(Duration.ofMinutes(5)).sign(signing);
+    }
+
     private static ClientCredentials client(HttpsServer target, String path, boolean post) {
         ClientCredentials.Builder builder = ClientCredentials.builder(URI.create("https://127.0.0.1:" + target.getAddress().getPort() + path))
                 .sslContext(clientTls).readTimeout(Duration.ofMillis(800)).maxResponseBytes(2048).clock(CLOCK);
@@ -451,7 +551,8 @@ class OAuthTest {
         assertEquals(OAuthClientException.Reason.REDIRECT, tokenFailure(client(server, "/redirect", false), null));
         assertEquals(OAuthClientException.Reason.TIMEOUT, tokenFailure(client(server, "/slow", false), null));
         assertEquals(OAuthClientException.Reason.RESPONSE_TOO_LARGE, tokenFailure(client(server, "/big", false), null));
-        for (String path : new String[] {"/token-mac", "/token-negative", "/token-string-expiry", "/token-empty", "/token-duplicate", "/html", "/badjson"}) {
+        for (String path : new String[] {"/token-mac", "/token-negative", "/token-string-expiry", "/token-empty", "/token-blank",
+                "/token-newline", "/token-duplicate", "/html", "/badjson"}) {
             assertEquals(OAuthClientException.Reason.INVALID_RESPONSE, tokenFailure(client(server, path, false), null), path);
         }
         assertEquals(OAuthClientException.Reason.TLS, tokenFailure(client(wrongHostServer, "/token-ok", false), null), "호스트명 불일치");

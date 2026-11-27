@@ -1,6 +1,12 @@
 package io.javacryptokit.cli;
 
+import io.javacryptokit.KeyType;
+import io.javacryptokit.config.JarState;
+import io.javacryptokit.config.KeyProfile;
+import io.javacryptokit.key.PassKdf;
 import io.javacryptokit.key.SecretFiles;
+import io.javacryptokit.security.Encoding;
+import io.javacryptokit.security.SecureRandoms;
 import io.javacryptokit.CredentialCryptoException;
 import io.javacryptokit.config.CryptoSettings;
 import io.javacryptokit.config.LightObfuscation;
@@ -14,25 +20,18 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.io.Reader;
 import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -44,35 +43,10 @@ import java.util.Properties;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
-import java.util.jar.JarInputStream;
-import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
 import java.util.regex.Pattern;
 
-/**
- * <b>내부 구현 클래스</b>: 빌드가 끝난 java-crypto-kit JAR의 <b>내부 기본 설정</b>({@code java-crypto-kit.properties})과
- * <b>변경 이력</b>({@link ConfigHistory#ENTRY})을 읽고, 바꾼 내용을 담은 <b>새 JAR</b>를 안전하게 만든다.
- * CLI {@code config show / history / set / embed-key}가 사용한다.
- *
- * <p><b>왜 필요한가</b>: 공개 배포 JAR를 받은 운영자가 소스 수정·Gradle 재빌드·외부 Properties·매번 {@code -D} 지정 없이 JAR
- * 자체의 기본값(메시지 언어, 경고 정책, 사용자 지정 내장 키·키ID 등)을 정해 배포할 수 있게 한다. 실행 시 우선순위(JVM {@code -D}
- * &gt; 외부 Properties &gt; JAR 내부 값)는 그대로이며, 이 클래스는 가장 마지막 단계인 JAR 내부 값만 바꾼다.</p>
- *
- * <p><b>안전 규칙(원본 보존)</b></p>
- * <ol>
- *   <li>원본 JAR는 절대 제자리에서 고치지 않는다. 결과 JAR가 놓일 폴더에 임시 파일을 만들어 새 JAR를 쓴다.</li>
- *   <li>원본의 모든 항목(클래스·리소스·Manifest)을 같은 순서로 옮기고, 설정 파일과 이력 파일만 새 내용으로 쓴다. 두 파일은
- *       한 번의 JAR 쓰기로 함께 바뀌므로 "설정은 바뀌었는데 이력은 없는" 부분 성공 상태가 생기지 않는다. 이전 이력은 모두 옮긴다.</li>
- *   <li>임시 파일을 다시 열어 ZIP/JAR 구조(CRC 포함), Manifest·Main-Class, 항목 목록, 설정 재검증, 이력 검증을 확인한다.</li>
- *   <li>검증을 통과한 경우에만 원자적 이동으로 결과 파일을 만든다. 실패하면 임시 파일을 지우고 원본은 그대로 둔다.</li>
- *   <li>교체 모드({@code --replace})는 실행 중이 아닌 대상 JAR에만 허용한다. 잠금 파일로 동시 수정을 막고, 작업 중 원본이
- *       바뀌었는지 해시로 다시 확인한 뒤, 백업을 만들고 원자적 이동으로 교체한다. 원자적 이동을 보장할 수 없으면 교체하지 않는다.</li>
- *   <li>서명된 JAR는 수정하면 서명이 깨지므로 거부한다. 이력이 손상·변조 의심인 JAR도 거부한다.</li>
- * </ol>
- *
- * <p><b>비밀정보</b>: 내장 키 값은 화면·이력·오류 메시지에 쓰지 않는다(이력에는 "교체됨" 표시만). 수정자 ID는 기록용이며 본인
- * 인증이 아니다. 이력도 JAR를 수정할 수 있는 사람은 바꿀 수 있으므로 위변조 방지 감사 로그가 아니다.</p>
- */
+/** Validates managed settings, administrator state and History before publishing a JAR snapshot. */
 final class JarConfigEditor {
     /** JAR 안의 내부 기본 설정 리소스 이름. */
     static final String SETTINGS_ENTRY = "java-crypto-kit.properties";
@@ -101,6 +75,7 @@ final class JarConfigEditor {
         final Properties settings;
         final ConfigHistory.Log history;
         final String fileSha256;
+        final String stateFormat;
         /** 내부 설정 검증 실패 사유(정상이면 null). */
         final String validationError;
         /** CLI 관리자 비밀번호 검증값 항목({@link AdminPassword#ENTRY}) 내용, 없으면 null. */
@@ -108,7 +83,7 @@ final class JarConfigEditor {
 
         Snapshot(Path jar, String title, String version, String mainClass, String buildTime, boolean signed,
                  List<String> entryNames, byte[] settingsBytes, Properties settings, ConfigHistory.Log history,
-                 String fileSha256, String validationError, byte[] adminBytes) {
+                 String fileSha256, String validationError, byte[] adminBytes, String stateFormat) {
             this.jar = jar;
             this.title = title;
             this.version = version;
@@ -120,13 +95,13 @@ final class JarConfigEditor {
             this.settings = settings;
             this.history = history;
             this.fileSha256 = fileSha256;
+            this.stateFormat = stateFormat;
             this.validationError = validationError;
             this.adminBytes = adminBytes;
         }
 
         /**
-         * @return 이 JAR의 코드가 CLI 관리자 비밀번호를 지원하면 true. 이전 형식 JAR이면 false이며, 그 JAR에는 관리자
-         *         검증값을 쓰지 않는다(그 코드가 읽지 못해 아무 효과가 없음).
+         * @return 이 JAR의 코드가 CLI 관리자 비밀번호를 지원하면 true. 관리자 기능 도입 전 JAR이면 false다.
          */
         boolean supportsAdmin() {
             return entryNames.contains(AdminPassword.MARKER);
@@ -138,8 +113,7 @@ final class JarConfigEditor {
         }
 
         /**
-         * @return 이 JAR의 코드가 JAR 안 저장 표현 obf1(경량 난독화)을 읽을 수 있으면 true. obf1 이전 형식 JAR이면 false이며,
-         *         그 JAR를 편집할 때는 그 버전이 읽는 기존 형식(표준 Base64 내장 키, 평문 이력)으로 쓴다(편집 후에도 그 JAR가 동작).
+         * @return 이 JAR의 코드가 JAR 안 저장 표현 obf1(경량 난독화)을 읽을 수 있으면 true. obf1 도입 전 JAR이면 false다.
          */
         boolean readsObfuscation() {
             return entryNames.contains(OBFUSCATION_MARKER);
@@ -179,6 +153,7 @@ final class JarConfigEditor {
         /**
          * @param command   이력에 남길 명령 이름({@link ConfigHistory#COMMANDS})
          * @param values    바꾸거나 추가할 항목과 새 값(순서 유지). 없는 항목 추가는 키 프로필 항목만, {@code embed-key}·{@code key add}만
+         *                  (그리고 {@code set}이 등록된 프로필에 처음 지정하는 위치 항목)
          * @param removals  지울 항목(키 프로필 항목만, {@code key remove}만)
          * @param summaries 키 요약 줄
          * @param operator  수정자 ID(필수)
@@ -202,20 +177,14 @@ final class JarConfigEditor {
 
     /** 변경 결과. */
     static final class Result {
-        final Path source;
         final Path output;
-        final boolean replaced;
-        final Path backup;
         final List<String> changedKeys;
         final Map<String, String> before;
         final Snapshot after;
 
-        private Result(Path source, Path output, boolean replaced, Path backup, List<String> changedKeys,
+        private Result(Path output, List<String> changedKeys,
                        Map<String, String> before, Snapshot after) {
-            this.source = source;
             this.output = output;
-            this.replaced = replaced;
-            this.backup = backup;
             this.changedKeys = changedKeys;
             this.before = before;
             this.after = after;
@@ -237,6 +206,7 @@ final class JarConfigEditor {
         if (!Files.isRegularFile(jar)) {
             throw new CryptoCli.CliException(Messages.get("jar.err.notFound", name(jar)));
         }
+        String digest = sha256(jar);
         List<String> names = new ArrayList<>();
         boolean signed = false;
         byte[] settingsBytes = null;
@@ -248,6 +218,7 @@ final class JarConfigEditor {
         String mainClass;
         String buildTime;
         String manifestFingerprint;
+        String stateFormat;
         try (JarFile file = new JarFile(jar.toFile(), false)) {
             Manifest manifest = file.getManifest();
             if (manifest == null) throw new CryptoCli.CliException("IO_ERROR", Messages.get("jar.err.noManifest", name(jar)));
@@ -257,6 +228,7 @@ final class JarConfigEditor {
             mainClass = main.getValue(Attributes.Name.MAIN_CLASS);
             buildTime = main.getValue(ConfigHistory.BUILD_TIME);
             manifestFingerprint = main.getValue(ConfigHistory.SETTINGS_FINGERPRINT);
+            stateFormat = main.getValue(JarState.ATTRIBUTE);
             for (Enumeration<JarEntry> entries = file.entries(); entries.hasMoreElements(); ) {
                 JarEntry entry = entries.nextElement();
                 String entryName = entry.getName();
@@ -276,11 +248,26 @@ final class JarConfigEditor {
         if (!marker || settingsBytes == null) {
             throw new CryptoCli.CliException(Messages.get("jar.err.notJck", name(jar), SETTINGS_ENTRY));
         }
+        if (stateFormat != null) {
+            try {
+                JarState.State state = JarState.read(jar, stateFormat);
+                if (historyBytes != null || adminBytes != null) throw new IOException("unexpected legacy state");
+                if (state != null) {
+                    if (state.history == null && state.admin == null) throw new IOException("empty operational state");
+                    settingsBytes = state.settings;
+                    historyBytes = state.history;
+                    adminBytes = state.admin;
+                }
+            } catch (IOException e) {
+                throw new CryptoCli.CliException("INTEGRITY", Messages.get("jar.err.stateRead"));
+            }
+        }
         Properties settings = loadProperties(settingsBytes, SETTINGS_ENTRY);
         Properties history = historyBytes == null ? null : ConfigHistory.parse(historyBytes);
         ConfigHistory.Log log = ConfigHistory.read(history, settingsBytes, manifestFingerprint, buildTime, version);
+        requireDigest(jar, digest);
         return new Snapshot(jar, title, version, mainClass, buildTime, signed, Collections.unmodifiableList(names),
-                settingsBytes, settings, log, sha256(jar), validate(settings), adminBytes);
+                settingsBytes, settings, log, digest, validate(settings), adminBytes, stateFormat);
     }
 
     /**
@@ -288,11 +275,28 @@ final class JarConfigEditor {
      *
      * @return 실패 사유(정상이면 null)
      */
+    /**
+     * {@code config set}이 처음 지정하는 위치 항목인지 판단한다: 등록된 키 프로필({@code crypto.keys.<id>.type}이 있음)의 위치 항목
+     * ({@link SettingCatalog.ProfileItem#location}) 중 그 프로필의 공급원에 속하고({@link CryptoSettings#belongsTo}) 아직 JAR 설정에
+     * 없는 이름이면 true다. 새 프로필·정체 항목·다른 공급원의 항목은 해당하지 않는다.
+     */
+    static boolean addsLocation(Properties settings, String key) {
+        String[] parts = SettingCatalog.parseProfileName(key);
+        SettingCatalog.ProfileItem item = parts == null ? null : SettingCatalog.profileItem(parts[1]);
+        if (item == null || !item.location || settings.containsKey(key)) return false;
+        String prefix = KeyProfile.PREFIX + parts[0] + ".";
+        String source = settings.getProperty(prefix + KeyProfile.SOURCE);
+        return settings.containsKey(prefix + KeyProfile.TYPE) && source != null && CryptoSettings.belongsTo(item.name, source.trim());
+    }
+
     static String validate(Properties settings) {
         try {
             CryptoSettings.fromEmbeddedDefaults(settings);
-            byte[] key = KeyResolver.decodeEmbedded(settings.getProperty(CryptoSettings.KEY_EMBEDDED));
-            Arrays.fill(key, (byte) 0);
+            String embedded = settings.getProperty(CryptoSettings.KEY_EMBEDDED, "").trim();
+            if (!embedded.isEmpty()) {
+                byte[] key = KeyResolver.decodeEmbedded(embedded);
+                Arrays.fill(key, (byte) 0);
+            }
             return null;
         } catch (SafeMessageException e) {
             return e.getMessage();
@@ -306,33 +310,41 @@ final class JarConfigEditor {
     // ===================================================================================================
 
     /**
-     * 바꾼 설정과 갱신한 이력을 담은 새 JAR를 만든다. 실패하면 원본·기존 출력 파일을 그대로 두고 임시 파일을 지운다.
+     * 검증된 설정과 이력을 동일 JAR의 예약 영역에 발행한다.
      *
-     * @param source     원본 JAR
-     * @param output     결과 JAR 경로(교체 모드가 아니면 필수, 이미 있으면 거부)
-     * @param replace    true면 원본 자리에 결과를 넣는다(백업 후 원자적 교체)
-     * @param runningJar 지금 실행 중인 JAR(없으면 null). 교체 모드에서 자기 자신의 교체를 막는 데 쓴다.
+     * @param before 인증 시 확인한 원본의 스냅샷
      * @param change     바꿀 내용
      * @param now        기록할 시각(UTC, 초 단위)
      * @return 결과
      * @throws CryptoCli.CliException    사용법·입출력·이력 문제(USAGE·IO_ERROR·INTEGRITY)
      * @throws CredentialCryptoException 설정값이 올바르지 않은 경우(CONFIGURATION) 또는 키 검증 실패
      */
-    static Result apply(Path source, Path output, boolean replace, Path runningJar, Change change, Instant now)
+    static Result apply(Snapshot before, Change change, Instant now)
             throws CryptoCli.CliException, CredentialCryptoException {
         checkOperator(change.operator);
         checkReason(change.reason);
-        Snapshot before = read(source);
         if (before.signed) throw new CryptoCli.CliException(Messages.get("jar.err.signed"));
         requireIntact(before);
+        if (before.stateFormat == null) throw new CryptoCli.CliException("IO_ERROR", Messages.get("jar.err.noState"));
 
         // [1] 항목 이름·값 검사: 지원 항목(JAR 설정에 있는 이름)만, 제어문자·앞뒤 공백 없는 값만 받는다. 없던 항목은 키를 추가하는
-        //     명령(embed-key·key add)의 키 프로필 항목만 추가할 수 있다.
+        //     명령(embed-key·key add)의 키 프로필 항목과, config set이 등록된 프로필에 처음 지정하는 위치 항목만 추가할 수 있다.
         Map<String, String> beforeValues = new LinkedHashMap<>();
+        boolean addsLocation = false;
         for (Map.Entry<String, String> item : change.values.entrySet()) {
             String key = item.getKey();
-            if (!before.settings.containsKey(key) && !(change.addsProfiles() && SettingCatalog.isProfileSetting(key))) {
+            // 등록된 프로필의 위치 항목은 config set으로 처음 지정할 수도 있다(그 프로필의 공급원에 속하는 항목만).
+            boolean firstLocation = "set".equals(change.command) && addsLocation(before.settings, key);
+            addsLocation |= firstLocation;
+            if (!before.settings.containsKey(key) && !(change.addsProfiles() && SettingCatalog.isProfileSetting(key))
+                    && !firstLocation) {
                 if (SettingCatalog.isProfileSetting(key)) {
+                    String[] parts = SettingCatalog.parseProfileName(key);
+                    String source = before.settings.getProperty(KeyProfile.PREFIX + parts[0] + "." + KeyProfile.SOURCE);
+                    if (before.settings.containsKey(KeyProfile.PREFIX + parts[0] + "." + KeyProfile.TYPE) && source != null) {
+                        throw new CredentialCryptoException(CredentialCryptoException.Reason.CONFIGURATION,
+                                Messages.get("config.err.profileItemSource", safeName(key), source.trim()));
+                    }
                     throw new CredentialCryptoException(CredentialCryptoException.Reason.CONFIGURATION,
                             Messages.get("jar.err.profileNotRegistered", safeName(key)));
                 }
@@ -379,7 +391,7 @@ final class JarConfigEditor {
                 // 키로 읽을 수 없는 값(쓰이지 않는 자리 등)은 바꿀 수 없으므로 그대로 둔다. 실제 사용 여부는 아래 재검증이 판단한다.
             }
         }
-        String newText = rewrite(before.settingsText(), stored, change.removals, change.addsProfiles());
+        String newText = rewrite(before.settingsText(), stored, change.removals, change.addsProfiles() || addsLocation);
         byte[] newSettingsBytes = newText.getBytes(StandardCharsets.UTF_8);
         Properties newSettings = loadProperties(newSettingsBytes, SETTINGS_ENTRY);
         List<String> changed = new ArrayList<>();
@@ -436,6 +448,14 @@ final class JarConfigEditor {
                     Messages.get("jar.err.invalidAfter", invalid));
         }
 
+        if ("set".equals(change.command)) {
+            if (changed.contains(CryptoSettings.KEY_ID)) {
+                recordSlotIdChange(before, CryptoSettings.fromEmbeddedDefaults(newSettings), recorded);
+            } else {
+                checkSlotMaterialChange(before, newSettings, changed);
+            }
+        }
+
         // [4] 이력 갱신(기존 전체 이력 + 이번 변경 1건, 비밀값 없음). 해시 체인은 항목의 정규 표현으로 계산하고, JAR에는 본문 전체를
         //     obf1(경량 난독화, 단순 열람 방지)로 저장한다. 읽을 때 되돌린 뒤 같은 검증을 하므로 무결성 검사를 건너뛰지 않는다.
         //     obf1을 읽지 못하는 이전 버전 JAR에는 그 버전이 읽는 평문 이력으로 쓴다.
@@ -446,19 +466,79 @@ final class JarConfigEditor {
         }
         byte[] historyBytes = obfuscate ? ConfigHistory.store(historyPlain) : historyPlain;
 
-        // [5] 새 JAR 작성 → 검증 → 이동. 관리자 검증값 항목은 그대로 옮긴다(키를 바꿔도 관리자 비밀번호는 유지).
-        return commit(before, source, output, replace, runningJar, newSettingsBytes, historyBytes, null,
-                () -> checkRoundTrip(newSettings, changed), changed, beforeValues, now);
+        // [5] 설정·이력·기존 관리자 검증값을 하나의 상태로 저장한다.
+        return commit(before, newSettingsBytes, historyBytes, null,
+                () -> checkRoundTrip(newSettings, changed), changed, beforeValues);
+    }
+
+    /** Checks only the active legacy AES source against the previously established identity. */
+    private static void checkSlotMaterialChange(Snapshot before, Properties newSettings, List<String> changed)
+            throws CredentialCryptoException {
+        String source = newSettings.getProperty(CryptoSettings.KEY_SOURCE, "").trim();
+        boolean affectsMaterial = changed.contains(CryptoSettings.KEY_SOURCE);
+        for (String name : changed) {
+            SettingCatalog.Setting setting = SettingCatalog.find(name);
+            if (setting != null && setting.sources.contains(source)
+                    && (setting.keyAffecting || CryptoSettings.AWS_REGION.equals(name))) {
+                affectsMaterial = true;
+                break;
+            }
+        }
+        if (!affectsMaterial) return;
+
+        String id = newSettings.getProperty(CryptoSettings.KEY_ID, "").trim();
+        ConfigHistory.KeyRecord established = before.history.lastRecord(id);
+        if (established == null || established.fingerprint == null) return;
+
+        CryptoSettings settings = CryptoSettings.fromEmbeddedDefaults(newSettings);
+        KeyProfile slot = settings.legacyProfile();
+        if (slot == null) {
+            KeyringCommand.checkEstablishedKey(id, established, null);
+            return;
+        }
+        CryptoService.KeyCheck candidate = CryptoService.of(settings).checkKey(slot);
+        KeyringCommand.checkEstablishedKey(id, established, candidate.fingerprint());
+    }
+
+    /** Checks the candidate AES slot and records its new identity before publishing anything. */
+    private static void recordSlotIdChange(Snapshot before, CryptoSettings after, List<ConfigHistory.Change> recorded)
+            throws CryptoCli.CliException, CredentialCryptoException {
+        CryptoSettings original = KeyringCommand.validated(before);
+        String newId = after.keyId();
+        KeyringCommand.checkNewKeyId(newId, original, before, true);
+        KeyProfile candidate = after.legacyProfile();
+        String fingerprint = null;
+        if (candidate != null) {
+            CryptoService.KeyCheck check = CryptoService.of(after).checkKey(candidate);
+            fingerprint = check.fingerprint();
+            if (!check.available() && "embedded".equals(candidate.source())) throw check.failureException();
+            // A new external ID may be configured later. Restoring a used ID always requires a fingerprint.
+        }
+
+        ConfigHistory.KeyRecord newKey = KeyringView.record(KeyType.KEY, after.keySource(), "moved", fingerprint,
+                null, false, true);
+        boolean restored = KeyringCommand.checkRestore(newId, newKey, before);
+        KeyProfile oldSlot = original.legacyProfile();
+        if (oldSlot != null) {
+            String oldId = oldSlot.id();
+            String summary = ConfigHistory.KEY_SUMMARY_PREFIX + oldId;
+            String previous = before.history.lastAfter(summary);
+            if (previous != null && before.history.lastRecord(oldId) != null) {
+                recorded.add(new ConfigHistory.Change(summary, previous, ConfigHistory.ABSENT));
+            } else if (!before.history.usedKeyIds().contains(oldId)) {
+                recorded.add(new ConfigHistory.Change(summary, KeyringView.record(oldSlot, null).format(), ConfigHistory.ABSENT));
+            }
+        }
+        if (candidate != null) {
+            ConfigHistory.KeyRecord entry = restored ? KeyringView.record(KeyType.KEY, candidate.source(), "restored",
+                    fingerprint, null, false, true) : newKey;
+            recorded.add(new ConfigHistory.Change(ConfigHistory.KEY_SUMMARY_PREFIX + newId, ConfigHistory.ABSENT, entry.format()));
+        }
     }
 
     /**
-     * CLI 관리자 비밀번호 검증값을 넣은 새 JAR를 만든다({@code admin setup}·{@code admin password change}). 설정 파일·키는 바꾸지
-     * 않고, 이력에 관리자 기록 1건(시각·작업자·사유, 비밀번호·검증값·Salt 없음)을 더한다. 원본 교체는 하지 않는다(실행 중인 JAR는
-     * 바꿀 수 없음). 관리자 비밀번호를 모르는 이전 버전 JAR에는 쓰지 않는다.
-     *
-     * @param source     원본 JAR(실행 중인 CLI JAR)
-     * @param output     결과 JAR(이미 있으면 거부)
-     * @param runningJar 실행 중인 JAR(없으면 null)
+     * 최초 등록은 독립된 두 키를 함께 생성하고 비밀번호 변경은 기존 키를 보존한다.
+     * @param before 관리자 상태와 권한을 확인한 스냅샷
      * @param adminBytes 새 검증값 항목({@link AdminPassword#create})
      * @param operator   작업자 ID
      * @param command    {@code admin setup} 또는 {@code admin password change}
@@ -466,28 +546,108 @@ final class JarConfigEditor {
      * @param now        기록 시각
      * @return 결과
      */
-    static Result applyAdmin(Path source, Path output, Path runningJar, byte[] adminBytes, String operator, String command,
-                             String reason, Instant now) throws CryptoCli.CliException, CredentialCryptoException {
+    static Result applyAdmin(Snapshot before, byte[] adminBytes, String operator, String command,
+                             String reason, Instant now, Path passExport) throws CryptoCli.CliException, CredentialCryptoException, IOException {
         checkOperator(operator);
         checkReason(reason);
-        Snapshot before = read(source);
         if (before.signed) throw new CryptoCli.CliException(Messages.get("jar.err.signed"));
         requireIntact(before);
-        if (!before.supportsAdmin()) throw new CryptoCli.CliException(Messages.get("admin.err.legacyJar", name(source)));
+        if (before.stateFormat == null) throw new CryptoCli.CliException("IO_ERROR", Messages.get("jar.err.noState"));
+        if (!before.supportsAdmin()) throw new CryptoCli.CliException(Messages.get("admin.err.legacyJar", name(before.jar)));
         boolean setup = ConfigHistory.ADMIN_SETUP.equals(command);
         if (setup != (before.adminBytes == null)) throw new CryptoCli.CliException("ADMIN_SETUP", Messages.get(setup
                 ? "admin.err.alreadySet" : "admin.err.notSetCli"));
-        List<ConfigHistory.Change> recorded = Collections.singletonList(setup
+        List<ConfigHistory.Change> recorded = new ArrayList<>();
+        recorded.add(setup
                 ? new ConfigHistory.Change(ConfigHistory.ADMIN_SUMMARY, ConfigHistory.ABSENT, ConfigHistory.SECRET_BEFORE)
                 : new ConfigHistory.Change(ConfigHistory.ADMIN_SUMMARY, ConfigHistory.SECRET_BEFORE, ConfigHistory.SECRET_AFTER));
-        byte[] historyPlain = ConfigHistory.append(before.history, before.version, now, operator, command,
-                reason == null ? "" : reason, recorded, before.settingsBytes);
-        if (historyPlain.length > ConfigHistory.MAX_BYTES) {
-            throw new CryptoCli.CliException("IO_ERROR", Messages.get("jar.err.historyFull"));
+        byte[] settings = before.settingsBytes;
+        boolean exported = false;
+        try {
+            if (setup) {
+                Map<String, String> values = new LinkedHashMap<>();
+                byte[] backup = initialKeys(before, values, recorded, passExport != null);
+                try {
+                    settings = rewrite(before.settingsText(), values, Collections.<String>emptySet(), true)
+                            .getBytes(StandardCharsets.UTF_8);
+                    CryptoSettings.fromEmbeddedDefaults(loadProperties(settings, SETTINGS_ENTRY));
+                    if (passExport != null) {
+                        KeyringCommand.writeNewSecretFile(passExport, backup);
+                        exported = true;
+                    }
+                } finally {
+                    if (backup != null) Arrays.fill(backup, (byte) 0);
+                }
+            }
+            byte[] historyPlain = ConfigHistory.append(before.history, before.version, now, operator, command,
+                    reason == null ? "" : reason, recorded, settings);
+            if (historyPlain.length > ConfigHistory.MAX_BYTES) {
+                throw new CryptoCli.CliException("IO_ERROR", Messages.get("jar.err.historyFull"));
+            }
+            byte[] historyBytes = before.readsObfuscation() ? ConfigHistory.store(historyPlain) : historyPlain;
+            Result result = commit(before, settings, historyBytes, adminBytes, () -> { },
+                    Collections.<String>emptyList(), Collections.<String, String>emptyMap());
+            return result;
+        } catch (CryptoCli.CliException | CredentialCryptoException | IOException | RuntimeException e) {
+            if (exported && !publicationInterrupted(e)) {
+                try {
+                    Files.deleteIfExists(passExport);
+                } catch (IOException cleanup) {
+                    e.addSuppressed(new CryptoCli.CliException("IO_ERROR",
+                            Messages.get("admin.err.backupCleanup", name(passExport))));
+                }
+            }
+            throw e;
         }
-        byte[] historyBytes = before.readsObfuscation() ? ConfigHistory.store(historyPlain) : historyPlain;
-        return commit(before, source, output, false, runningJar, before.settingsBytes, historyBytes, adminBytes, () -> { },
-                Collections.<String>emptyList(), Collections.<String, String>emptyMap(), now);
+    }
+
+    /** Generates independent initial keys. Only an explicitly requested backup contains the passphrase. */
+    private static byte[] initialKeys(Snapshot before, Map<String, String> values, List<ConfigHistory.Change> recorded,
+                                      boolean export) {
+        String passId = "pass-" + SecureRandoms.token(16, Encoding.HEX);
+        String aesId = "key-" + SecureRandoms.token(16, Encoding.HEX);
+        char[] pass = PassKdf.generate();
+        byte[] salt = PassKdf.newSalt();
+        byte[] aes = SecureRandoms.bytes(32);
+        byte[] derived = null;
+        try {
+            int iterations = SettingCatalog.KDF_DEFAULT_ITERATIONS;
+            derived = PassKdf.derive(pass, salt, iterations);
+            Map<String, String> items = new LinkedHashMap<>();
+            items.put(KeyProfile.KDF, PassKdf.NAME);
+            items.put(KeyProfile.KDF_ITERATIONS, Integer.toString(iterations));
+            items.put(KeyProfile.SALT, Encoding.BASE64.encode(salt));
+            String prefix = KeyProfile.PREFIX + passId + ".";
+            for (Map.Entry<String, String> item : items.entrySet()) values.put(prefix + item.getKey(), item.getValue());
+            values.put(prefix + KeyProfile.TYPE, "pass");
+            values.put(prefix + KeyProfile.SOURCE, "embedded");
+            values.put(prefix + KeyProfile.EMBEDDED, KeyResolver.encodeEmbedded(derived));
+            values.put(CryptoSettings.KEY_TYPE, "pass");
+            values.put(CryptoSettings.KEY_ACTIVE_PASS, passId);
+            boolean slot = CryptoSettings.fromEmbeddedDefaults(before.settings).legacyProfile() == null;
+            if (slot) {
+                values.put(CryptoSettings.KEY_ID, aesId);
+                values.put(CryptoSettings.KEY_SOURCE, "embedded");
+                values.put(CryptoSettings.KEY_EMBEDDED, KeyResolver.encodeEmbedded(aes));
+                values.put(CryptoSettings.KEY_ACTIVE_KEY, "");
+            } else {
+                prefix = KeyProfile.PREFIX + aesId + ".";
+                values.put(prefix + KeyProfile.TYPE, "key");
+                values.put(prefix + KeyProfile.SOURCE, "embedded");
+                values.put(prefix + KeyProfile.EMBEDDED, KeyResolver.encodeEmbedded(aes));
+                values.put(CryptoSettings.KEY_ACTIVE_KEY, aesId);
+            }
+            String fingerprint = KeyResolver.fingerprint(derived);
+            recorded.add(new ConfigHistory.Change(ConfigHistory.KEY_SUMMARY_PREFIX + passId, ConfigHistory.ABSENT,
+                    KeyringView.record(KeyType.PASS, "embedded", "generated", fingerprint, items, false, false).format()));
+            recorded.add(new ConfigHistory.Change(ConfigHistory.KEY_SUMMARY_PREFIX + aesId, ConfigHistory.ABSENT,
+                    KeyringView.record(KeyType.KEY, "embedded", "generated", KeyResolver.fingerprint(aes), null, false, slot).format()));
+            return export ? KeyringCommand.PassBackup.write(passId, items, fingerprint, pass) : null;
+        } finally {
+            Arrays.fill(pass, '\0');
+            Arrays.fill(aes, (byte) 0);
+            if (derived != null) Arrays.fill(derived, (byte) 0);
+        }
     }
 
     /**
@@ -503,108 +663,50 @@ final class JarConfigEditor {
         }
     }
 
-    /** 새 JAR를 쓴 뒤 하는 추가 확인(키 왕복 검사 등). */
+    /** 갱신 후보를 발행하기 전 하는 추가 확인(키 왕복 검사 등). */
     private interface Check {
         void run() throws CredentialCryptoException;
     }
 
-    /**
-     * 새 JAR 작성 → 다시 읽어 검증 → 원자적 이동(교체 모드면 백업 후 교체). 실패하면 원본·기존 출력 파일을 그대로 두고 임시 파일을
-     * 지운다.
-     *
-     * @param adminBytes 새 관리자 검증값(바꾸지 않으면 null: 원본 항목을 그대로 옮기고 그대로인지 확인)
-     */
-    private static Result commit(Snapshot before, Path source, Path output, boolean replace, Path runningJar,
-                                 byte[] newSettingsBytes, byte[] historyBytes, byte[] adminBytes, Check check,
-                                 List<String> changed, Map<String, String> beforeValues, Instant now)
+    private static Result commit(Snapshot before, byte[] settingsBytes, byte[] historyBytes, byte[] adminBytes,
+                                 Check check, List<String> changed, Map<String, String> beforeValues)
             throws CryptoCli.CliException, CredentialCryptoException {
-        Path target = replace ? source : output;
-        if (replace) {
-            if (runningJar != null && sameFile(source, runningJar)) {
-                throw new CryptoCli.CliException(Messages.get("jar.err.runningJar"));
-            }
-        } else {
-            if (output == null) throw new CryptoCli.CliException(Messages.get("jar.err.noOut"));
-            if (sameFile(source, output) || source.toAbsolutePath().normalize().equals(output.toAbsolutePath().normalize())) {
-                throw new CryptoCli.CliException(Messages.get("jar.err.sameOut"));
-            }
+        Path target = before.jar.toAbsolutePath().normalize();
+        byte[] verifier = adminBytes == null ? before.adminBytes : adminBytes;
+        if (settingsBytes.length > MAX_SETTINGS_BYTES || historyBytes.length > ConfigHistory.MAX_STORED_BYTES ||
+                verifier == null || verifier.length > AdminPassword.MAX_ENTRY_BYTES) {
+            throw new CryptoCli.CliException("IO_ERROR", Messages.get("jar.err.stateCapacity"));
         }
-        Path dir = target.toAbsolutePath().getParent();
-        if (dir == null || !Files.isDirectory(dir)) {
-            throw new CryptoCli.CliException(Messages.get("jar.err.noDir", name(target)));
+        Properties settings = loadProperties(settingsBytes, SETTINGS_ENTRY);
+        ConfigHistory.Log history = ConfigHistory.read(ConfigHistory.parse(historyBytes), settingsBytes,
+                before.history.baseSettings, before.buildTime, before.version);
+        Snapshot candidate = new Snapshot(target, before.title, before.version, before.mainClass, before.buildTime,
+                before.signed, before.entryNames, settingsBytes, settings, history, null, validate(settings), verifier, before.stateFormat);
+        if (history.problem != null || history.entries.size() != before.history.entries.size() + 1 ||
+                candidate.validationError != null || AdminPassword.statusOf(candidate).state != AdminPassword.State.INITIALIZED) {
+            throw new CryptoCli.CliException("INTEGRITY", Messages.get("jar.err.stateInvalid"));
         }
-        Path lock = replace ? dir.resolve(target.getFileName() + ".lock") : null;
-        boolean lockCreated = false;
-        Path placeholder = null;
-        Path temp = null;
-        Path backup = null;
-        boolean success = false;
+        check.run();
         try {
-            if (lock != null) {
-                createLock(lock);
-                lockCreated = true;
-            }
-            if (!replace) placeholder = reserve(output);
-            temp = Files.createTempFile(dir, "." + target.getFileName(), ".tmp");
-            writeJar(source, temp, newSettingsBytes, historyBytes, adminBytes);
-            // 권한(POSIX): 새 결과 JAR는 사용자 키·관리자 검증값이 들어 있으므로 소유자만(600). 원본 교체(--replace)는 운영 중인 파일의
-            // 권한을 그대로 둔다(서비스 계정이 계속 읽을 수 있게). Windows는 폴더 ACL을 상속한다.
-            if (replace) {
-                copyPermissions(source, temp);
-            } else {
-                ownerOnly(temp);
-            }
-            Snapshot written = verify(temp, before, newSettingsBytes, adminBytes == null ? before.adminBytes : adminBytes);
-            check.run();
-            if (replace) {
-                // 작업 중 다른 작업이 원본을 바꿨다면 그 변경을 덮어쓰지 않는다(잃어버린 갱신 방지).
-                if (!before.fileSha256.equals(sha256(source))) {
-                    throw new CryptoCli.CliException("IO_ERROR", Messages.get("jar.err.changedDuring"));
-                }
-                // 백업 이름: <이름>.bak-<UTC 초>, 같은 초에 이미 있으면 -2, -3 ... (기존 백업을 덮어쓰지 않음)
-                for (int n = 1; backup == null; n++) {
-                    Path candidate = dir.resolve(target.getFileName() + ".bak-" + compact(now) + (n == 1 ? "" : "-" + n));
-                    try {
-                        Files.copy(source, candidate, StandardCopyOption.COPY_ATTRIBUTES);
-                        backup = candidate;
-                        ownerOnly(backup); // 백업(이전 키가 든 JAR)은 배포하지 않으므로 소유자만
-                    } catch (FileAlreadyExistsException e) {
-                        if (n >= 99) throw new CryptoCli.CliException("IO_ERROR", Messages.get("jar.err.backupExists", name(candidate)));
-                    }
-                }
-                atomicMove(temp, source);
-            } else {
-                atomicMove(temp, output);
-            }
-            temp = null;
-            success = true;
-            return new Result(source, replace ? source : output, replace, backup, Collections.unmodifiableList(changed),
-                    beforeValues, written);
+            JarState.update(target, before.stateFormat, before.fileSha256, settingsBytes, historyBytes, verifier, before.adminBytes == null);
+        } catch (JarState.PublicationException e) {
+            CryptoCli.CliException failure = new CryptoCli.CliException("IO_ERROR", Messages.get("jar.err.statePublished"));
+            failure.initCause(e);
+            throw failure;
         } catch (IOException e) {
-            throw new CryptoCli.CliException("IO_ERROR", ioMessage(e, replace));
-        } finally {
-            if (temp != null) deleteQuietly(temp);
-            if (!success) {
-                if (placeholder != null) deleteQuietly(placeholder);
-                if (backup != null) deleteQuietly(backup);
-            }
-            // 내가 만든 잠금 파일만 지운다(다른 작업이 잡고 있는 잠금을 지우면 동시 수정을 막지 못함).
-            if (lockCreated) deleteQuietly(lock);
+            throw new CryptoCli.CliException("IO_ERROR", Messages.get("jar.err.stateWrite"));
         }
+        return new Result(target, Collections.unmodifiableList(changed), beforeValues, candidate);
     }
 
-    /** 실패 원인 유형별로 사용자가 할 일을 안내한다(경로 전체는 넣지 않는다). */
-    private static String ioMessage(IOException e, boolean replace) {
-        String hint;
-        if (e instanceof AtomicMoveNotSupportedException) {
-            hint = Messages.get("jar.io.atomic");
-        } else if (e instanceof java.nio.file.FileSystemException) {
-            // 권한 없음·사용 중(Windows 파일 잠금)·읽기 전용 파일 시스템 등. OS 메시지는 언어마다 달라 유형으로만 판단한다.
-            hint = Messages.get(replace ? "jar.io.inUse" : "jar.io.outDir");
-        } else {
-            hint = Messages.get("jar.io.disk");
+    static boolean publicationInterrupted(Exception error) {
+        return error.getCause() instanceof JarState.PublicationException;
+    }
+
+    static void requireDigest(Path jar, String expected) throws CryptoCli.CliException {
+        if (!expected.equals(sha256(jar))) {
+            throw new CryptoCli.CliException("IO_ERROR", Messages.get("jar.err.changedDuring"));
         }
-        return Messages.get("jar.io.write", e.getClass().getSimpleName(), hint);
     }
 
     // ===================================================================================================
@@ -702,106 +804,6 @@ final class JarConfigEditor {
     }
 
     /**
-     * 원본의 모든 항목을 같은 순서·같은 시각으로 옮기고 설정·이력(관리자 검증값을 바꾸면 그 항목도)만 새 내용으로 쓴다. 끝나면 디스크에
-     * 강제로 기록한다.
-     *
-     * @param adminBytes 새 관리자 검증값(null이면 원본 항목을 그대로 옮김)
-     */
-    private static void writeJar(Path source, Path temp, byte[] settingsBytes, byte[] historyBytes, byte[] adminBytes)
-            throws IOException {
-        try (JarFile in = new JarFile(source.toFile(), false);
-             OutputStream file = Files.newOutputStream(temp, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
-             JarOutputStream out = new JarOutputStream(new java.io.BufferedOutputStream(file))) {
-            boolean historyWritten = false;
-            boolean adminWritten = false;
-            long time = 0L;
-            for (Enumeration<JarEntry> entries = in.entries(); entries.hasMoreElements(); ) {
-                JarEntry src = entries.nextElement();
-                String entryName = src.getName();
-                JarEntry dst = new JarEntry(entryName);
-                if (src.getTime() != -1) dst.setTime(src.getTime());
-                if (SETTINGS_ENTRY.equals(entryName)) time = src.getTime();
-                out.putNextEntry(dst);
-                if (SETTINGS_ENTRY.equals(entryName)) {
-                    out.write(settingsBytes);
-                } else if (ConfigHistory.ENTRY.equals(entryName)) {
-                    out.write(historyBytes);
-                    historyWritten = true;
-                } else if (adminBytes != null && AdminPassword.ENTRY.equals(entryName)) {
-                    out.write(adminBytes);
-                    adminWritten = true;
-                } else if (!src.isDirectory()) {
-                    try (InputStream data = in.getInputStream(src)) {
-                        copy(data, out);
-                    }
-                }
-                out.closeEntry();
-            }
-            if (!historyWritten) {
-                // 최초 변경: 이력 폴더와 파일을 맨 뒤에 추가한다.
-                if (in.getEntry("META-INF/java-crypto-kit/") == null) {
-                    JarEntry dirEntry = new JarEntry("META-INF/java-crypto-kit/");
-                    if (time > 0) dirEntry.setTime(time);
-                    out.putNextEntry(dirEntry);
-                    out.closeEntry();
-                }
-                JarEntry history = new JarEntry(ConfigHistory.ENTRY);
-                if (time > 0) history.setTime(time);
-                out.putNextEntry(history);
-                out.write(historyBytes);
-                out.closeEntry();
-            }
-            if (adminBytes != null && !adminWritten) {
-                // 최초 관리자 설정: 검증값 항목을 맨 뒤에 추가한다(이력 폴더는 위에서 이미 있음).
-                JarEntry admin = new JarEntry(AdminPassword.ENTRY);
-                if (time > 0) admin.setTime(time);
-                out.putNextEntry(admin);
-                out.write(adminBytes);
-                out.closeEntry();
-            }
-        }
-        try (FileChannel channel = FileChannel.open(temp, StandardOpenOption.WRITE)) {
-            channel.force(true);
-        }
-    }
-
-    /**
-     * 새로 쓴 JAR를 처음부터 다시 읽어 검증한다: ZIP/JAR 구조와 CRC(순차 읽기), Manifest·Main-Class 일치, 원본 항목이 빠짐없이
-     * 있는지, 설정이 의도한 내용과 같은지, 이력 검증(이전 기록 + 1건), 설정 재검증, 관리자 검증값이 의도한 내용(바꾸지 않았으면
-     * 원본과 같음)인지.
-     */
-    private static Snapshot verify(Path temp, Snapshot before, byte[] settingsBytes, byte[] adminBytes)
-            throws IOException, CryptoCli.CliException {
-        try (JarInputStream in = new JarInputStream(Files.newInputStream(temp), true)) {
-            if (in.getManifest() == null) throw verifyFailure("jar.verify.manifest");
-            byte[] buffer = new byte[8192];
-            while (in.getNextJarEntry() != null) {
-                while (in.read(buffer) != -1) { /* 끝까지 읽어 CRC·크기를 확인한다 */ }
-            }
-        } catch (java.util.zip.ZipException e) {
-            throw verifyFailure("jar.verify.zip");
-        }
-        Snapshot written = read(temp);
-        if (!same(before.mainClass, written.mainClass)) throw verifyFailure("jar.verify.mainClass");
-        if (!same(before.version, written.version)) throw verifyFailure("jar.verify.version");
-        if (!written.entryNames.containsAll(before.entryNames)) throw verifyFailure("jar.verify.entries");
-        if (!Arrays.equals(settingsBytes, written.settingsBytes)) throw verifyFailure("jar.verify.settings");
-        if (written.history.problem != null || !written.history.present
-                || written.history.entries.size() != before.history.entries.size() + 1) {
-            throw verifyFailure("jar.verify.history");
-        }
-        if (written.validationError != null) throw verifyFailure("jar.verify.validation");
-        if (!Arrays.equals(adminBytes, written.adminBytes)) throw verifyFailure("jar.verify.admin");
-        // 결과 JAR도 같은 상태 판단으로 다시 확인한다(관리자 검증값과 이력의 관리자 기록이 맞아야 함).
-        if (AdminPassword.statusOf(written).state == AdminPassword.State.DAMAGED) throw verifyFailure("jar.verify.admin");
-        return written;
-    }
-
-    private static CryptoCli.CliException verifyFailure(String whatKey) {
-        return new CryptoCli.CliException("IO_ERROR", Messages.get("jar.err.verify", Messages.get(whatKey)));
-    }
-
-    /**
      * 내장 키 값(표준 Base64 또는 obf1)을 JAR 안 저장 표현으로 바꾼다: obf1을 읽는 JAR면 obf1, 이전 버전 JAR면 표준 Base64.
      * 키 바이트는 그대로다.
      *
@@ -879,40 +881,6 @@ final class JarConfigEditor {
         }
     }
 
-    /** 결과 파일 이름을 먼저 차지한다(이미 있으면 덮어쓰지 않고 거부, 두 작업이 같은 출력에 쓰는 것도 막음). */
-    private static Path reserve(Path output) throws CryptoCli.CliException, IOException {
-        try {
-            return Files.createFile(output);
-        } catch (FileAlreadyExistsException e) {
-            throw new CryptoCli.CliException(Messages.get("jar.err.outExists", name(output)));
-        }
-    }
-
-    /** 잠금 파일을 만든다(같은 JAR를 동시에 교체하지 못하게 함). */
-    private static void createLock(Path lock) throws CryptoCli.CliException, IOException {
-        try {
-            Files.createFile(lock);
-        } catch (FileAlreadyExistsException e) {
-            throw new CryptoCli.CliException("IO_ERROR", Messages.get("jar.err.lock", name(lock)));
-        }
-    }
-
-    /** 같은 폴더 안의 원자적 이동. 원자적 이동을 보장할 수 없으면(AtomicMoveNotSupportedException) 교체하지 않는다. */
-    private static void atomicMove(Path temp, Path target) throws IOException {
-        // 결과 파일 이름은 reserve로 먼저 만들어 두었으므로(빈 파일) 두 경우 모두 그 자리를 원자적으로 바꾼다.
-        Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-    }
-
-    /** 원본 교체(--replace)에서만: POSIX에서 원본 JAR의 권한을 교체 결과에 적용한다(운영 중인 Tomcat이 계속 읽을 수 있게). */
-    private static void copyPermissions(Path source, Path temp) throws IOException {
-        if (posix()) Files.setPosixFilePermissions(temp, Files.getPosixFilePermissions(source));
-    }
-
-    /** POSIX에서 소유자만 읽고 쓰게 한다(600). POSIX 권한이 없는 파일 시스템(Windows)은 폴더의 ACL을 상속한다. */
-    private static void ownerOnly(Path file) throws IOException {
-        if (posix()) Files.setPosixFilePermissions(file, java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
-    }
-
     /** @return 기본 파일 시스템이 POSIX 권한을 지원하면 true(Linux·macOS) */
     static boolean posix() {
         return FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
@@ -979,24 +947,13 @@ final class JarConfigEditor {
         }
     }
 
-    private static void copy(InputStream in, OutputStream out) throws IOException {
-        byte[] buffer = new byte[8192];
-        int read;
-        while ((read = in.read(buffer)) != -1) out.write(buffer, 0, read);
-    }
-
     private static boolean hasControl(String text) {
         for (int i = 0; i < text.length(); i++) if (Character.isISOControl(text.charAt(i))) return true;
         return false;
     }
 
-    private static boolean same(String a, String b) {
-        return a == null ? b == null : a.equals(b);
-    }
-
-    /** 오류 메시지용 이름: 안전한 형식이 아니면 표시하지 않는다. */
     private static String safeName(String key) {
-        return key.matches("[A-Za-z0-9._-]{1,80}") ? key : Messages.get("jar.name.unsafe");
+        return key.matches("[A-Za-z0-9._-]{1,80}") || SettingCatalog.parseProfileName(key) != null ? key : Messages.get("jar.name.unsafe");
     }
 
     /** 파일 이름만(전체 경로는 오류 메시지에 넣지 않는다). */
@@ -1005,24 +962,4 @@ final class JarConfigEditor {
         return fileName == null ? Messages.get("jar.name.none") : SecretFiles.fileName(path);
     }
 
-    /** 백업 파일 이름용 시각(예: 20261121T053012Z). */
-    static String compact(Instant now) {
-        return now.truncatedTo(ChronoUnit.SECONDS).toString().replace("-", "").replace(":", "");
-    }
-
-    private static boolean sameFile(Path a, Path b) {
-        try {
-            return Files.exists(a) && Files.exists(b) && Files.isSameFile(a, b);
-        } catch (IOException e) {
-            return false;
-        }
-    }
-
-    private static void deleteQuietly(Path path) {
-        try {
-            Files.deleteIfExists(path);
-        } catch (IOException ignored) {
-            // 정리 실패는 결과에 영향을 주지 않는다(임시·잠금 파일 이름은 고유하거나 안내 문구에 포함됨).
-        }
-    }
 }

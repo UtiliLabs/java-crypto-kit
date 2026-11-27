@@ -190,7 +190,8 @@ public static boolean signWithKeyStore(Path p12, char[] storePassword, char[] ke
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api cert info --in server.crt
+# 인증서 발급자와 유효 기간 확인
+java -jar java-crypto-kit-0.2.1.jar api cert info --in server.crt
 ```
 
 <a name="api-keyconvert"></a>
@@ -216,7 +217,8 @@ java -jar java-crypto-kit-0.2.0-cfg.jar api cert info --in server.crt
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api keyconv --type public --fmt der --in rsa-public.pem --out rsa.der
+# 키 파일 인코딩 변환
+java -jar java-crypto-kit-0.2.1.jar api keyconv --type public --fmt der --in rsa-public.pem --out rsa.der
 ```
 
 ---

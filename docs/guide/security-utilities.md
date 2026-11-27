@@ -75,7 +75,7 @@ public static String[] login(char[] password, String stored) {
 | `hash(password)` | SHA256·600,000회, 16바이트 새 Salt |
 | `hash(password, algorithm, iterations)` | SHA256/SHA512, 100,000~5,000,000회 |
 | `verify(password, stored)` | 저장값의 알고리즘·Salt·반복 횟수로 검증. 과거 해시 검증만 1,000회 이상 허용 |
-| `needsRehash(stored[, algorithm, iterations])` | 현재 목표 정책과 저장 해시 비교. 로그인 성공 후에만 다시 해시하여 교체 |
+| `needsRehash(stored[, algorithm, iterations])` | 목표 반복 100,000~5,000,000회로 저장 해시를 비교. 범위 밖은 입력 오류. 로그인 성공 후 다시 해시하여 교체 |
 
 DB에 저장하는 값은 `hash`가 반환하는 문자열 전체입니다. Salt만 따로 잘라 저장할 필요가 없습니다. `verify`가 `false`이면 로그인 실패, 저장 형식 자체가 손상되면 예외로 처리합니다.
 
@@ -359,7 +359,8 @@ true
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api encode --enc base64 --in sample.bin --out sample.b64
+# 입력 바이트를 텍스트로 인코딩
+java -jar java-crypto-kit-0.2.1.jar api encode --enc base64 --in sample.bin --out sample.b64
 ```
 
 <a name="api-decode"></a>
@@ -384,7 +385,8 @@ java -jar java-crypto-kit-0.2.0-cfg.jar api encode --enc base64 --in sample.bin 
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api decode --enc base64 --in sample.b64 --out restored.bin
+# 인코딩한 텍스트를 원래 바이트로 복원
+java -jar java-crypto-kit-0.2.1.jar api decode --enc base64 --in sample.b64 --out restored.bin
 ```
 
 <a name="api-random"></a>
@@ -420,11 +422,20 @@ java -jar java-crypto-kit-0.2.0-cfg.jar api decode --enc base64 --in sample.b64 
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api rand bytes --len 16 --enc hex --out salt.hex
-java -jar java-crypto-kit-0.2.0-cfg.jar api rand token --len 32 --out random.txt
-java -jar java-crypto-kit-0.2.0-cfg.jar api rand string --len 12 --alphabet digits --prefix TEST- --out random.txt
-java -jar java-crypto-kit-0.2.0-cfg.jar api rand nonce --out nonce.txt
-java -jar java-crypto-kit-0.2.0-cfg.jar api rand uuid
+# 지정한 길이의 보안 난수 바이트 생성
+java -jar java-crypto-kit-0.2.1.jar api rand bytes --len 16 --enc hex --out salt.hex
+
+# 무작위 토큰 생성
+java -jar java-crypto-kit-0.2.1.jar api rand token --len 32 --out random.txt
+
+# 지정한 문자 집합에서 무작위 문자열 생성
+java -jar java-crypto-kit-0.2.1.jar api rand string --len 12 --alphabet digits --prefix TEST- --out random-digits.txt
+
+# 일회용 난수 생성
+java -jar java-crypto-kit-0.2.1.jar api rand nonce --out nonce.txt
+
+# 무작위 UUID 생성
+java -jar java-crypto-kit-0.2.1.jar api rand uuid
 ```
 
 <a name="api-password"></a>
@@ -456,9 +467,14 @@ java -jar java-crypto-kit-0.2.0-cfg.jar api rand uuid
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api password hash --password-file app.pw --out app.hash
-java -jar java-crypto-kit-0.2.0-cfg.jar api password verify --password-file app.pw --in app.hash
-java -jar java-crypto-kit-0.2.0-cfg.jar api password needs-rehash --in app.hash
+# 검증용 비밀번호 해시 생성
+java -jar java-crypto-kit-0.2.1.jar api password hash --password-file app.pw --out app.hash
+
+# 비밀번호와 저장한 해시 대조
+java -jar java-crypto-kit-0.2.1.jar api password verify --password-file app.pw --in app.hash
+
+# 비밀번호 해시 갱신 필요 여부 확인
+java -jar java-crypto-kit-0.2.1.jar api password needs-rehash --in app.hash
 ```
 
 <a name="api-kdf"></a>
@@ -495,8 +511,11 @@ PBKDF2에 쓸 Salt는 Hex로 지정합니다. HKDF의 `--key-file`에는 지정�
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api kdf pbkdf2 --pass-file sample.pass --salt-file salt.hex --out pbkdf2.key
-java -jar java-crypto-kit-0.2.0-cfg.jar api kdf hkdf --key-file hmac.key --info trial --out hkdf.key
+# Passphrase와 Salt로 키 파생
+java -jar java-crypto-kit-0.2.1.jar api kdf pbkdf2 --pass-file sample.pass --salt-file salt.hex --out pbkdf2.key
+
+# 주어진 키에서 용도별 키 파생
+java -jar java-crypto-kit-0.2.1.jar api kdf hkdf --key-file hmac.key --info trial --out hkdf.key
 ```
 
 ---

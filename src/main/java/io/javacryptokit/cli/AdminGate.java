@@ -44,6 +44,11 @@ interface AdminGate extends AutoCloseable {
      */
     char[] verifiedPassword();
 
+    /** 인증 때 확인한 JAR 상태. 시험용 인증 창구는 지정된 시험 JAR을 읽는다. */
+    default JarConfigEditor.Snapshot snapshot(Path jar) throws CryptoCli.CliException {
+        return JarConfigEditor.read(jar);
+    }
+
     /** 이번 실행에서 받은 비밀번호를 메모리에서 지운다. */
     @Override
     void close();

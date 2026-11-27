@@ -7,7 +7,7 @@
 <a name="guide-contents"></a>
 **이 문서에서 찾을 수 있는 내용**
 
-[키를 준비하기 전에 결정할 것](#choose-key-material) · [키의 전체 생애주기](#guide-section-2) · [공개 예제 키와 업무용 키 준비](#topic-key-selection) · [키 공급원과 설정 적용](#topic-key-management) · [AES 키 생성 및 내장](#topic-key-generation) · [새 키 및 기존 키 등록](#topic-key-registration) · [기본 키 선택 및 제거](#topic-key-defaults) · [키 관리정보 조회 및 백업](#topic-key-export) · [키 복구 및 다른 JAR로 이전](#topic-key-recovery) · [키 교체 및 암호문 이전](#topic-key-rotation) · [설정 변경 이력](#topic-history)
+[키를 준비하기 전에 결정할 것](#choose-key-material) · [키의 전체 생애주기](#guide-section-2) · [최초 생성 키와 업무용 키 준비](#topic-key-selection) · [키 공급원과 설정 적용](#topic-key-management) · [AES 키 생성 및 내장](#topic-key-generation) · [새 키 및 기존 키 등록](#topic-key-registration) · [기본 키 선택 및 제거](#topic-key-defaults) · [키 관리정보 조회 및 백업](#topic-key-export) · [키 복구 및 다른 JAR로 이전](#topic-key-recovery) · [키 교체 및 암호문 이전](#topic-key-rotation) · [설정 변경 이력](#topic-history)
 
 ---
 
@@ -28,12 +28,12 @@
 
 | 제공되는 키 관리 기능 | 실제 활용 |
 |---|---|
-| 공개 기본 키 2개 | 새 JAR 동작 확인. 실제 비밀값에는 사용하지 않음 |
+| 초기 설정 키 2개 | 설정 JAR별로 생성한 독립 키. 설정 JAR 백업 필요 |
 | 여러 유형·키 ID 동시 등록 | 업무별 암호화 키 구분, 키 교체 기간의 이전 암호문 복호화 |
 | 기본 유형과 유형별 기본 키 | 명령·API마다 키를 지정하지 않을 때 선택할 키 결정 |
 | 명시적 `--key-id` | 지정 업무 키 사용. `--type`도 있으면 유형 일치 필요 |
 | 지문·설정 조회 | CLI와 WAS, 다른 서버의 실제 키가 동일한지 확인 |
-| 원본/결과 JAR 분리 및 이력 | 변경 전후 파일 관리와 변경 이유 추적. 이력이 작업자 신원을 인증하는 것은 아님 |
+| 같은 JAR 갱신 및 이력 | 같은 경로의 JAR 갱신과 변경 이유 추적. 이력이 작업자 신원을 인증하는 것은 아님 |
 
 키를 등록만 해서는 암호문이 자동 변환되지 않습니다. 기존 암호문은 그 키 ID의 키가 필요하며, 키 교체는 이전 키를 유지한 채 `rekey` 후 확인하는 별도 작업입니다. 직접 키 API에는 관리형 키 등록·이력 기능을 적용하지 않습니다.
 
@@ -50,33 +50,31 @@
 | [교체](#topic-key-rotation) | 새 키 등록 → `rekey` → 검증 → 필요 시 이전 키 제거 | 기존 암호문 이전 |
 | [추적](#topic-history) | `config history` | JAR 변경 이력 확인 |
 
-**CLI는 키 관리의 주 사용 방식**입니다. 실행 전 [CLI 관리자 인증·공통 규칙](cli.md)을 확인합니다. 키 등록·변경 명령은 새 JAR를 생성하므로 결과 JAR를 이후 명령과 실제 배포에 사용합니다. 공개 예제 키는 실습에만 사용합니다. 직접 키 주입·범용 API의 키 수명주기는 호출자가 관리하며 이 CLI 키 목록에 자동 등록되지 않습니다.
+**CLI는 키 관리의 주 사용 방식**입니다. 실행 전 [CLI 관리자 인증·공통 규칙](cli.md)을 확인합니다. 키 등록·변경 명령은 지정한 JAR를 같은 경로에 갱신합니다. 관리형 경로는 공개된 기본 AES 키를 거부합니다. 외부 Passphrase 공급원(파일·환경변수·Vault)도 Salt와 반복 횟수에 관계없이 공개된 기본 Passphrase를 거부합니다. 직접 키 주입·범용 API의 키 수명주기는 호출자가 관리하며 이 CLI 키 목록에 자동 등록되지 않습니다.
 
 <a name="topic-key-selection"></a>
 
-## 공개 예제 키와 업무용 키 준비
+## 최초 생성 키와 업무용 키 준비
 
 <a name="topic-key-selection--사용자-지정-키-준비"></a>
 <a name="topic-key-selection--13-체험용-내장-키와-운영용-사용자-지정-키"></a>
-### 체험용 내장 키와 운영용 사용자 지정 키 (1.3)
+### 최초 생성 키와 운영용 사용자 지정 키 (1.3)
 
-공개 JAR에는 체험용 **공개 기본 키 두 개**가 들어 있어 키를 만들지 않고 바로 실행해 볼 수 있습니다. 두 키는 소스와 함께 공개된 값이므로 누구나 복호화할 수 있습니다.
+배포 원본에는 키가 없습니다. `admin setup` 한 번으로 다음 두 키를 등록하고 활성화합니다.
 
-| 키 ID | 유형 | 용도 |
+| 사용 목적 | 선택 | 초기 설정에서 생성하는 자료 |
 |---|---|---|
-| `pass-default` | `pass` | 유형을 정하지 않은 새 암호화의 기본 키(공개 예제 Passphrase로 파생한 키) |
-| `default` | `key` | `--type key`(Java `KeyType.KEY`)의 기본 키. 이전 형식의 공개 AES 키와 같은 값·같은 키 ID라 기존 암호문이 그대로 복호화됨 |
+| PASS (Passphrase) 기본 암호화 | `enc`, `file enc` | 난수 Passphrase와 별도 Salt에서 파생한 키. ID는 `pass-`와 난수 32자리 Hex |
+| KEY (AES Key) 명시 선택 | `enc --type key` | 독립 난수 32바이트. ID는 `key-`와 난수 32자리 Hex |
 
-| 구분 | 체험(기능 확인) | 운영(실제 비밀번호·비밀값) |
-|---|---|---|
-| 키 | 공개 기본 키 `pass-default`·`default` | 사용자 지정 키(JAR 내장 또는 `file`·`env`·`vault`·`aws-kms`) |
-| 준비 | 없음(`keygen` 불필요) | pass: `config key add --active`(Passphrase 입력). key: 새 키가 필요할 때만 `keygen` → `config embed-key`(또는 `config key add --type key`) |
-| 알아보는 법 | 암호문의 키ID가 `pass-default`·`default`, `info`·`doctor`의 키 상태 `공개 기본 키`, 실행할 때 `[WARN] 공개 기본 키 사용 중` 한 줄 | 지정한 키ID(예: `app-pass`·`key01`), 키 상태 `사용자 지정`, 경고 없음 |
-| 쓸 수 있는 데이터 | 시험 데이터만 | 실제 DB 비밀번호·비밀값 |
+여러 서버가 같은 암호문을 읽으려면 같은 설정 JAR를 배치하거나 같은 **키와 ID**를 이전하세요. 관리자 비밀번호만으로는 키를 복구할 수 없습니다. 내장 pass는 파생 키만 있으므로 같은 키는 `--from-jar`로 이전합니다. 원문 복원이 필요하면 최초 설정 시 다음처럼 새 보호 파일을 함께 만드세요.
 
-**새 암호화가 쓰는 키:** 유형·키 ID를 정하지 않으면 `crypto.key.type`(기본 `pass`)의 **기본 키**를 씁니다. pass 기본 키는 `crypto.key.active.pass`(공식 JAR `pass-default`), key 기본 키는 `crypto.key.active.key`(비우면 `crypto.key.*`의 AES 키)입니다.
+```sh
+# 같은 JAR에 관리자 설정을 저장하고 최초 PASS 복원 파일을 명시적으로 내보내기
+java -jar java-crypto-kit-0.2.1.jar admin setup --pass-export initial-pass.backup
+```
 
-그래서 AES 키만 내장해도(`config embed-key`) 유형을 정하지 않은 `encrypt`는 여전히 공개 `pass-default`를 씁니다.
+백업과 설정 JAR는 서버의 제한된 디렉터리에 별도로 보관하세요. POSIX의 신규 비밀 파일은 600이고 Windows에서는 폴더 ACL을 적용합니다. AES 원문은 관리자 인증 후 `config key show --key-id <생성된 ID> --export <새 파일>`로 저장합니다. Passphrase 복원 백업은 원래 ID와 `config key add --from-file`로 등록합니다.
 
 운영에서는 **사용자 지정 pass 키를 기본으로 정하거나**(아래 A) **AES 키를 내장한 뒤 key 유형으로 암호화합니다**(아래 B). 자세한 선택 규칙은 [5.5절](#topic-key-management--55-키-목록과-유형-선택)에 있습니다.
 
@@ -87,58 +85,96 @@
 실제 키 변경이므로 변경 사유(`--reason`, 빠지면 물어봄)를 받고 `CHANGE`를 입력해 확인합니다.
 
 Passphrase를 직접 정하지 않으려면 `--generate`로 만들게 합니다(생성값은 화면에 한 번만 나오므로 [5.6절](#topic-key-recovery--56-자동-생성한-passkey-보관재등록복구)대로 보관).
-2. 결과 JAR로 [`config show`](cli.md#topic-cli-settings--210-config-show--jar-내장값-조회)·[`doctor`](cli.md#topic-cli-settings--214-doctor--설정과-키-진단)(`결과: PASS`)를 확인합니다.
-3. 결과 JAR로 [`encrypt`](cli.md#topic-cli-encryption--23-encrypt--문자열-암호화)를 실행해 DB 비밀번호 암호문(`ENC[v1:app-pass:...]`)을 만듭니다.
-4. **같은 결과 JAR**를 WAS에 배포합니다([3장](tomcat-jdbc.md#topic-tomcat--3-tomcat-jndi-연동)).
+2. 갱신한 JAR로 [`config show`](cli.md#topic-cli-settings--210-config-show--jar-내장값-조회)·[`doctor`](cli.md#topic-cli-settings--214-doctor--설정과-키-진단)(`결과: PASS`)를 확인합니다.
+3. 갱신한 JAR로 [`encrypt`](cli.md#topic-cli-encryption--23-encrypt--문자열-암호화)를 실행해 DB 비밀번호 암호문(`ENC[v1:app-pass:...]`)을 만듭니다.
+4. **갱신한 같은 JAR**를 WAS에 배포합니다([3장](tomcat-jdbc.md#topic-tomcat--3-tomcat-jndi-연동)).
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id app-pass --active --operator example-admin --reason "운영 pass 키 등록"
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar config show
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar doctor
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar encrypt
+# 현재 JAR에 키 프로필 등록
+java -jar java-crypto-kit-0.2.1.jar config key add --key-id app-pass --active --operator example-admin --reason "운영 pass 키 등록"
+
+# JAR에 저장된 키 목록과 설정 조회
+java -jar .\java-crypto-kit-0.2.1.jar config show
+
+# 키 공급원과 암복호화 동작 진단
+java -jar .\java-crypto-kit-0.2.1.jar doctor
+
+# 입력한 값을 활성 키로 암호화
+java -jar .\java-crypto-kit-0.2.1.jar enc
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id app-pass --active --operator example-admin --reason "운영 pass 키 등록"
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar doctor
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar encrypt
+# 현재 JAR에 키 프로필 등록
+java -jar ./java-crypto-kit-0.2.1.jar config key add --key-id app-pass --active --operator example-admin --reason "운영 pass 키 등록"
+
+# 키 공급원과 암복호화 동작 진단
+java -jar ./java-crypto-kit-0.2.1.jar doctor
+
+# 입력한 값을 활성 키로 암호화
+java -jar ./java-crypto-kit-0.2.1.jar enc
 ```
 
 **B. 운영 준비 - AES 키(key)를 JAR에 내장**
 
 1. 새 키가 필요하면 [`keygen`](#topic-key-generation--26-keygen--새-키-파일-만들기)으로 키 파일을 만듭니다. 이미 쓰는 키가 있으면 이 단계는 없습니다.
-2. [`config embed-key`](#topic-key-generation--27-config-embed-key--사용자-지정-키-내장)로 키 내장 JAR를 만듭니다(사유 입력·`CHANGE` 확인). 원본 JAR는 그대로 남고, 이전 AES 키(`default`)는 같은 키 ID로 키 목록에 남습니다.
+2. [`config embed-key`](#topic-key-generation--27-config-embed-key--사용자-지정-키-내장)로 키 내장 JAR를 만듭니다(사유 입력·`CHANGE` 확인). 변경 전에 복사한 JAR는 그대로 남고, 이전 AES 키는 같은 키 ID로 키 목록에 남습니다.
 
 JAR 대신 키를 외부에 두려면 [5장](#topic-key-management--5-키-공급원과-설정-적용)을 봅니다.
-3. 결과 JAR로 [`config show`](cli.md#topic-cli-settings--210-config-show--jar-내장값-조회)·[`fingerprint --type key`](#topic-key-generation--28-fingerprint--키가-같은지-비교)(JAR와 키 파일의 지문 일치)·[`doctor`](cli.md#topic-cli-settings--214-doctor--설정과-키-진단)(`결과: PASS`)를 확인합니다.
+3. 갱신한 JAR로 [`config show`](cli.md#topic-cli-settings--210-config-show--jar-내장값-조회)·[`fingerprint --type key`](#topic-key-generation--28-fingerprint--키가-같은지-비교)(JAR와 키 파일의 지문 일치)·[`doctor`](cli.md#topic-cli-settings--214-doctor--설정과-키-진단)(`결과: PASS`)를 확인합니다.
 
 지금 쓰는 키를 확인하는 방법은 [5.4절](#topic-key-management--54-지금-쓰는-키-확인)에 있습니다.
-4. 결과 JAR로 `encrypt --type key`를 실행해 DB 비밀번호 암호문(`ENC[v1:key01:...]`)을 만듭니다. 유형을 매번 적지 않으려면 `config set crypto.key.type=key`로 기본 유형을 key로 바꿉니다.
-5. **같은 결과 JAR**를 WAS에 배포합니다([3장](tomcat-jdbc.md#topic-tomcat--3-tomcat-jndi-연동)).
+4. 갱신한 JAR로 `encrypt --type key`를 실행해 DB 비밀번호 암호문(`ENC[v1:key01:...]`)을 만듭니다. 유형을 매번 적지 않으려면 `config set crypto.key.type=key`로 기본 유형을 key로 바꿉니다.
+5. **갱신한 같은 JAR**를 WAS에 배포합니다([3장](tomcat-jdbc.md#topic-tomcat--3-tomcat-jndi-연동)).
 
 ```powershell
+# 비밀 파일용 디렉터리 생성
 New-Item -ItemType Directory -Force -Path "$HOME\jck-secure" | Out-Null
-java -jar .\java-crypto-kit-0.2.0-cfg.jar keygen --out "$HOME\jck-secure\example.key" --reason "운영 AES 키 준비"
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config embed-key --from-file "$HOME\jck-secure\example.key" --key-id key01 --operator example-admin --reason "운영 AES 키 내장"
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar config show
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar fingerprint --type key
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar fingerprint --key-file "$HOME\jck-secure\example.key"
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar doctor
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar encrypt --type key
+
+# 새 AES-256 키 생성
+java -jar .\java-crypto-kit-0.2.1.jar keygen --out "$HOME\jck-secure\example.key" --reason "운영 AES 키 준비"
+
+# AES 키와 ID를 현재 대상 JAR에 등록
+java -jar java-crypto-kit-0.2.1.jar config embed-key --from-file "$HOME\jck-secure\example.key" --key-id key01 --operator example-admin --reason "운영 AES 키 내장"
+
+# JAR에 저장된 키 목록과 설정 조회
+java -jar .\java-crypto-kit-0.2.1.jar config show
+
+# 선택한 키의 SHA-256 지문 확인
+java -jar .\java-crypto-kit-0.2.1.jar fingerprint --type key
+
+# 선택한 키의 SHA-256 지문 확인
+java -jar .\java-crypto-kit-0.2.1.jar fingerprint --key-file "$HOME\jck-secure\example.key"
+
+# 키 공급원과 암복호화 동작 진단
+java -jar .\java-crypto-kit-0.2.1.jar doctor
+
+# 입력한 값을 활성 키로 암호화
+java -jar .\java-crypto-kit-0.2.1.jar enc --type key
 ```
 
 ```bash
+# 소유자 전용 디렉터리 생성
 mkdir -p -m 700 ~/jck-secure
-java -jar ./java-crypto-kit-0.2.0-cfg.jar keygen --out ~/jck-secure/example.key --reason "운영 AES 키 준비"
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config embed-key --from-file ~/jck-secure/example.key --key-id key01 --operator example-admin --reason "운영 AES 키 내장"
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar fingerprint --key-file ~/jck-secure/example.key
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar doctor
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar encrypt --type key
+
+# 새 AES-256 키 생성
+java -jar ./java-crypto-kit-0.2.1.jar keygen --out ~/jck-secure/example.key --reason "운영 AES 키 준비"
+
+# AES 키와 ID를 현재 대상 JAR에 등록
+java -jar ./java-crypto-kit-0.2.1.jar config embed-key --from-file ~/jck-secure/example.key --key-id key01 --operator example-admin --reason "운영 AES 키 내장"
+
+# 선택한 키의 SHA-256 지문 확인
+java -jar ./java-crypto-kit-0.2.1.jar fingerprint --key-file ~/jck-secure/example.key
+
+# 키 공급원과 암복호화 동작 진단
+java -jar ./java-crypto-kit-0.2.1.jar doctor
+
+# 입력한 값을 활성 키로 암호화
+java -jar ./java-crypto-kit-0.2.1.jar enc --type key
 ```
 
 키 파일·Passphrase와 키 내장 JAR는 비밀 파일입니다.
 
-Git 저장소 밖의 보호된 곳에 보관·백업하고, 둘 다 잃으면 그 키로 만든 암호문을 복구할 수 없습니다(보관·재등록·복구 방법: [5.6절](#topic-key-recovery--56-자동-생성한-passkey-보관재등록복구)). 공개 기본 키는 자동으로 지우거나 막지 않습니다.
+Git 저장소 밖의 보호된 곳에 보관·백업하고, 둘 다 잃으면 그 키로 만든 암호문을 복구할 수 없습니다(보관·재등록·복구 방법: [5.6절](#topic-key-recovery--56-자동-생성한-passkey-보관재등록복구)). 공개된 기본 키는 관리형 실행 시 항상 거부합니다.
 
 더 쓰지 않으려면 기존 암호문을 `rekey`로 옮긴 뒤 [`config key remove`](#topic-key-defaults--220-config-key-remove--키-제거)로 직접 제거합니다(그 유형의 기본 키는 먼저 바꿔야 함).
 
@@ -146,17 +182,37 @@ Git 저장소 밖의 보호된 곳에 보관·백업하고, 둘 다 잃으면 �
 ### 운영: Passphrase(pass) 키를 JAR에 넣고 기본 키로 (A.3)
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id app-pass --active --operator example-admin --reason "운영 pass 키 등록" --out app-pass.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination app-pass.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar app-pass.jar config key add --key-id app-pass --active --operator example-admin --reason "운영 pass 키 등록"
+
+# JAR에 저장된 키 목록과 설정 조회
 java -jar .\app-pass.jar config show
+
+# 키 공급원과 암복호화 동작 진단
 java -jar .\app-pass.jar doctor
-java -jar .\app-pass.jar encrypt
+
+# 입력한 값을 활성 키로 암호화
+java -jar .\app-pass.jar enc
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id app-pass --active --operator example-admin --reason "운영 pass 키 등록" --out app-pass.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar app-pass.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar app-pass.jar config key add --key-id app-pass --active --operator example-admin --reason "운영 pass 키 등록"
+
+# JAR에 저장된 키 목록과 설정 조회
 java -jar ./app-pass.jar config show
+
+# 키 공급원과 암복호화 동작 진단
 java -jar ./app-pass.jar doctor
-java -jar ./app-pass.jar encrypt
+
+# 입력한 값을 활성 키로 암호화
+java -jar ./app-pass.jar enc
 ```
 
 ```text
@@ -164,7 +220,7 @@ java -jar ./app-pass.jar encrypt
 Passphrase(입력 숨김):                        ← Passphrase 입력
 Passphrase 확인(입력 숨김):                   ← 같은 값 다시 입력
 키를 추가합니다(기존 암호문은 그대로):
-  결과: 새 JAR app-pass.jar (원본은 그대로)
+  현재 JAR app-pass.jar 갱신
   사유: 운영 pass 키 등록
   crypto.keys.app-pass.type ((없음) -> pass)
   crypto.keys.app-pass.source ((없음) -> embedded)
@@ -172,16 +228,16 @@ Passphrase 확인(입력 숨김):                   ← 같은 값 다시 입력
   crypto.keys.app-pass.kdf ((없음) -> pbkdf2-sha256)
   crypto.keys.app-pass.kdf.iterations ((없음) -> 600000)
   crypto.keys.app-pass.salt ((없음) -> bpdlnvXfo8nRHG1JQmKL8Q==)
-  crypto.key.active.pass (pass-default -> app-pass)
+  crypto.key.active.pass (pass-<생성 ID> -> app-pass)
 계속하려면 CHANGE를 입력하세요(그 외 입력은 취소): CHANGE
-생성 JAR  : C:\work\app-pass.jar
+갱신 JAR  : C:\work\app-pass.jar
 변경 항목 : crypto.keys.app-pass.type ((없음) -> pass)
             ...
-            crypto.key.active.pass (pass-default -> app-pass)
+            crypto.key.active.pass (pass-<생성 ID> -> app-pass)
 추가 키   : app-pass (pass, embedded, 지문 e87f0d656730...3db05eaa)
 ```
 
-`config show`의 `기본 키   : pass=app-pass, key=default`와 키 목록, `doctor`의 `결과: PASS`(키마다 `[PASS] 키 로딩 정상`)를 확인한 뒤 `encrypt`로 만든 `ENC[v1:app-pass:...]`를 Tomcat Resource에 넣습니다.
+`config show`의 `기본 키   : pass=app-pass, key=key-<생성 ID>`와 키 목록, `doctor`의 `결과: PASS`(키마다 `[PASS] 키 로딩 정상`)를 확인한 뒤 `encrypt`로 만든 `ENC[v1:app-pass:...]`를 Tomcat Resource에 넣습니다.
 
 이 JAR를 그대로 Tomcat `lib`에 배포합니다.
 
@@ -189,19 +245,43 @@ Passphrase 확인(입력 숨김):                   ← 같은 값 다시 입력
 ### 운영: AES 키(key)를 JAR에 넣기 (A.4)
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar keygen --out "$SECURE\example.key" --reason "운영 AES 키 준비"
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config embed-key --from-file "$SECURE\example.key" --key-id key01 --operator example-admin --reason "운영 AES 키 내장" --out app-aes.jar
+# 새 AES-256 키 생성
+java -jar .\java-crypto-kit-0.2.1.jar keygen --out "$SECURE\example.key" --reason "운영 AES 키 준비"
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination app-aes.jar
+
+# AES 키와 ID를 현재 대상 JAR에 등록
+java -jar app-aes.jar config embed-key --from-file "$SECURE\example.key" --key-id key01 --operator example-admin --reason "운영 AES 키 내장"
+
+# 선택한 키의 SHA-256 지문 확인
 java -jar .\app-aes.jar fingerprint --type key
+
+# 선택한 키의 SHA-256 지문 확인
 java -jar .\app-aes.jar fingerprint --key-file "$SECURE\example.key"
-java -jar .\app-aes.jar encrypt --type key
+
+# 입력한 값을 활성 키로 암호화
+java -jar .\app-aes.jar enc --type key
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg.jar keygen --out "$SECURE/example.key" --reason "운영 AES 키 준비"
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config embed-key --from-file "$SECURE/example.key" --key-id key01 --operator example-admin --reason "운영 AES 키 내장" --out app-aes.jar
+# 새 AES-256 키 생성
+java -jar ./java-crypto-kit-0.2.1.jar keygen --out "$SECURE/example.key" --reason "운영 AES 키 준비"
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar app-aes.jar
+
+# AES 키와 ID를 현재 대상 JAR에 등록
+java -jar app-aes.jar config embed-key --from-file "$SECURE/example.key" --key-id key01 --operator example-admin --reason "운영 AES 키 내장"
+
+# 선택한 키의 SHA-256 지문 확인
 java -jar ./app-aes.jar fingerprint --type key
+
+# 선택한 키의 SHA-256 지문 확인
 java -jar ./app-aes.jar fingerprint --key-file "$SECURE/example.key"
-java -jar ./app-aes.jar encrypt --type key
+
+# 입력한 값을 활성 키로 암호화
+java -jar ./app-aes.jar enc --type key
 ```
 
 ```text
@@ -219,13 +299,13 @@ java -jar ./app-aes.jar encrypt --type key
 
 관리자 비밀번호(입력 숨김):                                ← embed-key
 AES 키(crypto.key.*)를 교체합니다(이전 키가 남아 기존 암호문은 그대로):
-  결과: 새 JAR app-aes.jar (원본은 그대로)
+  현재 JAR app-aes.jar 갱신
   사유: 운영 AES 키 내장
   crypto.key.embedded (비공개)
-  crypto.key.id (default -> key01)
-  crypto.keys.default.type ((없음) -> key)
-  crypto.keys.default.source ((없음) -> embedded)
-  crypto.keys.default.embedded (비공개)
+  crypto.key.id (key-<생성 ID> -> key01)
+  crypto.keys.key-<생성 ID>.type ((없음) -> key)
+  crypto.keys.key-<생성 ID>.source ((없음) -> embedded)
+  crypto.keys.key-<생성 ID>.embedded (비공개)
 계속하려면 CHANGE를 입력하세요(그 외 입력은 취소): CHANGE
 ...
 키 지문   : 5186b1751545...fe8a3a18
@@ -240,21 +320,33 @@ ENC[v1:key01:...]                            ← encrypt --type key
 
 `keygen`의 사유는 화면에만 나오고 어디에도 저장되지 않습니다(`이력 : 저장 안 함`). 스크립트·CI처럼 대화형 터미널이 아니면 생성값 묶음(`유형`부터 `안내`까지)은 나오지 않고 키 파일이 유일한 사본입니다.
 
-이전 공개 AES 키(`default`)는 키 목록에 남아 기존 `ENC[v1:default:...]`도 계속 복호화됩니다. 유형을 정하지 않은 `encrypt`도 이 AES 키를 쓰게 하려면 기본 유형을 바꿉니다.
+`config embed-key` 전의 AES 키(`admin setup`이 만든 KEY 등)는 키 목록에 남아 그 키 ID의 기존 `ENC[v1:...]`도 계속 복호화됩니다. 유형을 정하지 않은 `encrypt`도 새 AES 키를 쓰게 하려면 기본 유형을 바꿉니다(`config set crypto.key.type=key`).
 
 ```powershell
-java -jar .\app-aes.jar config set crypto.key.type=key --operator example-admin --reason "기본 유형 key" --yes --out app-aes-key.jar
-java -jar .\app-aes-key.jar encrypt
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\app-aes.jar -Destination app-aes-key.jar
+
+# JAR의 지정 설정 변경
+java -jar app-aes-key.jar config set crypto.key.type=key --operator example-admin --reason "기본 유형 key" --yes
+
+# 입력한 값을 활성 키로 암호화
+java -jar .\app-aes-key.jar enc
 ```
 
 ```bash
-java -jar ./app-aes.jar config set crypto.key.type=key --operator example-admin --reason "기본 유형 key" --yes --out app-aes-key.jar
-java -jar ./app-aes-key.jar encrypt
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./app-aes.jar app-aes-key.jar
+
+# JAR의 지정 설정 변경
+java -jar app-aes-key.jar config set crypto.key.type=key --operator example-admin --reason "기본 유형 key" --yes
+
+# 입력한 값을 활성 키로 암호화
+java -jar ./app-aes-key.jar enc
 ```
 
 ```text
 관리자 비밀번호(입력 숨김):                  ← config set
-생성 JAR  : C:\work\app-aes-key.jar
+갱신 JAR  : C:\work\app-aes-key.jar
 변경 항목 : crypto.key.type (pass -> key)
 ENC[v1:key01:...]                            ← 유형을 정하지 않아도 key01
 ```
@@ -280,7 +372,7 @@ ENC[v1:key01:...]                            ← 유형을 정하지 않아도 k
 
 **AES 키가 꼭 필요한가요?** 복호화할 수 있는 AES-256-GCM 암호화에는 비밀키가 필요하지만, **키 파일을 매번 만들거나 명령마다 입력할 필요는 없습니다.** 키는 AES 키(`key` 유형)로 두거나 Passphrase(`pass` 유형, 키를 파생)로 둘 수 있고, 각 키의 공급원은 아래 표에서 고릅니다.
 
-이미 준비된 키를 위 공급원 중 하나로 씁니다. `keygen`은 *새 AES 키가 필요할 때만* 실행합니다. 공개 JAR의 예제 키는 동작 확인용이며 실제 비밀값 보호에는 쓰지 않습니다.
+이미 준비된 키를 위 공급원 중 하나로 씁니다. `keygen`은 *새 AES 키가 필요할 때만* 실행합니다. 배포 원본 JAR에는 키가 없고, `admin setup`이 생성한 랜덤 PASS·KEY로 바로 암복호화할 수 있습니다.
 
 | 질문 | 답 |
 |---|---|
@@ -298,7 +390,7 @@ ENC[v1:key01:...]                            ← 유형을 정하지 않아도 k
 
 | 두는 곳 | 바꾸는 방법 | 언제 쓰나 | 반영 |
 |---|---|---|---|
-| JAR 내장값 | `config set ... --operator <ID>`, 키는 `config embed-key` | 여러 서버·실행에 같은 기본값을 영구 적용 | **결과 JAR**를 CLI·WAS에 다시 배포 |
+| JAR 내장값 | `config set ... --operator <ID>`, 키는 `config embed-key` | 여러 서버·실행에 같은 기본값을 영구 적용 | **갱신한 JAR**를 CLI·WAS에 다시 배포 |
 | 외부 Properties | `.properties` 파일([5.3절](#topic-key-management--53-외부-properties-지정)) | 서버마다 키 공급원·키 경로·Vault 경로를 다르게 둘 때 | WAS에 설정 경로 전달 후 재시작 |
 | JVM `-D` | `-Dcrypto.<이름>=<값>`(허용된 이름만) | 운영 정책이 허용하고 **프로세스 전체**에 같은 값을 줄 때 | 그 JVM 재시작 |
 | Tomcat `<Resource>` 속성 | Context XML의 `maxTotal`·`validationQuery` 등 | 그 JNDI Resource의 연결·Pool 옵션 | 해당 앱·Tomcat 재시작 |
@@ -345,7 +437,7 @@ ENC[v1:key01:...]                            ← 유형을 정하지 않아도 k
 
 | 확인하려는 것 | 명령 | 보여 주는 것 |
 |---|---|---|
-| 이 JAR 파일에 들어 있는 키 | `config show`(관리자 인증) | 기본 유형·유형별 기본 키·키 목록(키마다 유형·공급원·상태 `공개 기본 키`/`사용자 지정`/`외부 키`, 64자 전체 지문, pass는 KDF·Salt). 외부 설정·`-D`는 반영하지 않고 외부 키는 읽지 않음 |
+| 이 JAR 파일에 들어 있는 키 | `config show`(관리자 인증) | 기본 유형·유형별 기본 키·키 목록(키마다 유형·공급원·상태 `공개된 기본 키`/`사용자 지정`/`외부 키`, 64자 전체 지문, pass는 KDF·Salt). 외부 설정·`-D`는 반영하지 않고 외부 키는 읽지 않음 |
 | 키 하나의 관리정보·원문 | `config key show --key-id <ID>`(관리자 인증) | 관리정보 전체, `--show`(SHOW 확인)·`--export`로 원문(pass는 공급원에 원문이 있을 때만) |
 | 실행할 때 실제로 쓰는 키 | `info` | 외부 Properties·`-D`·환경변수를 반영한 기본 유형·기본 키와 등록된 키마다 공급원·위치·키 상태·짧은 지문·조회 결과 |
 | 두 키가 정확히 같은지 | `fingerprint` | 64자 전체 지문(키 파일은 `--key-file`). 양쪽 지문이 같으면 같은 키 |
@@ -356,20 +448,28 @@ ENC[v1:key01:...]                            ← 유형을 정하지 않아도 k
 
 **자주 헷갈리는 점**
 
-- `config set`으로 키 ID·언어 등을 바꿔도 키 자체는 그대로입니다. 키를 바꾸려면 `config embed-key`(AES 키)·`config key add`(pass 키·추가 키) 또는 외부 키 공급 설정을 씁니다. 키 ID만 바꾸고 공개 기본 키를 계속 쓰면 공개 키 경고도 그대로 나옵니다.
+- `config set`으로 키 ID·언어 등을 바꿔도 키 자체는 그대로입니다. 키를 바꾸려면 `config embed-key`(AES 키)·`config key add`(pass 키·추가 키) 또는 외부 키 공급 설정을 씁니다. 공개된 기본 키는 ID를 바꿔도 거부합니다.
 - AES 키를 내장해도 유형을 정하지 않은 새 암호화의 기본 유형은 `pass`입니다. `info`의 `기본 유형`·`pass 기본`·`key 기본` 줄로 새 암호화가 실제로 쓰는 키를 확인합니다.
 - 외부 설정·`-D`로 다른 키 공급원을 쓰면 `config show`의 내장 키와 `info`의 실행 키가 다를 수 있습니다. WAS 기준은 항상 WAS와 같은 계정·설정으로 실행한 `info`·`fingerprint`입니다.
 - 여러 서버의 키가 같은지는 각 서버에서 `fingerprint`를 실행해 64자 지문을 비교합니다.
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar config show
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar info
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar fingerprint
+# JAR에 저장된 키 목록과 설정 조회
+java -jar .\java-crypto-kit-0.2.1.jar config show
+
+# 적용된 설정과 활성 키 조회
+java -jar .\java-crypto-kit-0.2.1.jar info
+
+# 선택한 키의 SHA-256 지문 확인
+java -jar .\java-crypto-kit-0.2.1.jar fingerprint
 ```
 
 ```bash
-java -Dcrypto.config.file=/etc/java-crypto-kit/app.properties -jar ./java-crypto-kit-0.2.0-cfg-2.jar info
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar fingerprint --key-file /etc/java-crypto-kit/example.key
+# 적용된 설정과 활성 키 조회
+java -Dcrypto.config.file=/etc/java-crypto-kit/app.properties -jar ./java-crypto-kit-0.2.1.jar info
+
+# 선택한 키의 SHA-256 지문 확인
+java -jar ./java-crypto-kit-0.2.1.jar fingerprint --key-file /etc/java-crypto-kit/example.key
 ```
 
 <a name="topic-key-management--55-키-목록과-유형-선택"></a>
@@ -379,10 +479,10 @@ java -jar ./java-crypto-kit-0.2.0-cfg-2.jar fingerprint --key-file /etc/java-cry
 
 | 구성 | 설정 | 설명 |
 |---|---|---|
-| `crypto.key.*` AES 키 | `crypto.key.source`·`crypto.key.id`·`crypto.key.embedded`·`crypto.key.file`·`crypto.key.env`, Vault·KMS 위치 설정 | 이전 형식와 같은 자리·같은 의미의 key 유형 키 하나(공식 JAR: 공개 키 `default`). 고정 지문은 쓰지 않음 |
-| 키 목록 항목 | `crypto.keys.<키 ID>.<항목>`([10.5절](../reference/configuration.md#105-키-목록-항목)) | pass 키와 추가 key 키. `config key add`가 만들고, 외부 Properties에 직접 적어 등록할 수도 있음(공식 JAR: 공개 키 `pass-default`) |
-| 기본 유형 | `crypto.key.type`(`pass`·`key`, 기본 `pass`) | 유형·키 ID를 정하지 않은 새 암호화의 유형. JAR 설정에 이 항목이 없으면(이전 형식 JAR) `key` |
-| pass 기본 키 | `crypto.key.active.pass`(공식 JAR `pass-default`) | `--type pass`와 기본 유형 pass가 쓰는 키. 등록된 pass 키여야 함 |
+| `crypto.key.*` AES 키 | `crypto.key.source`·`crypto.key.id`·`crypto.key.embedded`·`crypto.key.file`·`crypto.key.env`, Vault·KMS 위치 설정 | key 유형 AES 키 하나를 두는 슬롯(배포 원본은 비어 있음). 고정 지문은 쓰지 않음 |
+| 키 목록 항목 | `crypto.keys.<키 ID>.<항목>`([10.5절](../reference/configuration.md#105-키-목록-항목)) | pass 키와 추가 key 키. `config key add`가 만들고, 외부 Properties에 직접 적어 등록할 수도 있음(배포 원본은 비어 있음) |
+| 기본 유형 | `crypto.key.type`(`pass`·`key`, 기본 `pass`) | 유형·키 ID를 정하지 않은 새 암호화의 유형. JAR 설정에 이 항목이 없으면 `key` |
+| pass 기본 키 | `crypto.key.active.pass`(배포 원본은 빈 값) | `--type pass`와 기본 유형 pass가 쓰는 키. 등록된 pass 키여야 함 |
 | key 기본 키 | `crypto.key.active.key`(기본 빈 값) | `--type key`가 쓰는 키. 비우면 `crypto.key.*` AES 키, 지정하면 등록된 key 키 |
 
 **새 암호화의 키 선택:** 옵션 없음 → 기본 유형의 기본 키, `--type`(Java `KeyType`) → 그 유형의 기본 키, `--key-id`(Java `withKeyId`) → 그 키(유형 자동), 둘 다 → 유형을 확인한 뒤 그 키. 기본 키는 `crypto.key.active.*`로 **명시한 키 ID만** 쓰며 "목록의 첫 키" 같은 암묵 규칙은 없습니다.
@@ -395,7 +495,9 @@ java -jar ./java-crypto-kit-0.2.0-cfg-2.jar fingerprint --key-file /etc/java-cry
 
 `-D`는 등록된 키의 위치 항목만 받으며(서버마다 다른 경로·환경변수 이름), 정체 항목이나 등록되지 않은 키 ID의 `-D`는 오류입니다. 템플릿 키 ID가 `crypto.key.id`와 같으면 같은 키 ID가 두 키를 가리키므로 오류입니다.
 
-**키 ID 규칙:** 영문·숫자·`_`·`-`, 1~64자(설정 이름 소문자 규칙의 예외). 한 번 쓴 키 ID는 다른 키에 다시 쓰지 않습니다(같은 키 ID가 다른 키를 가리키면 예전 암호문의 실패 원인을 구분할 수 없음). 그래서 CLI는 JAR 이력에 나온 키 ID에 키를 다시 등록할 때 **이력에 기록된 그 키와 같은지**(유형·64자 전체 지문, pass는 KDF·반복 횟수·Salt까지) 확인하고 같은 키를 되살리는 경우에만 허용합니다([5.6절](#topic-key-recovery--56-자동-생성한-passkey-보관재등록복구)). `pass-default`·`default`는 공개 기본 키 전용입니다.
+**키 ID 규칙:** 영문·숫자·`_`·`-`, 1~64자(설정 이름 소문자 규칙의 예외). 한 번 쓴 키 ID는 다른 키에 다시 쓰지 않습니다(같은 키 ID가 다른 키를 가리키면 기존 암호문의 실패 원인을 구분할 수 없음). 그래서 CLI는 JAR 이력에 나온 키 ID에 키를 다시 등록할 때 **이력에 기록된 그 키와 같은지**(유형·64자 전체 지문, pass는 KDF·반복 횟수·Salt까지) 확인하고 같은 키를 되살리는 경우에만 허용합니다([5.6절](#topic-key-recovery--56-자동-생성한-passkey-보관재등록복구)). `pass-default`·`default`는 예약 ID라 신규 등록할 수 없습니다. 이전 사용자 키의 공개 여부는 ID 대신 키 재료로 판단합니다.
+
+AES 슬롯의 ID를 `config set crypto.key.id=<ID>`로 변경할 때도 이 규칙을 적용합니다. 예약·등록된 ID는 변경 대상으로 선택할 수 없습니다. 이력의 ID로 복원하려면 대상 슬롯의 실제 키와 일치하는 전체 지문이 필요합니다. 기존 암호문에 기록된 ID는 변경 뒤에도 그대로입니다. ID를 바꾸기 전에 기존 암호문을 이전하거나, 필요한 경우 원래 ID와 키 재료를 복원한 뒤 처리하세요. 이전 키와 ID를 함께 보존하는 회전은 [키 교체](#topic-key-rotation--92-키-교체)를 따릅니다.
 
 Passphrase·Salt·반복 횟수를 바꾸는 것은 **새 키**이므로 새 키 ID로 추가합니다.
 
@@ -409,19 +511,25 @@ Passphrase·Salt·반복 횟수를 바꾸는 것은 **새 키**이므로 새 키
 ### 지금 쓰는 키 확인 (A.12)
 
 ```powershell
+# 적용된 설정과 활성 키 조회
 java -jar .\app-pass.jar info
+
+# 키 공급원과 암복호화 동작 진단
 java -jar .\app-pass.jar doctor
 ```
 
 ```bash
+# 적용된 설정과 활성 키 조회
 java -jar ./app-pass.jar info
+
+# 키 공급원과 암복호화 동작 진단
 java -jar ./app-pass.jar doctor
 ```
 
 ```text
 기본 유형 : pass [JAR 기본값]
 pass 기본 : app-pass [JAR 기본값]
-key 기본  : default [JAR 기본값]
+key 기본  : key-<생성 ID> [JAR 기본값]
 
 키 app-pass (pass, 기본)
   공급원 : embedded [JAR 기본값]
@@ -443,7 +551,7 @@ key 기본  : default [JAR 기본값]
 <a name="topic-key-generation--26-keygen--새-키-파일-만들기"></a>
 ### `keygen` — 새 키 파일 만들기 (2.6)
 
-**사용 상황:** 운영용 새 AES-256 키(`key` 유형)가 필요할 때만 씁니다. **암복호화의 필수 선행 단계가 아닙니다**(체험은 내장 예제 키로, 이미 키가 있으면 그 키로 합니다). Passphrase(`pass` 유형)는 만들지 않습니다.
+**사용 상황:** 운영용 새 AES-256 키(`key` 유형)가 필요할 때만 씁니다. **암복호화의 필수 선행 단계가 아닙니다**(`admin setup`이 생성한 랜덤 PASS·KEY로 바로 쓸 수 있고, 이미 키가 있으면 그 키로 합니다). Passphrase(`pass` 유형)는 만들지 않습니다.
 
 운영 키를 잃었다고 새 키를 만들어도 **기존 암호문은 복구되지 않습니다**.
 
@@ -464,16 +572,25 @@ java -jar <JAR> keygen --out <새 키 파일> [--reason <사유>] [--operator <�
 ```powershell
 # Windows PowerShell: 상위 폴더를 먼저 만듭니다. example.key는 새로 만들 파일 이름이지 키 값이 아닙니다.
 New-Item -ItemType Directory -Force -Path "$HOME\jck-secure" | Out-Null
-java -jar .\java-crypto-kit-0.2.0-cfg.jar keygen --out "$HOME\jck-secure\example.key" --reason "운영 AES 키 준비"
+
+# 새 AES-256 키 생성
+java -jar .\java-crypto-kit-0.2.1.jar keygen --out "$HOME\jck-secure\example.key" --reason "운영 AES 키 준비"
 ```
 
 ```bash
 # Linux(키 내장용, 본인 폴더)
 mkdir -p -m 700 ~/jck-secure
-java -jar ./java-crypto-kit-0.2.0-cfg.jar keygen --out ~/jck-secure/example.key --reason "운영 AES 키 준비"
+
+# 새 AES-256 키 생성
+java -jar ./java-crypto-kit-0.2.1.jar keygen --out ~/jck-secure/example.key --reason "운영 AES 키 준비"
+
 # Linux 서버(파일 키로 사용, Tomcat 실행 계정이 읽음 - root로 실행, 계정 이름은 환경에 맞게)
 install -d -m 750 -g tomcat /etc/java-crypto-kit
-java -jar ./java-crypto-kit-0.2.0-cfg.jar keygen --out /etc/java-crypto-kit/example.key --reason "운영 AES 키 준비"
+
+# 새 AES-256 키 생성
+java -jar ./java-crypto-kit-0.2.1.jar keygen --out /etc/java-crypto-kit/example.key --reason "운영 AES 키 준비"
+
+# 키 파일의 소유권을 Tomcat에 부여
 chown tomcat:tomcat /etc/java-crypto-kit/example.key
 ```
 
@@ -505,7 +622,7 @@ Linux·macOS에서는 파일을 소유자 전용 권한(600)으로 만들고, Wi
 
 **다음 단계:** `crypto.key.*` AES 키로 내장하려면 [`config embed-key`](#topic-key-generation--27-config-embed-key--사용자-지정-키-내장), 추가 key 키로 등록하려면 [`config key add --type key --from-file`](#topic-key-registration--218-config-key-add--키-추가), 외부 파일 키로 쓰려면 `crypto.key.source=file`과 `crypto.key.file`을 설정합니다([5장](#topic-key-management--5-키-공급원과-설정-적용)).
 
-**`keygen`·`kms datakey`와 키 목록 명령의 차이:** 두 명령은 이전 형식와 같은 **AES 키(`key` 유형) 전용**입니다.
+**`keygen`·`kms datakey`와 키 목록 명령의 차이:** 두 명령은 **AES 키(`key` 유형) 전용**입니다.
 
 `keygen`은 키 파일만 만들고 JAR·설정을 바꾸지 않으며, `kms datakey`는 `crypto.key.*` AES 키(키 ID `crypto.key.id`)의 데이터 키 파일을 만듭니다.
 
@@ -518,69 +635,78 @@ Passphrase 키를 새로 만들거나 키를 여러 개 두려면 `config key ad
 <a name="topic-key-generation--27-config-embed-key--사용자-지정-키-내장"></a>
 ### `config embed-key` — 사용자 지정 키 내장 (2.7)
 
-**사용 상황:** 외부 키 파일을 따로 배포하지 않고 **사용자 지정 AES 키를 `crypto.key.*` 자리에 내장한 JAR**로 운영할 때. JAR에서 키를 추출할 수 있으므로 결과 JAR도 비밀 파일로 관리합니다.
+**사용 상황:** 외부 키 파일을 따로 배포하지 않고 **사용자 지정 AES 키를 `crypto.key.*` 자리에 내장한 JAR**로 운영할 때. JAR에서 키를 추출할 수 있으므로 키를 내장한 JAR도 비밀 파일로 관리합니다.
 
 이 명령은 AES 키(`key` 유형)만 바꾸며 pass 키와 다른 키 ID의 키는 건드리지 않습니다. 키를 하나 더 두거나 pass 키를 추가하려면 [`config key add`](#topic-key-registration--218-config-key-add--키-추가)를 씁니다.
 
 ```text
 java -jar <입력 JAR> config embed-key --from-file <키 파일> --key-id <새 키ID> --operator <수정자> [--reason <사유>]
-    [--source embedded] [--jar <대상 JAR>] [--out <결과 JAR> | --replace] [--yes] [--admin-pass-file <파일>] [--lang ko|en]
+    [--source embedded] [--jar <대상 JAR>] [--replace] [--yes] [--admin-pass-file <파일>] [--lang ko|en]
 ```
 
 | 옵션 | 필수 | 의미·기본값 |
 |---|---|---|
 | `--from-file <경로>` | 예 | `keygen`으로 만든 AES-256 키 파일. 키 문자열을 인자로 받지 않음 |
-| `--key-id <ID>` | 예 | 영문·숫자·`_`·`-`, 1~64자. **현재 키ID, 키 목록에 등록된 키ID, 공개 기본 키 ID(`pass-default`·`default`)는 쓸 수 없음.** 이 JAR 이력에 나온 키ID는 **같은 키를 되살릴 때만**(이력에 기록된 유형·64자 전체 지문과 같을 때) 쓸 수 있음 |
+| `--key-id <ID>` | 예 | 영문·숫자·`_`·`-`, 1~64자. **현재 키ID, 키 목록에 등록된 키ID, 예약 ID(`pass-default`·`default`)는 쓸 수 없음.** 이 JAR 이력에 나온 키ID는 **같은 키를 되살릴 때만**(이력에 기록된 유형·64자 전체 지문과 같을 때) 쓸 수 있음 |
 | `--operator <ID>` | 예 | 변경 이력에 남길 수정자 식별자(문자·숫자·`.`·`_`·`@`·`-`, 1~64자). 기록용이며 본인 인증이 아님 |
 | `--source embedded` | 조건부 | 대상 JAR의 `crypto.key.source`가 `embedded`가 아닐 때만 필요: `embedded`로 **명시적으로 전환**하며 키를 내장. 이미 `embedded`(기본값)이면 생략해도 진행되고, `embedded`가 아닌데 생략하면 오류로 멈추며 JAR는 바뀌지 않음 |
 | `--reason <사유>` | 사유 필수, 대화형은 질문 | 이력에 남길 변경 사유(한 줄, 200자 이하, 비밀값 금지). 빠지면 대화형 터미널에서 묻고, 스크립트·CI에서는 바꾸기 전에 오류. `--yes`로 생략되지 않음 |
 | `--jar <JAR>` | 아니요 | 실행 중인 JAR 대신 다른 JAR를 바꿀 때 |
-| `--out <JAR>` | 아니요 | 결과 JAR 경로. 생략하면 `<이름>-cfg.jar`, 이미 바꾼 JAR면 `-cfg-2.jar` 등. 기존 파일은 덮어쓰지 않음 |
-| `--replace` | 아니요 | 새 파일 대신 `<이름>.bak-<UTC>` 백업 후 원본 교체. `--out`과 함께 쓸 수 없고, 실행 중인 JAR는 교체하지 않음 |
-| `--yes` | 아니요 | `CHANGE` 확인을 생략(무인 자동화). 키 변경이므로 새 JAR를 만들 때도 확인하며, 대화형 터미널이 없으면 `--yes`가 필요함 |
+| `--replace` | 아니요 | 기존 스크립트 호환용. 생략해도 같은 경로를 갱신합니다. |
+| `--yes` | 아니요 | `CHANGE` 확인을 생략(무인 자동화). 키 변경이므로 확인하며, 대화형 터미널이 없으면 `--yes`가 필요함 |
 | `--admin-pass-file <파일>` | 아니요 | 관리자 비밀번호 파일(한 줄, 비대화형 인증). 생략하면 대화형 터미널에서 묻고, 비대화형이면 아무것도 하지 않고 실패([1.4절](cli.md#topic-admin--14-cli-관리자-비밀번호)) |
 | `--lang ko\|en` | 아니요 | 이번 실행의 메시지 언어 |
 
 **예제**
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config embed-key --from-file "$HOME\jck-secure\example.key" --key-id key01 --operator example-admin --reason "운영 AES 키 내장"
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar config show
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar fingerprint --type key
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar fingerprint --key-file "$HOME\jck-secure\example.key"
+# AES 키와 ID를 현재 대상 JAR에 등록
+java -jar java-crypto-kit-0.2.1.jar config embed-key --from-file "$HOME\jck-secure\example.key" --key-id key01 --operator example-admin --reason "운영 AES 키 내장"
+
+# JAR에 저장된 키 목록과 설정 조회
+java -jar .\java-crypto-kit-0.2.1.jar config show
+
+# 선택한 키의 SHA-256 지문 확인
+java -jar .\java-crypto-kit-0.2.1.jar fingerprint --type key
+
+# 선택한 키의 SHA-256 지문 확인
+java -jar .\java-crypto-kit-0.2.1.jar fingerprint --key-file "$HOME\jck-secure\example.key"
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config embed-key --from-file ~/jck-secure/example.key --key-id key01 --operator example-admin --reason "운영 AES 키 내장"
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar config history
+# AES 키와 ID를 현재 대상 JAR에 등록
+java -jar ./java-crypto-kit-0.2.1.jar config embed-key --from-file ~/jck-secure/example.key --key-id key01 --operator example-admin --reason "운영 AES 키 내장"
+
+# 설정 변경 이력과 작업 사유 확인
+java -jar ./java-crypto-kit-0.2.1.jar config history
 ```
 
-**확인:** 관리자 비밀번호를 확인한 뒤에만 키 파일을 읽습니다. 실제 키 변경이므로 사유를 받은 뒤(옵션이 없으면 질문) 새 JAR를 만들 때도 기존 암호문 영향(제목)·결과 JAR·사유·바꿀 내용을 보여 주고 `CHANGE` 입력(또는 `--yes`)을 받습니다.
+**확인:** 관리자 비밀번호를 확인한 뒤에만 키 파일을 읽습니다. 실제 키 변경이므로 사유를 받은 뒤(옵션이 없으면 질문) 기존 암호문 영향(제목)·대상 JAR·사유·바꿀 내용을 보여 주고 `CHANGE` 입력(또는 `--yes`)을 받습니다.
 
 이전 AES 키는 **같은 키 ID의 키 목록 항목**(`crypto.keys.<이전 ID>.*`)으로 옮겨져 기존 암호문을 계속 복호화합니다.
 
 ```text
 관리자 비밀번호(입력 숨김):
 AES 키(crypto.key.*)를 교체합니다(이전 키가 남아 기존 암호문은 그대로):
-  결과: 새 JAR java-crypto-kit-0.2.0-cfg-2.jar (원본은 그대로)
+  현재 JAR java-crypto-kit-0.2.1.jar 갱신
   사유: 운영 AES 키 내장
   crypto.key.embedded (비공개)
-  crypto.key.id (default -> key01)
-  crypto.keys.default.type ((없음) -> key)
-  crypto.keys.default.source ((없음) -> embedded)
-  crypto.keys.default.embedded (비공개)
+  crypto.key.id (key-<생성 ID> -> key01)
+  crypto.keys.key-<생성 ID>.type ((없음) -> key)
+  crypto.keys.key-<생성 ID>.source ((없음) -> embedded)
+  crypto.keys.key-<생성 ID>.embedded (비공개)
 계속하려면 CHANGE를 입력하세요(그 외 입력은 취소):
 ```
 
-**결과:** 원본 JAR는 그대로 두고 **결과 JAR**를 만듭니다(관리자 비밀번호 검증값은 그대로 옮겨져 같은 비밀번호로 씀). 출력은 결과 JAR, 변경 항목(설정마다 한 줄), 짧은 키 지문입니다(`--replace`면 `교체 JAR`·`백업`·`변경 항목`·`키 지문`).
+**결과:** 선택한 JAR를 같은 경로에서 갱신합니다(관리자 비밀번호 검증값은 그대로 옮겨져 같은 비밀번호로 씀). 출력은 `갱신 JAR`, `변경 항목`(설정마다 한 줄), `키 지문`(짧은 지문)입니다. `--replace`는 호환용 옵션으로 같은 결과를 냅니다.
 
 ```text
-생성 JAR  : C:\work\java-crypto-kit-0.2.0-cfg-2.jar
+갱신 JAR  : C:\work\java-crypto-kit-0.2.1.jar
 변경 항목 : crypto.key.embedded (비공개)
-            crypto.key.id (default -> key01)
-            crypto.keys.default.type ((없음) -> key)
-            crypto.keys.default.source ((없음) -> embedded)
-            crypto.keys.default.embedded (비공개)
+            crypto.key.id (key-<생성 ID> -> key01)
+            crypto.keys.key-<생성 ID>.type ((없음) -> key)
+            crypto.keys.key-<생성 ID>.source ((없음) -> embedded)
+            crypto.keys.key-<생성 ID>.embedded (비공개)
 키 지문   : ab12cd34ef56...7890abcd
 ```
 
@@ -588,17 +714,17 @@ AES 키(crypto.key.*)를 교체합니다(이전 키가 남아 기존 암호문�
 
 이전 키로 만든 암호문은 그대로 복호화되므로 계획에 따라 [`rekey`](#topic-key-rotation--29-rekey--기존-암호문을-새-키로-바꾸기)로 옮기고, 다 옮긴 뒤 이전 키를 [`config key remove`](#topic-key-defaults--220-config-key-remove--키-제거)로 제거할 수 있습니다.
 
-`config show`의 키 목록, `config history`의 변경 기록, **결과 JAR와 키 파일의 지문 일치**를 확인합니다.
+`config show`의 키 목록, `config history`의 변경 기록, **갱신한 JAR와 키 파일의 지문 일치**를 확인합니다.
 
 **외부 공급원 키에서 전환할 때(`--source embedded`):** 지금 `crypto.key.*`가 `file`·`env`·`vault`·`aws-kms`이면 이전 키를 지금 한 번 읽어 지문을 고정한 뒤 같은 키 ID로 남깁니다.
 
-위치가 JAR 밖(실행 시 `-D`·외부 Properties)에서 정해지거나 지금 읽을 수 없으면 지문을 고정할 수 없으므로 **남기지 않고** 확인 화면과 결과에 `이전 키 <ID>(<공급원>)는 지금 읽을 수 없어 키 목록에 남기지 않습니다(그 키의 암호문은 rekey 필요).`를 보여 주고, 확인 제목도 `내장 키를 교체합니다(기존 암호문은 rekey로 재암호화 필요):`로 바뀝니다(이전 형식와 같은 결과).
+위치가 JAR 밖(실행 시 `-D`·외부 Properties)에서 정해지거나 지금 읽을 수 없으면 지문을 고정할 수 없으므로 **남기지 않고** 확인 화면과 결과에 `이전 키 <ID>(<공급원>)는 지금 읽을 수 없어 키 목록에 남기지 않습니다(그 키의 암호문은 rekey 필요).`를 보여 주고, 확인 제목도 `내장 키를 교체합니다(기존 암호문은 rekey로 재암호화 필요):`로 바뀝니다.
 
-**이전 버전 JAR:** 키 목록을 지원하지 않는 이전 형식 JAR를 대상으로 하면 그 버전이 모르는 항목을 쓰지 않도록 이전 형식와 같이 `crypto.key.*`만 바꿉니다(확인 제목 `내장 키를 교체합니다(기존 암호문은 rekey로 재암호화 필요):`).
+**이전 버전 JAR:** 예약 설정 영역이 없는 JAR의 키는 지원하는 JAR로 이관하여 사용합니다. 대상 JAR에서 `admin setup`을 마치고 같은 ID와 키 재료를 등록하세요.
 
 **오류·주의:** 키ID가 겹치면 새 ID를 씁니다(이력의 키 ID를 같은 키로 되살리는 경우는 [5.6절](#topic-key-recovery--56-자동-생성한-passkey-보관재등록복구)). `--source embedded`를 요구하면 그대로 붙입니다.
 
-공개 예제 키, 현재와 같은 키, 키 목록에 이미 있는 키는 내장할 수 없습니다. 결과 JAR(이름을 `--out`으로 정한 경우 포함)와 키 파일은 Git·공개 저장소에 올리지 않습니다.
+공개된 기본 키, 현재와 같은 키, 키 목록에 이미 있는 키는 내장할 수 없습니다. 변경한 JAR와 키 파일은 Git·공개 저장소에 올리지 않습니다.
 
 <a name="topic-key-generation--28-fingerprint--키가-같은지-비교"></a>
 ### `fingerprint` — 키가 같은지 비교 (2.8)
@@ -621,13 +747,19 @@ java -jar <JAR> fingerprint --key-file <키 파일> [--lang ko|en]
 **예제**
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar fingerprint
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar fingerprint --type key
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar fingerprint --key-file "$HOME\jck-secure\example.key"
+# 선택한 키의 SHA-256 지문 확인
+java -jar .\java-crypto-kit-0.2.1.jar fingerprint
+
+# 선택한 키의 SHA-256 지문 확인
+java -jar .\java-crypto-kit-0.2.1.jar fingerprint --type key
+
+# 선택한 키의 SHA-256 지문 확인
+java -jar .\java-crypto-kit-0.2.1.jar fingerprint --key-file "$HOME\jck-secure\example.key"
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar fingerprint --key-id app-pass --config /etc/java-crypto-kit/app.properties
+# 선택한 키의 SHA-256 지문 확인
+java -jar ./java-crypto-kit-0.2.1.jar fingerprint --key-id app-pass --config /etc/java-crypto-kit/app.properties
 ```
 
 **결과:** 키 공급원·위치·키 ID·유형·키 상태와 **64자 전체 키 지문**을 출력합니다. pass 유형은 Passphrase에서 파생한 AES 키의 지문입니다. 비교할 양쪽의 `키 지문` 줄이 같으면 같은 키입니다. `--key-file`이면 키 파일 이름·키 상태·키 지문만 나옵니다.
@@ -657,7 +789,7 @@ java -jar ./java-crypto-kit-0.2.0-cfg-2.jar fingerprint --key-id app-pass --conf
 <a name="topic-key-registration--218-config-key-add--키-추가"></a>
 ### `config key add` — 키 추가 (2.18)
 
-**사용 상황:** JAR에 사용자 지정 **pass 키**(Passphrase)나 **추가 key 키**를 넣을 때, 외부 공급원(파일·환경변수·Vault·AWS KMS)의 키를 키 목록에 등록할 때, 다른 JAR의 키를 같은 키 ID로 가져올 때. 결과는 새 JAR이며(원본 그대로) JAR 하나에 여러 키를 함께 둡니다.
+**사용 상황:** JAR에 사용자 지정 **pass 키**(Passphrase)나 **추가 key 키**를 넣을 때, 외부 공급원(파일·환경변수·Vault·AWS KMS)의 키를 키 목록에 등록할 때, 다른 JAR의 키를 같은 키 ID로 가져올 때. 설정은 같은 경로에 저장하며 JAR 하나에 여러 키를 함께 둡니다.
 
 키를 추가해도 **기본 키는 바뀌지 않습니다**(`--active` 또는 [`config key use`](#topic-key-defaults--219-config-key-use--기본-키-변경)로만 바꿈).
 
@@ -665,12 +797,12 @@ java -jar ./java-crypto-kit-0.2.0-cfg-2.jar fingerprint --key-id app-pass --conf
 java -jar <입력 JAR> config key add --key-id <새 키 ID> --operator <수정자> [--reason <사유>]
     [--type pass|key] [--generate [--export <파일>] | --from-file <파일> | --from-jar <JAR>]
     [--source embedded|file|env|vault|aws-kms] [--location <외부 위치>] [--active]
-    [--jar <대상 JAR>] [--out <결과 JAR> | --replace] [--yes] [--admin-pass-file <파일>] [--lang ko|en]
+    [--jar <대상 JAR>] [--replace] [--yes] [--admin-pass-file <파일>] [--lang ko|en]
 ```
 
 | 옵션 | 필수 | 의미·기본값 |
 |---|---|---|
-| `--key-id <ID>` | 예 | 새 키 ID(영문·숫자·`_`·`-`, 1~64자). 이미 등록된 ID와 공개 기본 키 ID(`pass-default`·`default`)는 쓸 수 없음. 이 JAR 이력에서 쓰인 ID는 다른 키에 다시 쓰지 않으며 **같은 키를 되살릴 때만**(이력의 유형·64자 전체 지문, pass는 KDF·반복 횟수·Salt까지 같을 때) 허용 |
+| `--key-id <ID>` | 예 | 새 키 ID(영문·숫자·`_`·`-`, 1~64자). 이미 등록된 ID와 예약 ID(`pass-default`·`default`)는 쓸 수 없음. 이 JAR 이력에서 쓰인 ID는 다른 키에 다시 쓰지 않으며 **같은 키를 되살릴 때만**(이력의 유형·64자 전체 지문, pass는 KDF·반복 횟수·Salt까지 같을 때) 허용 |
 | `--type pass\|key` | 아니요 | 유형. 생략하면 `pass` |
 | `--generate` | 재료 중 하나 | 새로 생성: pass는 32자 무작위 Passphrase(영문·숫자), key는 32바이트 보안 난수 키(`aws-kms`면 KMS가 만든 데이터 키). `embedded`·`aws-kms`에만. 대화형 터미널이면 성공 직후 생성값 전체를 **한 번** 보여 줌(pass는 복원 정보·64자 지문 포함). 스크립트·CI에서는 `--export`가 있어야 생성 |
 | `--export <파일>` | 비대화형 `--generate`면 예 | `--generate`로 만든 값을 이 **새 파일**에 저장(덮어쓰지 않음, POSIX 600, 경로는 생성 전에 확인). pass는 **복원 백업**(키 ID·KDF·반복 횟수·Salt·지문·Passphrase), key는 `keygen`과 같은 표준 Base64 한 줄. 대화형이면 화면 표시와 함께 저장. `--generate`와만 |
@@ -683,15 +815,14 @@ java -jar <입력 JAR> config key add --key-id <새 키 ID> --operator <수정�
 | `--operator <ID>` | 예 | 변경 이력에 남길 수정자 식별자 |
 | `--reason <사유>` | 사유 필수, 대화형은 질문 | 이력에 남길 변경 사유(한 줄, 200자 이하, 비밀값 금지). 빠지면 대화형 터미널에서 묻고, 스크립트·CI에서는 바꾸기 전에 오류. `--yes`로 생략되지 않음 |
 | `--jar <JAR>` | 아니요 | 실행 중인 JAR 대신 다른 JAR를 바꿀 때 |
-| `--out <JAR>` | 아니요 | 결과 JAR 경로(생략하면 `-cfg.jar` 등, 기존 파일은 덮어쓰지 않음) |
-| `--replace` | 아니요 | 백업 후 원본 교체 |
+| `--replace` | 아니요 | 기존 스크립트 호환용. 생략해도 같은 경로를 갱신합니다. |
 | `--yes` | 아니요 | `CHANGE` 확인 생략(대화형 터미널이 없으면 필요) |
 | `--admin-pass-file <파일>` | 아니요 | 관리자 비밀번호 파일(한 줄, 비대화형 인증). 생략하면 대화형 터미널에서 묻고, 비대화형이면 아무것도 하지 않고 실패([1.4절](cli.md#topic-admin--14-cli-관리자-비밀번호)) |
 | `--lang ko\|en` | 아니요 | 이번 실행의 메시지 언어 |
 
 `--location`은 embedded에서 금지되고 외부 공급원에서는 필수입니다. `--type key --source embedded`로 새 키를 등록하려면 `--generate` 또는 `--from-file`이 필요합니다. pass에서 재료 옵션을 생략하면 `embedded`·`aws-kms`는 터미널에서 Passphrase를 두 번 묻고, `file`·`env`·`vault`는 지정 위치에서 읽습니다.
 
-**pass 키를 만드는 방법:** 키마다 새 난수 Salt(16바이트)와 PBKDF2-HMAC-SHA256 반복 600,000회로 32바이트 AES 키를 파생합니다(Passphrase는 NFC 정규화 후 UTF-8). `embedded`·`aws-kms`는 **파생한 키만** 저장하고(KMS는 파생 키를 기존 데이터 키 형식·암호화 컨텍스트 `java-crypto-kit:key-id=<키 ID>`로 감쌈), `file`·`env`·`vault`는 Passphrase를 그 위치에 두고 Salt·반복 횟수만 설정에 남겨 실행할 때 파생합니다(JVM 안에서 한 번만 계산). 빈 값·공백만·두 입력 불일치·제어 문자·짝이 맞지 않는 서로게이트 같은 입력 오류를 거부합니다. 대화형 입력에는 강도 평가용 최소 길이 규칙이 없으며, 한 줄 Passphrase 파일은 UTF-8 파일 전체가 1KiB 이하여야 합니다(강도 판단은 [12.6절](../reference/security.md#126-passphrase-운영)). 공개 예제 Passphrase와 공개 기본 키, 이미 등록된 키와 같은 재료는 등록할 수 없습니다.
+**pass 키를 만드는 방법:** 키마다 새 난수 Salt(16바이트)와 PBKDF2-HMAC-SHA256 반복 600,000회로 32바이트 AES 키를 파생합니다(Passphrase는 NFC 정규화 후 UTF-8). `embedded`·`aws-kms`는 **파생한 키만** 저장하고(KMS는 파생 키를 기존 데이터 키 형식·암호화 컨텍스트 `java-crypto-kit:key-id=<키 ID>`로 감쌈), `file`·`env`·`vault`는 Passphrase를 그 위치에 두고 Salt·반복 횟수만 설정에 남겨 실행할 때 파생합니다(JVM 안에서 한 번만 계산). 빈 값·공백만·두 입력 불일치·제어 문자·짝이 맞지 않는 서로게이트 같은 입력 오류를 거부합니다. 대화형 입력에는 강도 평가용 최소 길이 규칙이 없으며, 한 줄 Passphrase 파일은 UTF-8 파일 전체가 1KiB 이하여야 합니다(강도 판단은 [12.6절](../reference/security.md#126-passphrase-운영)). 공개된 기본 Passphrase와 공개된 기본 키, 이미 등록된 키와 같은 재료는 등록할 수 없습니다.
 
 **외부 공급원과 지문 고정:** 외부 공급원 키는 등록할 때 재료를 한 번 읽어 키 지문을 `crypto.keys.<ID>.fingerprint`에 고정합니다.
 
@@ -705,38 +836,44 @@ java -jar <입력 JAR> config key add --key-id <새 키 ID> --operator <수정�
 
 ```powershell
 # pass 키(Passphrase 숨김 입력 2회)를 추가하고 pass 기본 키로 정함
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id app-pass --active --operator example-admin --reason "운영 pass 키 등록"
+java -jar java-crypto-kit-0.2.1.jar config key add --key-id app-pass --active --operator example-admin --reason "운영 pass 키 등록"
+
 # pass 키를 생성해(화면에 한 번 표시) 추가하고 복원 백업도 파일로 받음
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-pass --generate --export "$HOME\jck-secure\member-pass.backup" --operator example-admin --reason "회원 pass 키 생성"
+java -jar java-crypto-kit-0.2.1.jar config key add --key-id member-pass --generate --export "$HOME\jck-secure\member-pass.backup" --operator example-admin --reason "회원 pass 키 생성"
+
 # 새 AES 키를 생성해 추가하고 keygen과 같은 키 파일로도 저장
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar config key add --key-id biz-aes --type key --generate --export "$HOME\jck-secure\biz-aes.key" --operator example-admin --reason "업무 AES 키 생성"
+java -jar java-crypto-kit-0.2.1.jar config key add --key-id biz-aes --type key --generate --export "$HOME\jck-secure\biz-aes.key" --operator example-admin --reason "업무 AES 키 생성"
+
 # Passphrase 파일 사본으로 등록하고 실행할 때는 환경변수에서 읽기(서버에 APP_PASS 필요)
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar config key add --key-id env-pass --from-file "$HOME\jck-secure\env.pass" --source env --location APP_PASS --operator example-admin --reason "환경변수 pass 키 등록"
+java -jar java-crypto-kit-0.2.1.jar config key add --key-id env-pass --from-file "$HOME\jck-secure\env.pass" --source env --location APP_PASS --operator example-admin --reason "환경변수 pass 키 등록"
 ```
 
 ```bash
 # 서버의 Passphrase 파일을 지금 한 번 읽어 지문을 고정(실행할 때도 같은 파일)
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id file-pass --source file --location /etc/java-crypto-kit/app.pass --operator example-admin --reason "파일 pass 키 등록" --yes
+java -jar ./java-crypto-kit-0.2.1.jar config key add --key-id file-pass --source file --location /etc/java-crypto-kit/app.pass --operator example-admin --reason "파일 pass 키 등록" --yes
+
 # 다른 JAR의 같은 키 ID를 복사(두 JAR가 같은 키)
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id shared01 --from-jar ./team-a.jar --operator example-admin --reason "팀 A와 같은 키" --yes
+java -jar ./java-crypto-kit-0.2.1.jar config key add --key-id shared01 --from-jar ./team-a.jar --operator example-admin --reason "팀 A와 같은 키" --yes
+
 # Vault Secret의 Passphrase(경로#필드)
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id vault-pass --source vault --location java-crypto-kit/app#pass --operator example-admin --reason "Vault pass 키 등록" --yes
+java -jar ./java-crypto-kit-0.2.1.jar config key add --key-id vault-pass --source vault --location java-crypto-kit/app#pass --operator example-admin --reason "Vault pass 키 등록" --yes
+
 # 스크립트·CI: 생성값을 화면에 보여 줄 수 없으므로 --export가 필요(없으면 생성 전에 중단)
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id ci-pass --generate --export /secure/ci-pass.backup --operator ci-bot --reason "배포 파이프라인 키" --yes
+java -jar ./java-crypto-kit-0.2.1.jar config key add --key-id ci-pass --generate --export /secure/ci-pass.backup --operator ci-bot --reason "배포 파이프라인 키" --yes
 ```
 
-**확인과 결과:** 관리자 비밀번호를 확인하고(`--from-jar` JAR도 그 JAR의 비밀번호, 같으면 한 번만), 사유를 받고(옵션이 없으면 질문) 재료(숨김 입력 등)를 받은 뒤, 기존 암호문 영향(제목)·결과 JAR·사유·바뀌는 항목을 보여 주고 `CHANGE`를 입력받습니다(또는 `--yes`). 결과는 생성 JAR, 변경 항목(설정마다 한 줄), 추가 키 요약 줄이며 `--export`·KMS 데이터 키 파일을 만들었으면 그 경로를 덧붙입니다.
+**확인과 결과:** 관리자 비밀번호를 확인하고(`--from-jar` JAR도 그 JAR의 비밀번호, 같으면 한 번만), 사유를 받고(옵션이 없으면 질문) 재료(숨김 입력 등)를 받은 뒤, 기존 암호문 영향(제목)·대상 JAR·사유·바뀌는 항목을 보여 주고 `CHANGE`를 입력받습니다(또는 `--yes`). 결과는 `갱신 JAR`, `변경 항목`(설정마다 한 줄), `추가 키` 요약 줄이며 `--export`·KMS 데이터 키 파일을 만들었으면 그 경로를 덧붙입니다.
 
 같은 키를 되살렸으면 `복원` 줄(`백업과 같은 키` 또는 `이력에 기록된 이 키 ID의 키와 같음`), Passphrase 한 줄 파일로 등록했으면 `Salt      : 새로 만듦(같은 Passphrase라도 이전에 등록한 키와 다른 키)` 줄이 붙습니다.
 
-취소·실패하면 JAR와 내보낼 파일 모두 만들지 않습니다.
+발행 전 취소·실패에서는 기존 설정을 유지하며, 먼저 생성한 명시적 내보내기 파일은 정리합니다. 발행 후 오류라면 새 상태가 적용됐을 수 있으므로 `config show`와 `config history --all`으로 확인하세요. 이미 만든 키 파일은 이 경우 보존합니다.
 
 ```text
 관리자 비밀번호(입력 숨김):
 Passphrase(입력 숨김):
 Passphrase 확인(입력 숨김):
 키를 추가합니다(기존 암호문은 그대로):
-  결과: 새 JAR java-crypto-kit-0.2.0-cfg-2.jar (원본은 그대로)
+  현재 JAR java-crypto-kit-0.2.1.jar 갱신
   사유: 운영 pass 키 등록
   crypto.keys.app-pass.type ((없음) -> pass)
   crypto.keys.app-pass.source ((없음) -> embedded)
@@ -744,12 +881,12 @@ Passphrase 확인(입력 숨김):
   crypto.keys.app-pass.kdf ((없음) -> pbkdf2-sha256)
   crypto.keys.app-pass.kdf.iterations ((없음) -> 600000)
   crypto.keys.app-pass.salt ((없음) -> 8JEPh8RGg4EiKbQt6lZk4w==)
-  crypto.key.active.pass (pass-default -> app-pass)
+  crypto.key.active.pass (pass-<생성 ID> -> app-pass)
 계속하려면 CHANGE를 입력하세요(그 외 입력은 취소): CHANGE
-생성 JAR  : C:\work\java-crypto-kit-0.2.0-cfg-2.jar
+갱신 JAR  : C:\work\java-crypto-kit-0.2.1.jar
 변경 항목 : crypto.keys.app-pass.type ((없음) -> pass)
             ...
-            crypto.key.active.pass (pass-default -> app-pass)
+            crypto.key.active.pass (pass-<생성 ID> -> app-pass)
 추가 키   : app-pass (pass, embedded, 지문 5d0c8a1e2b3f...44aa9c01)
 ```
 
@@ -786,7 +923,7 @@ key 유형은 `생성값    : AES 키(표준 Base64, 32바이트) - 다음 줄 �
 
 복원 백업의 키 ID가 `--key-id`와 다르거나, 백업으로 만든 키의 지문이 백업의 지문과 다르면(손상·수정) 등록하지 않습니다.
 
-원본(Passphrase 파일·내보낸 키·복원 백업)과 결과 JAR는 비밀 파일입니다([12.2절](../reference/security.md#122-키-파일과-키-내장-jar-보관)·[5.6절](#topic-key-recovery--56-자동-생성한-passkey-보관재등록복구)).
+원본(Passphrase 파일·내보낸 키·복원 백업)과 키를 등록한 JAR는 비밀 파일입니다([12.2절](../reference/security.md#122-키-파일과-키-내장-jar-보관)·[5.6절](#topic-key-recovery--56-자동-생성한-passkey-보관재등록복구)).
 
 <a name="topic-key-registration--a5-키-생성-화면에-한-번-보이는-생성값과---export"></a>
 ### 키 생성: 화면에 한 번 보이는 생성값과 `--export` (A.5)
@@ -794,16 +931,42 @@ key 유형은 `생성값    : AES 키(표준 Base64, 32바이트) - 다음 줄 �
 대화형 터미널에서 `--generate`로 만든 값은 성공 직후 화면에 **한 번** 나옵니다(`--show` 같은 옵션 없음). `--export`를 함께 주면 파일에도 저장합니다(pass는 복원 백업, key는 keygen과 같은 키 파일). 보관·재등록 방법은 [5.6절](#topic-key-recovery--56-자동-생성한-passkey-보관재등록복구)에 있습니다.
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id gen-pass --generate --operator example-admin --reason "pass 키 생성" --yes --out gen.jar
-java -jar .\gen.jar config key add --key-id gen-aes --type key --generate --export "$SECURE\gen-aes.key" --operator example-admin --reason "key 키 생성" --yes --out gen2.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination gen.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar gen.jar config key add --key-id gen-pass --generate --operator example-admin --reason "pass 키 생성" --yes
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\gen.jar -Destination gen2.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar gen2.jar config key add --key-id gen-aes --type key --generate --export "$SECURE\gen-aes.key" --operator example-admin --reason "key 키 생성" --yes
+
+# 선택한 키의 SHA-256 지문 확인
 java -jar .\gen2.jar fingerprint --key-id gen-aes
+
+# 선택한 키의 SHA-256 지문 확인
 java -jar .\gen2.jar fingerprint --key-file "$SECURE\gen-aes.key"
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id gen-pass --generate --operator example-admin --reason "pass 키 생성" --yes --out gen.jar
-java -jar ./gen.jar config key add --key-id gen-aes --type key --generate --export "$SECURE/gen-aes.key" --operator example-admin --reason "key 키 생성" --yes --out gen2.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar gen.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar gen.jar config key add --key-id gen-pass --generate --operator example-admin --reason "pass 키 생성" --yes
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./gen.jar gen2.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar gen2.jar config key add --key-id gen-aes --type key --generate --export "$SECURE/gen-aes.key" --operator example-admin --reason "key 키 생성" --yes
+
+# 선택한 키의 SHA-256 지문 확인
 java -jar ./gen2.jar fingerprint --key-id gen-aes
+
+# 선택한 키의 SHA-256 지문 확인
 java -jar ./gen2.jar fingerprint --key-file "$SECURE/gen-aes.key"
 ```
 
@@ -836,11 +999,19 @@ java -jar ./gen2.jar fingerprint --key-file "$SECURE/gen-aes.key"
 pass 생성값만 적어 두면 같은 키를 되살릴 수 없으므로 `복원 정보`와 `키 지문`도 함께 보관합니다([5.6절](#topic-key-recovery--56-자동-생성한-passkey-보관재등록복구) (d)). 스크립트·CI(대화형 터미널 아님)에서는 화면 표시가 없으므로 `--export`가 필요하고, 관리자 인증은 `--admin-pass-file`(A.1에서 만든 파일)로 합니다.
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id ci-pass --generate --export "$SECURE\ci-pass.backup" --operator example-admin --reason "CI 키" --yes --out ci.jar --admin-pass-file "$SECURE\admin.pw"
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination ci.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar ci.jar config key add --key-id ci-pass --generate --export "$SECURE\ci-pass.backup" --operator example-admin --reason "CI 키" --yes --admin-pass-file "$SECURE\admin.pw"
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id ci-pass --generate --export "$SECURE/ci-pass.backup" --operator example-admin --reason "CI 키" --yes --out ci.jar --admin-pass-file "$SECURE/admin.pw"
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar ci.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar ci.jar config key add --key-id ci-pass --generate --export "$SECURE/ci-pass.backup" --operator example-admin --reason "CI 키" --yes --admin-pass-file "$SECURE/admin.pw"
 ```
 
 ```text
@@ -860,26 +1031,60 @@ Passphrase 파일은 UTF-8로 만듭니다(앞의 BOM 하나와 끝 줄바꿈 �
 실제 값은 명령 줄에 적지 말고 [5.6절](#topic-key-recovery--56-자동-생성한-passkey-보관재등록복구) (b)처럼 붙여 넣어 저장합니다(셸 기록에 남지 않게).
 
 ```powershell
+# 비밀값을 UTF-8 파일에 저장
 [IO.File]::WriteAllText("$SECURE\app.pass", 'example-file-passphrase', [Text.UTF8Encoding]::new($false))
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id file-pass --source file --location "$SECURE\app.pass" --operator example-admin --reason "파일 pass 키 등록" --yes --out file-pass.jar
-java -jar .\file-pass.jar encrypt --key-id file-pass
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination file-pass.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar file-pass.jar config key add --key-id file-pass --source file --location "$SECURE\app.pass" --operator example-admin --reason "파일 pass 키 등록" --yes
+
+# 입력한 값을 활성 키로 암호화
+java -jar .\file-pass.jar enc --key-id file-pass
+
+# 테스트 Passphrase를 환경변수에 설정
 $env:APP_PASS = 'example-env-passphrase'
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id env-pass --source env --location APP_PASS --operator example-admin --reason "환경변수 pass 키 등록" --yes --out env-pass.jar
-java -jar .\env-pass.jar encrypt --key-id env-pass
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination env-pass.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar env-pass.jar config key add --key-id env-pass --source env --location APP_PASS --operator example-admin --reason "환경변수 pass 키 등록" --yes
+
+# 입력한 값을 활성 키로 암호화
+java -jar .\env-pass.jar enc --key-id env-pass
 ```
 
 ```bash
+# 시험용 Passphrase를 보호 파일에 저장
 printf '%s' 'example-file-passphrase' > "$SECURE/app.pass"; chmod 600 "$SECURE/app.pass"
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id file-pass --source file --location "$SECURE/app.pass" --operator example-admin --reason "파일 pass 키 등록" --yes --out file-pass.jar
-java -jar ./file-pass.jar encrypt --key-id file-pass
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar file-pass.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar file-pass.jar config key add --key-id file-pass --source file --location "$SECURE/app.pass" --operator example-admin --reason "파일 pass 키 등록" --yes
+
+# 입력한 값을 활성 키로 암호화
+java -jar ./file-pass.jar enc --key-id file-pass
+
+# 시험용 Passphrase를 환경변수에 설정
 export APP_PASS='example-env-passphrase'
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id env-pass --source env --location APP_PASS --operator example-admin --reason "환경변수 pass 키 등록" --yes --out env-pass.jar
-java -jar ./env-pass.jar encrypt --key-id env-pass
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar env-pass.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar env-pass.jar config key add --key-id env-pass --source env --location APP_PASS --operator example-admin --reason "환경변수 pass 키 등록" --yes
+
+# 입력한 값을 활성 키로 암호화
+java -jar ./env-pass.jar enc --key-id env-pass
 ```
 
 ```text
 관리자 비밀번호(입력 숨김):
-생성 JAR  : C:\work\file-pass.jar
+갱신 JAR  : C:\work\file-pass.jar
 변경 항목 : crypto.keys.file-pass.type ((없음) -> pass)
             ...
             crypto.keys.file-pass.fingerprint ((없음)
@@ -910,7 +1115,7 @@ ENC[v1:file-pass:...]
 
 ```text
 java -jar <입력 JAR> config key use --key-id <키 ID> --operator <수정자> [--reason <사유>]
-    [--type pass|key] [--jar <대상 JAR>] [--out <결과 JAR> | --replace] [--yes] [--admin-pass-file <파일>] [--lang ko|en]
+    [--type pass|key] [--jar <대상 JAR>] [--replace] [--yes] [--admin-pass-file <파일>] [--lang ko|en]
 ```
 
 | 옵션 | 필수 | 의미·기본값 |
@@ -920,8 +1125,7 @@ java -jar <입력 JAR> config key use --key-id <키 ID> --operator <수정자> [
 | `--operator <ID>` | 예 | 변경 이력에 남길 수정자 식별자 |
 | `--reason <사유>` | 사유 필수, 대화형은 질문 | 이력에 남길 변경 사유(한 줄, 200자 이하, 비밀값 금지). 빠지면 대화형 터미널에서 묻고, 스크립트·CI에서는 바꾸기 전에 오류. `--yes`로 생략되지 않음 |
 | `--jar <JAR>` | 아니요 | 실행 중인 JAR 대신 다른 JAR를 바꿀 때 |
-| `--out <JAR>` | 아니요 | 결과 JAR 경로 |
-| `--replace` | 아니요 | 백업 후 원본 교체 |
+| `--replace` | 아니요 | 기존 스크립트 호환용. 생략해도 같은 경로를 갱신합니다. |
 | `--yes` | 아니요 | `CHANGE` 확인 생략 |
 | `--admin-pass-file <파일>` | 아니요 | 관리자 비밀번호 파일(한 줄, 비대화형 인증). 생략하면 대화형 터미널에서 묻고, 비대화형이면 아무것도 하지 않고 실패([1.4절](cli.md#topic-admin--14-cli-관리자-비밀번호)) |
 | `--lang ko\|en` | 아니요 | 이번 실행의 메시지 언어 |
@@ -933,11 +1137,13 @@ pass 키는 `crypto.key.active.pass`, key 키는 `crypto.key.active.key`를 바�
 **예제**
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar config key use --key-id app-pass2 --operator example-admin --reason "새 pass 키로 전환"
+# 등록한 키를 해당 유형의 기본 키로 지정
+java -jar java-crypto-kit-0.2.1.jar config key use --key-id app-pass2 --operator example-admin --reason "새 pass 키로 전환"
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar config key use --key-id key01 --type key --operator example-admin --reason "key 기본 키 전환" --yes
+# 등록한 키를 해당 유형의 기본 키로 지정
+java -jar ./java-crypto-kit-0.2.1.jar config key use --key-id key01 --type key --operator example-admin --reason "key 기본 키 전환" --yes
 ```
 
 **결과**
@@ -945,11 +1151,11 @@ java -jar ./java-crypto-kit-0.2.0-cfg-2.jar config key use --key-id key01 --type
 ```text
 관리자 비밀번호(입력 숨김):
 기본 키를 바꿉니다(새 암호화에 쓸 키, 기존 암호문은 그대로):
-  결과: 새 JAR java-crypto-kit-0.2.0-cfg-3.jar (원본은 그대로)
+  현재 JAR java-crypto-kit-0.2.1.jar 갱신
   사유: 새 pass 키로 전환
   crypto.key.active.pass (app-pass -> app-pass2)
 계속하려면 CHANGE를 입력하세요(그 외 입력은 취소): CHANGE
-생성 JAR  : C:\work\java-crypto-kit-0.2.0-cfg-3.jar
+갱신 JAR  : C:\work\java-crypto-kit-0.2.1.jar
 변경 항목 : crypto.key.active.pass (app-pass -> app-pass2)
 기본 키   : pass=app-pass2
 ```
@@ -957,11 +1163,11 @@ java -jar ./java-crypto-kit-0.2.0-cfg-2.jar config key use --key-id key01 --type
 <a name="topic-key-defaults--220-config-key-remove--키-제거"></a>
 ### `config key remove` — 키 제거 (2.20)
 
-**사용 상황:** 더 쓰지 않는 키(회전이 끝난 이전 키, 쓰지 않을 공개 기본 키 등)를 키 목록에서 뺄 때. **제거한 키로 만든 암호문은 결과 JAR로 복호화할 수 없으므로** 먼저 `rekey`로 모두 옮깁니다.
+**사용 상황:** 더 쓰지 않는 키(회전이 끝난 이전 키 등)를 키 목록에서 뺄 때. **제거한 키로 만든 암호문은 제거 뒤 이 JAR로 복호화할 수 없으므로** 먼저 `rekey`로 모두 옮깁니다.
 
 ```text
 java -jar <입력 JAR> config key remove --key-id <키 ID> --operator <수정자> [--reason <사유>]
-    [--jar <대상 JAR>] [--out <결과 JAR> | --replace] [--yes] [--admin-pass-file <파일>] [--lang ko|en]
+    [--jar <대상 JAR>] [--replace] [--yes] [--admin-pass-file <파일>] [--lang ko|en]
 ```
 
 | 옵션 | 필수 | 의미·기본값 |
@@ -970,37 +1176,38 @@ java -jar <입력 JAR> config key remove --key-id <키 ID> --operator <수정자
 | `--operator <ID>` | 예 | 변경 이력에 남길 수정자 식별자 |
 | `--reason <사유>` | 사유 필수, 대화형은 질문 | 이력에 남길 변경 사유(한 줄, 200자 이하, 비밀값 금지). 빠지면 대화형 터미널에서 묻고, 스크립트·CI에서는 바꾸기 전에 오류. `--yes`로 생략되지 않음 |
 | `--jar <JAR>` | 아니요 | 실행 중인 JAR 대신 다른 JAR를 바꿀 때 |
-| `--out <JAR>` | 아니요 | 결과 JAR 경로 |
-| `--replace` | 아니요 | 백업 후 원본 교체 |
+| `--replace` | 아니요 | 기존 스크립트 호환용. 생략해도 같은 경로를 갱신합니다. |
 | `--yes` | 아니요 | `CHANGE` 확인 생략 |
 | `--admin-pass-file <파일>` | 아니요 | 관리자 비밀번호 파일(한 줄, 비대화형 인증). 생략하면 대화형 터미널에서 묻고, 비대화형이면 아무것도 하지 않고 실패([1.4절](cli.md#topic-admin--14-cli-관리자-비밀번호)) |
 | `--lang ko\|en` | 아니요 | 이번 실행의 메시지 언어 |
 
-그 유형의 **기본 키**와 `crypto.key.*` AES 키는 제거할 수 없습니다(기본 키는 먼저 `config key use`로 바꾸고, `crypto.key.*` 키는 `config embed-key`로 교체). 공개 기본 키도 자동으로 지우지 않으며, 이 명령으로 직접 제거할 때만 빠집니다.
+그 유형의 **기본 키**와 `crypto.key.*` AES 키는 제거할 수 없습니다(기본 키는 먼저 `config key use`로 바꾸고, `crypto.key.*` 키는 `config embed-key`로 교체). 키 목록의 키는 자동으로 지우지 않으며, 이 명령으로 직접 제거할 때만 빠집니다.
 
 제거한 키 ID는 다른 키에 다시 쓸 수 없고, 같은 키를 되살릴 때만(키 파일·복원 백업·`--from-jar`로, 이력의 64자 전체 지문과 같을 때) 다시 등록할 수 있습니다([5.6절](#topic-key-recovery--56-자동-생성한-passkey-보관재등록복구)). 이력에는 제거한 항목과 키 요약 줄이 남습니다.
 
 **예제**
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg-3.jar config key remove --key-id app-pass --reason "회전 완료" --operator example-admin
+# 사용을 마친 키를 키 목록에서 제거
+java -jar java-crypto-kit-0.2.1.jar config key remove --key-id app-pass --reason "회전 완료" --operator example-admin
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar config key remove --key-id default --operator example-admin --reason "공개 AES 키 정리" --yes
+# 사용을 마친 키를 키 목록에서 제거
+java -jar ./java-crypto-kit-0.2.1.jar config key remove --key-id app-pass --operator example-admin --reason "회전 완료" --yes
 ```
 
 **결과**
 
 ```text
 관리자 비밀번호(입력 숨김):
-키를 제거합니다(결과 JAR는 이 키의 암호문을 복호화하지 못함):
-  결과: 새 JAR java-crypto-kit-0.2.0-cfg-4.jar (원본은 그대로)
+키를 제거합니다(제거 뒤 이 JAR는 이 키의 암호문을 복호화하지 못함):
+  현재 JAR java-crypto-kit-0.2.1.jar 갱신
   사유: 회전 완료
   crypto.keys.app-pass.type (pass -> (없음))
   ...
 계속하려면 CHANGE를 입력하세요(그 외 입력은 취소): CHANGE
-생성 JAR  : C:\work\java-crypto-kit-0.2.0-cfg-4.jar
+갱신 JAR  : C:\work\java-crypto-kit-0.2.1.jar
 변경 항목 : crypto.keys.app-pass.type (pass -> (없음))
             ...
 제거 키   : app-pass
@@ -1012,12 +1219,24 @@ java -jar ./java-crypto-kit-0.2.0-cfg-2.jar config key remove --key-id default -
 `--reason`을 빼면 실행 전에 사유를 묻습니다(대화형 터미널).
 
 ```powershell
-java -jar .\gen2.jar config key use --key-id gen-aes --operator example-admin --out use.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\gen2.jar -Destination use.jar
+
+# 등록한 키를 해당 유형의 기본 키로 지정
+java -jar use.jar config key use --key-id gen-aes --operator example-admin
+
+# 적용된 설정과 활성 키 조회
 java -jar .\use.jar info
 ```
 
 ```bash
-java -jar ./gen2.jar config key use --key-id gen-aes --operator example-admin --out use.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./gen2.jar use.jar
+
+# 등록한 키를 해당 유형의 기본 키로 지정
+java -jar use.jar config key use --key-id gen-aes --operator example-admin
+
+# 적용된 설정과 활성 키 조회
 java -jar ./use.jar info
 ```
 
@@ -1025,11 +1244,11 @@ java -jar ./use.jar info
 관리자 비밀번호(입력 숨김):                    ← 관리자 비밀번호(사유보다 먼저)
 사유(비밀값 제외): key 기본 키 전환             ← 사유 입력(화면에 보임, 비밀값을 적지 않음)
 기본 키를 바꿉니다(새 암호화에 쓸 키, 기존 암호문은 그대로):
-  결과: 새 JAR use.jar (원본은 그대로)
+  현재 JAR use.jar 갱신
   사유: key 기본 키 전환
   crypto.key.active.key ((비어 있음) -> gen-aes)
 계속하려면 CHANGE를 입력하세요(그 외 입력은 취소): CHANGE
-생성 JAR  : C:\work\use.jar
+갱신 JAR  : C:\work\use.jar
 변경 항목 : crypto.key.active.key ((비어 있음) -> gen-aes)
 기본 키   : key=gen-aes
 
@@ -1085,14 +1304,22 @@ JAR 내장·aws-kms pass 키는 PBKDF2 파생 키만 보관하므로 원문을 �
 **예제**
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar config key show --key-id key01
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar config key show --key-id key01 --show
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar config key show --key-id key01 --export "$HOME\jck-secure\key01.export"
+# 지정한 키의 공급원과 복구 정보 조회
+java -jar .\java-crypto-kit-0.2.1.jar config key show --key-id key01
+
+# 지정한 키의 공급원과 복구 정보 조회
+java -jar .\java-crypto-kit-0.2.1.jar config key show --key-id key01 --show
+
+# 인증 후 지정한 키를 새 보호 파일에 내보내기
+java -jar .\java-crypto-kit-0.2.1.jar config key show --key-id key01 --export "$HOME\jck-secure\key01.export"
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar config key show --key-id key01
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar config key show --key-id key01 --export ~/jck-secure/key01.export --admin-pass-file "$ADMIN_PW_FILE"
+# 지정한 키의 공급원과 복구 정보 조회
+java -jar ./java-crypto-kit-0.2.1.jar config key show --key-id key01
+
+# 인증 후 지정한 키를 새 보호 파일에 내보내기
+java -jar ./java-crypto-kit-0.2.1.jar config key show --key-id key01 --export ~/jck-secure/key01.export --admin-pass-file "$ADMIN_PW_FILE"
 ```
 
 **결과(관리정보):**
@@ -1144,22 +1371,54 @@ pass 키는 `KDF       : pbkdf2-sha256, 600,000회`, `Salt      : <Base64>`, `Sa
 관리자 인증 뒤 키 하나의 관리정보를 보고, 운영에 필요하면 원문을 확인·내보냅니다. 화면 표시는 노출 경고 뒤 `SHOW`를 정확히 입력해야 합니다(대화형 전용). 내보낸 key 파일로 원본 JAR 없이 새 JAR에 같은 키 ID로 등록하면 예전 암호문이 복호화됩니다.
 
 ```powershell
+# 지정한 키의 공급원과 복구 정보 조회
 java -jar .\app-aes.jar config key show --key-id key01
+
+# 지정한 키의 공급원과 복구 정보 조회
 java -jar .\app-aes.jar config key show --key-id key01 --show
+
+# 인증 후 지정한 키를 새 보호 파일에 내보내기
 java -jar .\app-aes.jar config key show --key-id key01 --export "$SECURE\key01.export"
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id key01 --type key --from-file "$SECURE\key01.export" --operator example-admin --reason "내보낸 키로 복구" --yes --out restored.jar
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination restored.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar restored.jar config key add --key-id key01 --type key --from-file "$SECURE\key01.export" --operator example-admin --reason "내보낸 키로 복구" --yes
+
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar .\restored.jar verify --value 'ENC[v1:key01:...]'
+
+# 지정한 키의 공급원과 복구 정보 조회
 java -jar .\file-pass.jar config key show --key-id file-pass --show
+
+# 지정한 키의 공급원과 복구 정보 조회
 java -jar .\app-pass.jar config key show --key-id app-pass --show
 ```
 
 ```bash
+# 지정한 키의 공급원과 복구 정보 조회
 java -jar ./app-aes.jar config key show --key-id key01
+
+# 지정한 키의 공급원과 복구 정보 조회
 java -jar ./app-aes.jar config key show --key-id key01 --show
+
+# 인증 후 지정한 키를 새 보호 파일에 내보내기
 java -jar ./app-aes.jar config key show --key-id key01 --export "$SECURE/key01.export"
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id key01 --type key --from-file "$SECURE/key01.export" --operator example-admin --reason "내보낸 키로 복구" --yes --out restored.jar
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar restored.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar restored.jar config key add --key-id key01 --type key --from-file "$SECURE/key01.export" --operator example-admin --reason "내보낸 키로 복구" --yes
+
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar ./restored.jar verify --value 'ENC[v1:key01:...]'
+
+# 지정한 키의 공급원과 복구 정보 조회
 java -jar ./file-pass.jar config key show --key-id file-pass --show
+
+# 지정한 키의 공급원과 복구 정보 조회
 java -jar ./app-pass.jar config key show --key-id app-pass --show
 ```
 
@@ -1254,28 +1513,68 @@ passphrase=<생성 결과: Passphrase>
 
 **따라 하기:** 아래 예는 한 흐름으로 이어지며 Windows PowerShell 5.1(JDK 8)과 Linux bash(JDK 21)에서 실제로 실행해 확인했습니다.
 
-관리자 비밀번호를 설정한 JAR(`java-crypto-kit-0.2.0-cfg.jar`, 키는 공개 JAR와 같음)와 시험용 `report.csv`가 현재 폴더에, 키를 둘 `$SECURE` 폴더([A.1](cli.md#topic-admin--a1-준비-관리자-비밀번호와-보호된-폴더))가 있다고 가정합니다.
+관리자 비밀번호를 설정한 JAR(`java-crypto-kit-0.2.1.jar`, `admin setup`이 생성한 랜덤 PASS·KEY가 들어 있음)와 시험용 `report.csv`가 현재 폴더에, 키를 둘 `$SECURE` 폴더([A.1](cli.md#topic-admin--a1-준비-관리자-비밀번호와-보호된-폴더))가 있다고 가정합니다.
 
 생성값·지문·Salt·암호문은 실행할 때마다 다릅니다. 키를 등록하는 `config key add`와 `file decrypt`는 실행할 때마다 `관리자 비밀번호(입력 숨김):`를 먼저 묻습니다(아래 결과 화면에서는 그 줄을 생략).
 
 준비 — keygen 키 파일로 등록한 key 키, 백업과 함께 생성한 pass 키, 화면에만 나온 key 키와 각각의 암호문을 만듭니다(`CHANGE` 입력).
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar keygen --out "$SECURE\account.key" --reason "account 키 준비"
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id account-key --type key --from-file "$SECURE\account.key" --operator example-admin --reason "account 키 등록" --yes --out member.jar
-java -jar .\member.jar config key add --key-id member-pass --generate --export "$SECURE\member-pass.backup" --operator example-admin --reason "member pass 생성" --out member2.jar
-java -jar .\member2.jar config key add --key-id member-key --type key --generate --operator example-admin --reason "member key 생성" --out member3.jar
-java -jar .\member3.jar encrypt --key-id member-pass
-java -jar .\member3.jar file encrypt --in .\report.csv --key-id member-pass --out .\report.jck
+# 새 AES-256 키 생성
+java -jar .\java-crypto-kit-0.2.1.jar keygen --out "$SECURE\account.key" --reason "account 키 준비"
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination member.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar member.jar config key add --key-id account-key --type key --from-file "$SECURE\account.key" --operator example-admin --reason "account 키 등록" --yes
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\member.jar -Destination member2.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar member2.jar config key add --key-id member-pass --generate --export "$SECURE\member-pass.backup" --operator example-admin --reason "member pass 생성"
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\member2.jar -Destination member3.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar member3.jar config key add --key-id member-key --type key --generate --operator example-admin --reason "member key 생성"
+
+# 입력한 값을 활성 키로 암호화
+java -jar .\member3.jar enc --key-id member-pass
+
+# 입력 파일을 암호화하여 새 파일로 저장
+java -jar .\member3.jar file enc --in .\report.csv --key-id member-pass --out .\report.jck
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg.jar keygen --out "$SECURE/account.key" --reason "account 키 준비"
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id account-key --type key --from-file "$SECURE/account.key" --operator example-admin --reason "account 키 등록" --yes --out member.jar
-java -jar ./member.jar config key add --key-id member-pass --generate --export "$SECURE/member-pass.backup" --operator example-admin --reason "member pass 생성" --out member2.jar
-java -jar ./member2.jar config key add --key-id member-key --type key --generate --operator example-admin --reason "member key 생성" --out member3.jar
-java -jar ./member3.jar encrypt --key-id member-pass
-java -jar ./member3.jar file encrypt --in ./report.csv --key-id member-pass --out ./report.jck
+# 새 AES-256 키 생성
+java -jar ./java-crypto-kit-0.2.1.jar keygen --out "$SECURE/account.key" --reason "account 키 준비"
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar member.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar member.jar config key add --key-id account-key --type key --from-file "$SECURE/account.key" --operator example-admin --reason "account 키 등록" --yes
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./member.jar member2.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar member2.jar config key add --key-id member-pass --generate --export "$SECURE/member-pass.backup" --operator example-admin --reason "member pass 생성"
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./member2.jar member3.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar member3.jar config key add --key-id member-key --type key --generate --operator example-admin --reason "member key 생성"
+
+# 입력한 값을 활성 키로 암호화
+java -jar ./member3.jar enc --key-id member-pass
+
+# 입력 파일을 암호화하여 새 파일로 저장
+java -jar ./member3.jar file enc --in ./report.csv --key-id member-pass --out ./report.jck
 ```
 
 같은 방법으로 `encrypt --key-id account-key`·`encrypt --key-id member-key`의 암호문도 만들어 둡니다. 아래 `ENC[v1:...:...]`는 이때 만든 암호문 한 줄 전체로 바꿉니다.
@@ -1287,12 +1586,24 @@ java -jar ./member3.jar file encrypt --in ./report.csv --key-id member-pass --ou
 
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id account-key --type key --from-file "$SECURE\account.key" --operator example-admin --reason "account 키 재등록" --yes --out new-a.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination new-a.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar new-a.jar config key add --key-id account-key --type key --from-file "$SECURE\account.key" --operator example-admin --reason "account 키 재등록" --yes
+
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar .\new-a.jar verify --value 'ENC[v1:account-key:...]'
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id account-key --type key --from-file "$SECURE/account.key" --operator example-admin --reason "account 키 재등록" --yes --out new-a.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar new-a.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar new-a.jar config key add --key-id account-key --type key --from-file "$SECURE/account.key" --operator example-admin --reason "account 키 재등록" --yes
+
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar ./new-a.jar verify --value 'ENC[v1:account-key:...]'
 ```
 
@@ -1308,22 +1619,46 @@ OK
 
 `--export` 없이 생성한 key 값은 화면이 유일한 사본입니다. 첫 명령을 실행한 뒤 화면의 `생성값` 다음 줄 전체를 붙여 넣고 Enter를 누르면 `keygen` 키 파일과 같은 파일이 됩니다.
 
-값을 명령 줄에 적지 않으므로 셸 기록(PowerShell PSReadLine 기록, bash `history`)에 남지 않습니다.
+값을 명령 줄에 적지 않으므로 셸 기록(PowerShell PSReadLine 기록, bash `history`)에 남지 않습니다. 가능하면 생성할 때 `--export`로 보호된 파일을 바로 만들고, 화면의 값만 남은 경우에만 아래처럼 숨김 입력으로 저장합니다. 입력한 값은 화면에 다시 표시하지 않으며, 같은 이름의 파일이 있으면 덮어쓰지 않고 멈춥니다.
 
 
 ```powershell
-Read-Host "생성값(붙여 넣기)" | Set-Content -Path "$SECURE\member-key.key" -Encoding UTF8
+# 생성값을 숨김 입력으로 받아 새 키 파일에 저장(같은 이름의 파일이 있으면 덮어쓰지 않음)
+$s = Read-Host "생성값(붙여 넣기, 입력 숨김)" -AsSecureString; $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s); try { New-Item -ItemType File -Path "$SECURE\member-key.key" -ErrorAction Stop | Out-Null; [IO.File]::WriteAllText("$SECURE\member-key.key", [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) + "`n") } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b); Remove-Variable s, b }
+
+# 선택한 키의 SHA-256 지문 확인
 java -jar .\member3.jar fingerprint --key-id member-key
+
+# 선택한 키의 SHA-256 지문 확인
 java -jar .\member3.jar fingerprint --key-file "$SECURE\member-key.key"
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-key --type key --from-file "$SECURE\member-key.key" --operator example-admin --reason "member key 재등록" --yes --out new-b.jar
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination new-b.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar new-b.jar config key add --key-id member-key --type key --from-file "$SECURE\member-key.key" --operator example-admin --reason "member key 재등록" --yes
+
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar .\new-b.jar verify --value 'ENC[v1:member-key:...]'
 ```
 
 ```bash
-IFS= read -r -p '생성값(붙여 넣기): ' v && (umask 077 && printf '%s\n' "$v" > "$SECURE/member-key.key"); unset v
+# 숨김 입력값을 소유자 전용 새 파일에 저장(같은 이름의 파일이 있으면 실패)
+IFS= read -r -s -p '생성값(붙여 넣기, 입력 숨김): ' v && echo && (umask 077 && set -C && printf '%s\n' "$v" > "$SECURE/member-key.key"); unset v
+
+# 선택한 키의 SHA-256 지문 확인
 java -jar ./member3.jar fingerprint --key-id member-key
+
+# 선택한 키의 SHA-256 지문 확인
 java -jar ./member3.jar fingerprint --key-file "$SECURE/member-key.key"
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-key --type key --from-file "$SECURE/member-key.key" --operator example-admin --reason "member key 재등록" --yes --out new-b.jar
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar new-b.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar new-b.jar config key add --key-id member-key --type key --from-file "$SECURE/member-key.key" --operator example-admin --reason "member key 재등록" --yes
+
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar ./new-b.jar verify --value 'ENC[v1:member-key:...]'
 ```
 
@@ -1346,13 +1681,25 @@ pass 생성값만 저장해서는 같은 키를 되살릴 수 없습니다. 한 
 
 
 ```powershell
-Read-Host "생성값(붙여 넣기)" | Set-Content -Path "$SECURE\member-pass.txt" -Encoding UTF8
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-pass2 --from-file "$SECURE\member-pass.txt" --operator example-admin --reason "같은 문구로 새 키" --yes --out new-c.jar
+# 생성값을 숨김 입력으로 받아 새 키 파일에 저장(같은 이름의 파일이 있으면 덮어쓰지 않음)
+$s = Read-Host "생성값(붙여 넣기, 입력 숨김)" -AsSecureString; $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s); try { New-Item -ItemType File -Path "$SECURE\member-pass.txt" -ErrorAction Stop | Out-Null; [IO.File]::WriteAllText("$SECURE\member-pass.txt", [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) + "`n") } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b); Remove-Variable s, b }
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination new-c.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar new-c.jar config key add --key-id member-pass2 --from-file "$SECURE\member-pass.txt" --operator example-admin --reason "같은 문구로 새 키" --yes
 ```
 
 ```bash
-IFS= read -r -p '생성값(붙여 넣기): ' v && (umask 077 && printf '%s\n' "$v" > "$SECURE/member-pass.txt"); unset v
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-pass2 --from-file "$SECURE/member-pass.txt" --operator example-admin --reason "같은 문구로 새 키" --yes --out new-c.jar
+# 숨김 입력값을 소유자 전용 새 파일에 저장(같은 이름의 파일이 있으면 실패)
+IFS= read -r -s -p '생성값(붙여 넣기, 입력 숨김): ' v && echo && (umask 077 && set -C && printf '%s\n' "$v" > "$SECURE/member-pass.txt"); unset v
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar new-c.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar new-c.jar config key add --key-id member-pass2 --from-file "$SECURE/member-pass.txt" --operator example-admin --reason "같은 문구로 새 키" --yes
 ```
 
 ```text
@@ -1386,13 +1733,25 @@ pass 한 줄 파일은 줄 끝을 뺀 모든 글자를 Passphrase로 읽습니�
 `--export` 없이 생성했다면 화면의 값으로 같은 형식의 백업 파일을 만들어 둡니다. `<...>` 두 곳을 화면의 값으로 바꿔 실행한 뒤 Passphrase를 붙여 넣습니다.
 
 ```powershell
-$p = Read-Host "Passphrase(붙여 넣기)"; Set-Content -Path "$SECURE\member-pass-manual.backup" -Encoding UTF8 -Value "# java-crypto-kit pass-key-backup v1", "key-id=member-pass", "kdf=pbkdf2-sha256", "kdf.iterations=600000", "salt=<복원 정보의 Salt>", "fingerprint=<키 지문 64자>", "passphrase=$p"; Remove-Variable p
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-pass --from-file "$SECURE\member-pass-manual.backup" --operator example-admin --reason "화면 정보로 복구" --yes --out new-d.jar
+# Passphrase와 복원 메타데이터를 백업
+$s = Read-Host "Passphrase(붙여 넣기, 입력 숨김)" -AsSecureString; $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s); try { New-Item -ItemType File -Path "$SECURE\member-pass-manual.backup" -ErrorAction Stop | Out-Null; [IO.File]::WriteAllText("$SECURE\member-pass-manual.backup", (@("# java-crypto-kit pass-key-backup v1", "key-id=member-pass", "kdf=pbkdf2-sha256", "kdf.iterations=600000", "salt=<복원 정보의 Salt>", "fingerprint=<키 지문 64자>", ("passphrase=" + [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b))) -join "`n") + "`n") } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b); Remove-Variable s, b }
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination new-d.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar new-d.jar config key add --key-id member-pass --from-file "$SECURE\member-pass-manual.backup" --operator example-admin --reason "화면 정보로 복구" --yes
 ```
 
 ```bash
-IFS= read -r -p 'Passphrase(붙여 넣기): ' p && (umask 077 && printf '%s\n' '# java-crypto-kit pass-key-backup v1' 'key-id=member-pass' 'kdf=pbkdf2-sha256' 'kdf.iterations=600000' 'salt=<복원 정보의 Salt>' 'fingerprint=<키 지문 64자>' "passphrase=$p" > "$SECURE/member-pass-manual.backup"); unset p
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-pass --from-file "$SECURE/member-pass-manual.backup" --operator example-admin --reason "화면 정보로 복구" --yes --out new-d.jar
+# 숨김 입력값을 소유자 전용 새 파일에 저장(같은 이름의 파일이 있으면 실패)
+IFS= read -r -s -p 'Passphrase(붙여 넣기, 입력 숨김): ' p && echo && (umask 077 && set -C && printf '%s\n' '# java-crypto-kit pass-key-backup v1' 'key-id=member-pass' 'kdf=pbkdf2-sha256' 'kdf.iterations=600000' 'salt=<복원 정보의 Salt>' 'fingerprint=<키 지문 64자>' "passphrase=$p" > "$SECURE/member-pass-manual.backup"); unset p
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar new-d.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar new-d.jar config key add --key-id member-pass --from-file "$SECURE/member-pass-manual.backup" --operator example-admin --reason "화면 정보로 복구" --yes
 ```
 
 ```text
@@ -1409,11 +1768,19 @@ Salt 등을 잘못 옮기면 `[사유: KEY_SOURCE] ... 백업의 Passphrase·Sal
 
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-pass --from-file "$SECURE\member-pass.backup" --operator example-admin --reason "백업에서 복구" --yes --out new-e.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination new-e.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar new-e.jar config key add --key-id member-pass --from-file "$SECURE\member-pass.backup" --operator example-admin --reason "백업에서 복구" --yes
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-pass --from-file "$SECURE/member-pass.backup" --operator example-admin --reason "백업에서 복구" --yes --out new-e.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar new-e.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar new-e.jar config key add --key-id member-pass --from-file "$SECURE/member-pass.backup" --operator example-admin --reason "백업에서 복구" --yes
 ```
 
 ```text
@@ -1431,11 +1798,19 @@ java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-pass --
 
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-pass --from-jar .\member3.jar --operator example-admin --reason "원본 JAR에서 이관" --yes --out new-f.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination new-f.jar
+
+# 기존 JAR에서 키와 메타데이터 이전
+java -jar new-f.jar config key add --key-id member-pass --from-jar .\member3.jar --operator example-admin --reason "원본 JAR에서 이관" --yes
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-pass --from-jar ./member3.jar --operator example-admin --reason "원본 JAR에서 이관" --yes --out new-f.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar new-f.jar
+
+# 기존 JAR에서 키와 메타데이터 이전
+java -jar new-f.jar config key add --key-id member-pass --from-jar ./member3.jar --operator example-admin --reason "원본 JAR에서 이관" --yes
 ```
 
 ```text
@@ -1449,12 +1824,18 @@ java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-pass --
 
 
 ```powershell
+# 선택한 키의 SHA-256 지문 확인
 java -jar .\member3.jar fingerprint --key-id member-pass
+
+# 선택한 키의 SHA-256 지문 확인
 java -jar .\new-e.jar fingerprint --key-id member-pass
 ```
 
 ```bash
+# 선택한 키의 SHA-256 지문 확인
 java -jar ./member3.jar fingerprint --key-id member-pass
+
+# 선택한 키의 SHA-256 지문 확인
 java -jar ./new-e.jar fingerprint --key-id member-pass
 ```
 
@@ -1472,13 +1853,19 @@ java -jar ./new-e.jar fingerprint --key-id member-pass
 
 
 ```powershell
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar .\new-e.jar verify --value 'ENC[v1:member-pass:...]'
-java -jar .\new-e.jar file decrypt --in .\report.jck --out .\report-check.csv
+
+# 파일 무결성을 확인하고 새 평문 파일로 복호화
+java -jar .\new-e.jar file dec --in .\report.jck --out .\report-check.csv
 ```
 
 ```bash
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar ./new-e.jar verify --value 'ENC[v1:member-pass:...]'
-java -jar ./new-e.jar file decrypt --in ./report.jck --out ./report-check.csv
+
+# 파일 무결성을 확인하고 새 평문 파일로 복호화
+java -jar ./new-e.jar file dec --in ./report.jck --out ./report-check.csv
 ```
 
 ```text
@@ -1510,12 +1897,24 @@ OK
 ### 다른 JAR에 같은 키 복사 (A.9)
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id app-pass2 --from-jar .\app-pass-v2.jar --operator example-admin --reason "업무 JAR에 같은 키" --yes --out other.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination other.jar
+
+# 기존 JAR에서 키와 메타데이터 이전
+java -jar other.jar config key add --key-id app-pass2 --from-jar .\app-pass-v2.jar --operator example-admin --reason "업무 JAR에 같은 키" --yes
+
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar .\other.jar verify --value 'ENC[v1:app-pass2:...]'
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id app-pass2 --from-jar ./app-pass-v2.jar --operator example-admin --reason "업무 JAR에 같은 키" --yes --out other.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar other.jar
+
+# 기존 JAR에서 키와 메타데이터 이전
+java -jar other.jar config key add --key-id app-pass2 --from-jar ./app-pass-v2.jar --operator example-admin --reason "업무 JAR에 같은 키" --yes
+
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar ./other.jar verify --value 'ENC[v1:app-pass2:...]'
 ```
 
@@ -1540,28 +1939,72 @@ OK                                                  ← 다른 JAR가 만든 암
 
 ```powershell
 # key: 화면의 Base64를 붙여 넣어 키 파일로 저장 → 원래 키 ID로 새 JAR에 등록 → 예전 암호문 확인
-Read-Host "생성값(붙여 넣기)" | Set-Content -Path "$SECURE\member-key.key" -Encoding UTF8
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-key --type key --from-file "$SECURE\member-key.key" --operator example-admin --reason "member key 재등록" --yes --out new-b.jar
+$s = Read-Host "생성값(붙여 넣기, 입력 숨김)" -AsSecureString; $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s); try { New-Item -ItemType File -Path "$SECURE\member-key.key" -ErrorAction Stop | Out-Null; [IO.File]::WriteAllText("$SECURE\member-key.key", [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) + "`n") } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b); Remove-Variable s, b }
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination new-b.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar new-b.jar config key add --key-id member-key --type key --from-file "$SECURE\member-key.key" --operator example-admin --reason "member key 재등록" --yes
+
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar .\new-b.jar verify --value 'ENC[v1:member-key:...]'
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination new-e.jar
+
 # pass: --export 복원 백업으로 원본 JAR 없이 같은 키 복원
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-pass --from-file "$SECURE\member-pass.backup" --operator example-admin --reason "백업에서 복구" --yes --out new-e.jar
+java -jar new-e.jar config key add --key-id member-pass --from-file "$SECURE\member-pass.backup" --operator example-admin --reason "백업에서 복구" --yes
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\java-crypto-kit-0.2.1.jar -Destination new-f.jar
+
 # pass: 원본 JAR가 있으면 그대로 옮기기
-java -jar .\java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-pass --from-jar .\member3.jar --operator example-admin --reason "원본 JAR에서 이관" --yes --out new-f.jar
+java -jar new-f.jar config key add --key-id member-pass --from-jar .\member3.jar --operator example-admin --reason "원본 JAR에서 이관" --yes
+
 # 같은 키인지(64자 전체 지문)와 예전 암호문·파일 복호화 확인
 java -jar .\new-e.jar fingerprint --key-id member-pass
+
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar .\new-e.jar verify --value 'ENC[v1:member-pass:...]'
-java -jar .\new-e.jar file decrypt --in .\report.jck --out .\report-check.csv
+
+# 파일 무결성을 확인하고 새 평문 파일로 복호화
+java -jar .\new-e.jar file dec --in .\report.jck --out .\report-check.csv
 ```
 
 ```bash
-IFS= read -r -p '생성값(붙여 넣기): ' v && (umask 077 && printf '%s\n' "$v" > "$SECURE/member-key.key"); unset v
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-key --type key --from-file "$SECURE/member-key.key" --operator example-admin --reason "member key 재등록" --yes --out new-b.jar
+# 숨김 입력값을 소유자 전용 새 파일에 저장(같은 이름의 파일이 있으면 실패)
+IFS= read -r -s -p '생성값(붙여 넣기, 입력 숨김): ' v && echo && (umask 077 && set -C && printf '%s\n' "$v" > "$SECURE/member-key.key"); unset v
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar new-b.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar new-b.jar config key add --key-id member-key --type key --from-file "$SECURE/member-key.key" --operator example-admin --reason "member key 재등록" --yes
+
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar ./new-b.jar verify --value 'ENC[v1:member-key:...]'
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-pass --from-file "$SECURE/member-pass.backup" --operator example-admin --reason "백업에서 복구" --yes --out new-e.jar
-java -jar ./java-crypto-kit-0.2.0-cfg.jar config key add --key-id member-pass --from-jar ./member3.jar --operator example-admin --reason "원본 JAR에서 이관" --yes --out new-f.jar
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar new-e.jar
+
+# 키 파일 또는 복원 백업에서 키 등록
+java -jar new-e.jar config key add --key-id member-pass --from-file "$SECURE/member-pass.backup" --operator example-admin --reason "백업에서 복구" --yes
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./java-crypto-kit-0.2.1.jar new-f.jar
+
+# 기존 JAR에서 키와 메타데이터 이전
+java -jar new-f.jar config key add --key-id member-pass --from-jar ./member3.jar --operator example-admin --reason "원본 JAR에서 이관" --yes
+
+# 선택한 키의 SHA-256 지문 확인
 java -jar ./new-e.jar fingerprint --key-id member-pass
+
+# 평문 표시 없이 암호문의 무결성 확인
 java -jar ./new-e.jar verify --value 'ENC[v1:member-pass:...]'
-java -jar ./new-e.jar file decrypt --in ./report.jck --out ./report-check.csv
+
+# 파일 무결성을 확인하고 새 평문 파일로 복호화
+java -jar ./new-e.jar file dec --in ./report.jck --out ./report-check.csv
 ```
 
 ```text
@@ -1616,16 +2059,19 @@ java -jar <실행 JAR> rekey [--type pass|key] [--key-id <대상 키 ID>]
 
 **예제**
 
+서로 다른 JAR를 쓰는 경우 `new`에는 대상 키를 가진 JAR를, `backup`에는 이전 암호문의 키를 가진 JAR를 보호된 위치에 둡니다. 두 파일의 이름은 같아도 경로와 키는 다릅니다.
+
 ```powershell
-# 새 키 내장 JAR로 실행하고, 이전 키 내장 JAR를 이전 키로 지정
-java -jar .\java-crypto-kit-0.2.0-cfg-3.jar rekey --from-jar .\java-crypto-kit-0.2.0-cfg-2.jar
+# 새 키를 가진 JAR로 이전 키가 있는 JAR의 암호문을 재암호화
+java -jar .\new\java-crypto-kit-0.2.1.jar rekey --from-jar .\backup\java-crypto-kit-0.2.1.jar
 ```
 
 ```bash
 # 이전 키·새 키를 각각 설정 파일로 지정
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar rekey --from-config /secure/old.properties --to-config /secure/new.properties
-# 같은 JAR 안에서 다른 키로(키 목록에 추가한 app-pass2로 회전, 공개 AES 키 암호문을 pass 키로 옮기기 등)
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar rekey --key-id app-pass2
+java -jar ./java-crypto-kit-0.2.1.jar rekey --from-config /secure/old.properties --to-config /secure/new.properties
+
+# 같은 JAR 안에서 다른 키로(키 목록에 추가한 app-pass2로 회전)
+java -jar ./java-crypto-kit-0.2.1.jar rekey --key-id app-pass2
 ```
 
 **관리자 인증:** 실행 중인 JAR의 관리자 비밀번호를 확인하고, `--from-jar`(이전 키를 꺼내 복호화하는 JAR)가 관리자 비밀번호를 쓰는 JAR이면 그 JAR의 비밀번호도 확인합니다(같으면 한 번만). `--to-jar`는 그 JAR의 키로 새 암호문을 만들기만 하고 JAR를 바꾸지 않으므로 묻지 않습니다.
@@ -1634,7 +2080,7 @@ java -jar ./java-crypto-kit-0.2.0-cfg-2.jar rekey --key-id app-pass2
 
 **결과:** 기존 암호문을 입력하면 그 키 ID의 이전 키로 인증·복호화 → 대상 키와 새 IV로 재암호화 → 새 암호문이 대상 키로 복호화되고 키 ID가 대상 키인지 검증한 뒤 **새 암호문 한 줄만** 표준 출력에 씁니다. 평문은 출력하지 않으며 Resource XML도 자동으로 바꾸지 않습니다.
 
-- **표준 오류:** 새 키가 사용자 지정 키이면 비어 있습니다. 새 키가 공개 기본 키이면 재암호화와 검증이 **모두 성공한 뒤에만** 공통 경고 `[WARN] 공개 기본 키 사용 중 (별도 키 설정 권장)` 한 줄이 나옵니다(`crypto.warning.enabled=false`면 없음). 이전 키가 공개 기본 키인 것은 경고하지 않습니다.
+- **표준 오류:** 공개된 기본 키가 선택되면 작업이 실패합니다.
 - **실패하면** 새 암호문도 경고도 없이 오류 한 줄(`[사유: 코드]`)만 씁니다.
 
 **배포 순서:** Resource에 쓰는 **모든** 기존 암호문을 재암호화 → 새 키 내장 JAR와 새 암호문을 함께 배포 → WAS 재기동 후 실제 SQL 확인 → 이전 JAR·암호문은 원복용으로 보관. 이전 키를 잃었다면 `rekey`로 복구할 수 없으므로 DB 비밀번호 평문을 승인 절차에 따라 다시 `encrypt`해야 합니다.
@@ -1649,21 +2095,24 @@ java -jar ./java-crypto-kit-0.2.0-cfg-2.jar rekey --key-id app-pass2
 | 순서 | 작업 | 확인 |
 |---|---|---|
 | 1. 보존 | **현재 키 내장 JAR·키·기존 모든 Resource 암호문**을 안전하게 백업 | JAR와 암호문을 같은 시점으로 되돌릴 수 있음 |
-| 2. 새 키 추가 | pass: `config key add --key-id <새 ID> --active`. key: `config embed-key --key-id <새 ID>`(이전 AES 키는 키 목록에 남음) 또는 `config key add --type key ... --active` | 새 JAR의 `config show`에서 두 키와 기본 키 확인 |
-| 3. 재암호화 | 새 JAR로 Resource의 기존 암호문 **각각** `rekey --key-id <새 ID>`(같은 JAR 안 회전) | 새 `ENC[...]`의 키ID 확인 |
-| 4. 전환 | 새 JAR와 **모든 Resource의 새 암호문을 함께** 적용 | `lib`에 JAR 하나, 각 Resource SQL 성공 |
+| 2. 새 키 추가 | pass: `config key add --key-id <새 ID> --active`. key: `config embed-key --key-id <새 ID>`(이전 AES 키는 키 목록에 남음) 또는 `config key add --type key ... --active` | 갱신한 JAR의 `config show`에서 두 키와 기본 키 확인 |
+| 3. 재암호화 | 갱신한 JAR로 Resource의 기존 암호문 **각각** `rekey --key-id <새 ID>`(같은 JAR 안 회전) | 새 `ENC[...]`의 키ID 확인 |
+| 4. 전환 | 갱신한 JAR와 **모든 Resource의 새 암호문을 함께** 적용 | `lib`에 JAR 하나, 각 Resource SQL 성공 |
 | 5. 정리 | 모든 암호문을 옮긴 뒤 `config key remove --key-id <이전 ID>`로 이전 키 제거(선택) | 남은 암호문이 없는지 확인한 뒤 |
 | 6. 원복 | 장애 시 이전 JAR·이전 암호문·이전 키 설정을 **한 세트로** 복원 | 이전 상태의 SQL 성공 |
 
 ```powershell
 # 새 pass 키를 추가해 기본으로 정하고, 같은 JAR 안에서 기존 암호문을 새 키로 옮깁니다.
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar config key add --key-id app-pass2 --active --operator example-admin --reason "정기 키 회전"
-java -jar .\java-crypto-kit-0.2.0-cfg-3.jar rekey --key-id app-pass2
+java -jar java-crypto-kit-0.2.1.jar config key add --key-id app-pass2 --active --operator example-admin --reason "정기 키 회전"
+
+# 암호문을 대상 키로 재암호화
+java -jar .\java-crypto-kit-0.2.1.jar rekey --key-id app-pass2
+
 # 다른 JAR(이전 키 내장 JAR)의 암호문을 새 JAR로 옮길 때
-java -jar .\java-crypto-kit-0.2.0-cfg-3.jar rekey --from-jar .\java-crypto-kit-0.2.0-cfg-2.jar
+java -jar .\new\java-crypto-kit-0.2.1.jar rekey --from-jar .\backup\java-crypto-kit-0.2.1.jar
 ```
 
-**외부 Passphrase·키 값의 변경:** 파일·환경변수·Vault의 값을 같은 키 ID 그대로 바꾸면 지문 고정 때문에 실패합니다(의도치 않은 변경을 막기 위함). 값을 바꿀 때는 새 값으로 **새 키 ID를 추가**하고 위 3~5단계로 옮깁니다.
+**외부 키 재료와 위치 변경:** `crypto.keys.<ID>.*`에서 고정 지문을 가진 등록 프로필은 실행 시 읽은 키의 지문을 비교해 다르면 `KEY_SOURCE`로 실패합니다. 일반 레거시 AES 슬롯(`crypto.key.*`)은 실행 시 고정 지문을 적용하지 않으므로 외부 값이 바뀌면 기존 암호문이 `INTEGRITY`로 실패할 수 있습니다. `config set`은 이력에 지문이 있는 레거시 슬롯의 활성 공급원이나 키 위치를 바꾸기 전에 후보의 키가 그 이력과 같은지 확인합니다. 같은 키를 옮길 때는 새 위치를 먼저 준비하세요. 다른 재료로 회전할 때는 이전 키와 암호문을 보존하고 **새 키 ID로 등록 → `rekey` → 검증**합니다.
 
 `rekey`는 XML을 자동으로 바꾸지 않습니다. **이전 키를 이미 잃었다면 기존 암호문은 복구할 수 없습니다.** Vault 최신 버전이나 KMS 새 데이터 키를 무심코 쓰면 기존 암호문이 깨질 수 있으므로 Vault는 `crypto.vault.ver`로 버전을 고정합니다.
 
@@ -1671,16 +2120,42 @@ java -jar .\java-crypto-kit-0.2.0-cfg-3.jar rekey --from-jar .\java-crypto-kit-0
 ### 키 회전: 새 키 추가 → rekey → 이전 키 제거 (A.8)
 
 ```powershell
-java -jar .\app-pass.jar config key add --key-id app-pass2 --active --operator example-admin --reason "정기 키 회전" --out app-pass-v2.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\app-pass.jar -Destination app-pass-v2.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar app-pass-v2.jar config key add --key-id app-pass2 --active --operator example-admin --reason "정기 키 회전"
+
+# 암호문을 대상 키로 재암호화
 java -jar .\app-pass-v2.jar rekey --key-id app-pass2
-java -jar .\app-pass-v2.jar config key remove --key-id app-pass --operator example-admin --reason "회전 완료" --out app-pass-v3.jar
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+Copy-Item -LiteralPath .\app-pass-v2.jar -Destination app-pass-v3.jar
+
+# 사용을 마친 키를 키 목록에서 제거
+java -jar app-pass-v3.jar config key remove --key-id app-pass --operator example-admin --reason "회전 완료"
+
+# 설정 변경 이력과 작업 사유 확인
 java -jar .\app-pass-v3.jar config history
 ```
 
 ```bash
-java -jar ./app-pass.jar config key add --key-id app-pass2 --active --operator example-admin --reason "정기 키 회전" --out app-pass-v2.jar
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./app-pass.jar app-pass-v2.jar
+
+# 현재 JAR에 키 프로필 등록
+java -jar app-pass-v2.jar config key add --key-id app-pass2 --active --operator example-admin --reason "정기 키 회전"
+
+# 암호문을 대상 키로 재암호화
 java -jar ./app-pass-v2.jar rekey --key-id app-pass2
-java -jar ./app-pass-v2.jar config key remove --key-id app-pass --operator example-admin --reason "회전 완료" --out app-pass-v3.jar
+
+# 독립 구성으로 사용할 JAR 복사본 준비
+cp ./app-pass-v2.jar app-pass-v3.jar
+
+# 사용을 마친 키를 키 목록에서 제거
+java -jar app-pass-v3.jar config key remove --key-id app-pass --operator example-admin --reason "회전 완료"
+
+# 설정 변경 이력과 작업 사유 확인
 java -jar ./app-pass-v3.jar config history
 ```
 
@@ -1689,8 +2164,8 @@ crypto.key.active.pass (app-pass -> app-pass2)     ← add(관리자 비밀번�
 관리자 비밀번호(입력 숨김):                        ← rekey(관리자 비밀번호 먼저)
 기존 암호문(입력 숨김):                            ← rekey: 기존 ENC[v1:app-pass:...] 입력
 ENC[v1:app-pass2:-LMuh90_Zpsnp-lx:FckiFyX0GJoCJHYOfHWaWOnzo7j-BPE8F20hii9SMuq4Wuc]
-키를 제거합니다(결과 JAR는 이 키의 암호문을 복호화하지 못함):   ← remove(관리자 비밀번호 + CHANGE)
-  결과: 새 JAR app-pass-v3.jar (원본은 그대로)
+키를 제거합니다(제거 뒤 이 JAR는 이 키의 암호문을 복호화하지 못함):   ← remove(관리자 비밀번호 + CHANGE)
+  현재 JAR app-pass-v3.jar 갱신
   사유: 회전 완료
   ...
 제거 키   : app-pass
@@ -1708,7 +2183,7 @@ ENC[v1:app-pass2:-LMuh90_Zpsnp-lx:FckiFyX0GJoCJHYOfHWaWOnzo7j-BPE8F20hii9SMuq4Wu
 
 Resource의 **모든** 암호문을 `rekey`로 옮긴 뒤에 이전 키를 제거합니다.
 
-제거한 키의 암호문은 결과 JAR에서 `KEY_ID_MISMATCH`로 실패하고, 제거한 키 ID는 다른 키에 다시 쓸 수 없습니다(같은 키를 되살릴 때만 허용, [A.10](#topic-key-recovery--a10-생성값으로-재등록예전-암호문-복구)).
+제거한 키의 암호문은 그 JAR에서 `KEY_ID_MISMATCH`로 실패하고, 제거한 키 ID는 다른 키에 다시 쓸 수 없습니다(같은 키를 되살릴 때만 허용, [A.10](#topic-key-recovery--a10-생성값으로-재등록예전-암호문-복구)).
 
 [이 문서의 목차로 ↑](#guide-contents)
 
@@ -1737,30 +2212,36 @@ java -jar <실행 JAR> config history [--type pass|key | --all] [--jar <조회�
 **예제**
 
 ```powershell
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar config history
-java -jar .\java-crypto-kit-0.2.0-cfg-2.jar config history --type key
+# 설정 변경 이력과 작업 사유 확인
+java -jar .\java-crypto-kit-0.2.1.jar config history
+
+# 설정 변경 이력과 작업 사유 확인
+java -jar .\java-crypto-kit-0.2.1.jar config history --type key
 ```
 
 ```bash
-java -jar ./java-crypto-kit-0.2.0-cfg-2.jar config history --all
-java -jar ./tools/java-crypto-kit-0.2.0-cfg.jar config history --jar /opt/tomcat/lib/java-crypto-kit-0.2.0-cfg-2.jar --type key
+# 설정 변경 이력과 작업 사유 확인
+java -jar ./java-crypto-kit-0.2.1.jar config history --all
+
+# 설정 변경 이력과 작업 사유 확인
+java -jar ./tools/java-crypto-kit-0.2.1.jar config history --jar /opt/tomcat/lib/java-crypto-kit-0.2.1.jar --type key
 ```
 
 **결과:** 이력 검증 결과(전체 건수)와 `표시 범위`(예: `key 관련 2건(전체 3건)`) 뒤에 변경마다 순번, UTC 시각(ISO 8601, 끝의 `Z`), 수정자(`--operator`), 명령(`config set`·`config embed-key`·`config key add`·`config key use`·`config key remove`·`admin setup`·`admin password change`), 유형 꼬리표(`[pass]`·`[key]`·`[key, pass]`·`[일반]`·`[관리자]`), 사유(`--reason`), 설정별 이전 값 → 변경 값을 보여 줍니다.
 
 걸러 보아도 순번은 원래 번호 그대로입니다.
 
-기록된 관리정보는 마스킹하지 않습니다: Salt·KDF·반복 횟수 같은 설정 줄은 값 그대로, 키를 추가·제거·교체한 기록은 `키 <ID>: (없음) -> pass, embedded, 생성` 같은 **키 요약 줄**(유형·공급원·`crypto.key.*` 여부·공개 기본 키 여부·출처) 아래에 기록된 **64자 전체 지문**, pass는 KDF·반복 횟수·Salt SHA-256을 보여 줍니다.
+기록된 관리정보는 마스킹하지 않습니다: Salt·KDF·반복 횟수 같은 설정 줄은 값 그대로, 키를 추가·제거·교체한 기록은 `키 <ID>: (없음) -> pass, embedded, 생성` 같은 **키 요약 줄**(유형·공급원·`crypto.key.*` 여부·공개된 기본 키 여부·출처) 아래에 기록된 **64자 전체 지문**, pass는 KDF·반복 횟수·Salt SHA-256을 보여 줍니다.
 
-키 원문(내장 키 값)은 이력에 없으므로 `(비공개) -> (교체됨)`(교체)·`(없음) -> (비공개)`(추가)·`(비공개) -> (없음)`(제거)로만 나오고, 이전 형식의 이력처럼 값을 기록하지 않은 Salt 줄은 지어내지 않고 `(기록 없음)`으로 구분합니다.
+키 원문(내장 키 값)은 이력에 없으므로 `(비공개) -> (교체됨)`(교체)·`(없음) -> (비공개)`(추가)·`(비공개) -> (없음)`(제거)로만 나오고, 값이 기록되지 않은 Salt 줄은 지어내지 않고 `(기록 없음)`으로 구분합니다.
 
 관리자 비밀번호 설정·변경은 `관리자 비밀번호: (없음) -> (설정됨)`·`(설정됨) -> (변경됨)`만 남습니다(비밀번호·검증값·인증용 Salt 없음). 출처는 `생성`(`--generate`), `입력`(숨김 입력), `파일`(`--from-file`의 키 파일·Passphrase 한 줄 파일), `복원`(복원 백업이나 이력의 키와 같은 키로 되살림), `복사`(`--from-jar`), `외부`(외부 공급원에서 읽음), `옮김`(`crypto.key.*`에서 키 목록으로)입니다.
 
-값이 길어 80열을 넘으면 `->` 앞에서 줄을 바꿉니다(값은 자르지 않음). 성공한 변경만 기록하며, 새 결과 JAR와 `--replace` 후에도 이력은 그대로 이어집니다. 한 번도 바꾸지 않은 JAR는 `변경 이력 없음`이 정상입니다.
+값이 길어 80열을 넘으면 `->` 앞에서 줄을 바꿉니다(값은 자르지 않음). 성공한 변경만 기록하며, 같은 JAR를 갱신해도(`--replace` 포함) 이력은 그대로 이어집니다. 한 번도 바꾸지 않은 JAR는 `변경 이력 없음`이 정상입니다.
 
 ```text
 관리자 비밀번호(입력 숨김):
-JAR 설정 변경 이력: java-crypto-kit-0.2.0-cfg-3.jar (버전 0.2.0)
+JAR 설정 변경 이력: java-crypto-kit-0.2.1.jar (버전 0.2.1)
 빌드 일시 : 2026-11-23T05:05:18Z
 이력 검증 : 정상(4건, 해시 체인·현재 설정 일치)
 표시 범위 : key 관련 2건(전체 4건)
@@ -1797,9 +2278,9 @@ JAR 설정 변경 이력: java-crypto-kit-0.2.0-cfg-3.jar (버전 0.2.0)
         <64자>
 ```
 
-**유형 분류:** pass 키의 항목(`crypto.keys.<pass 키 ID>.*`)과 `crypto.key.active.pass`는 pass, key 키의 항목·`crypto.key.*`(이전 형식의 AES 키 자리)·`crypto.key.active.key`는 key, 기본 유형 `crypto.key.type`은 두 유형 모두에 속합니다.
+**유형 분류:** pass 키의 항목(`crypto.keys.<pass 키 ID>.*`)과 `crypto.key.active.pass`는 pass, key 키의 항목·`crypto.key.*`(AES 키 슬롯)·`crypto.key.active.key`는 key, 기본 유형 `crypto.key.type`은 두 유형 모두에 속합니다.
 
-키와 무관한 설정만 바꾼 변경은 `[일반]`, 관리자 비밀번호 설정·변경은 `[관리자]`이며 둘 다 `--all`에서만 보입니다(pass·key 키 변경으로 분류하지 않음). 이전 형식 JAR에서 이어진 `crypto.key.*` 변경(`embed-key` 등)은 key로 분류되므로 **기본 조회(pass)에는 나오지 않고** `--type key`나 `--all`로 봅니다(pass로 분류하지 않음). 유형을 알 수 없는 키 항목도 버리지 않고 key로 보여 줍니다.
+키와 무관한 설정만 바꾼 변경은 `[일반]`, 관리자 비밀번호 설정·변경은 `[관리자]`이며 둘 다 `--all`에서만 보입니다(pass·key 키 변경으로 분류하지 않음). `crypto.key.*` 변경(`embed-key` 등)은 key로 분류되므로 **기본 조회(pass)에는 나오지 않고** `--type key`나 `--all`로 봅니다(pass로 분류하지 않음). 유형을 알 수 없는 키 항목도 버리지 않고 key로 보여 줍니다.
 
 걸러 보기 전에 **전체 이력의 해시 체인과 현재 설정 일치를 먼저 검증**하므로, 화면에 나오지 않는 항목이 손상돼도 `[사유: INTEGRITY]`로 끝납니다.
 
@@ -1807,26 +2288,36 @@ JAR 설정 변경 이력: java-crypto-kit-0.2.0-cfg-3.jar (버전 0.2.0)
 
 이력을 믿을 수 없으면 `--replace`나 ZIP 수정으로 복구하려 하지 말고 검증된 이전 JAR로 돌아갑니다. 사유는 수정자가 입력한 설명입니다.
 
-JAR를 바꾸지 않는 `keygen`·`kms datakey`는 사유를 받아도 이 이력에 남지 않습니다([12.4절](../reference/security.md#124-jar-설정-이력의-성격)). JAR 안의 이력 본문은 경량 난독화(`obf1`)로 저장되어 압축을 풀어도 바로 읽히지 않으며, 이 명령은 이전 형식의 평문 이력도 그대로 읽습니다([12.7절](../reference/security.md#127-jar-내장값의-경량-난독화obf1)).
+JAR를 바꾸지 않는 `keygen`·`kms datakey`는 사유를 받아도 이 이력에 남지 않습니다([12.4절](../reference/security.md#124-jar-설정-이력의-성격)). JAR 안의 이력 본문은 경량 난독화(`obf1`)로 저장되어 압축을 풀어도 바로 읽히지 않으며, 이 명령은 `obf1` 표시가 없는 평문 이력도 그대로 읽습니다([12.7절](../reference/security.md#127-jar-내장값의-경량-난독화obf1)).
 
 <a name="topic-history--a11-변경-이력-보기유형별"></a>
 ### 변경 이력 보기(유형별) (A.11)
 
 ```powershell
+# 설정 변경 이력과 작업 사유 확인
 java -jar .\use.jar config history
+
+# 설정 변경 이력과 작업 사유 확인
 java -jar .\use.jar config history --type key
+
+# 설정 변경 이력과 작업 사유 확인
 java -jar .\use.jar config history --all
 ```
 
 ```bash
+# 설정 변경 이력과 작업 사유 확인
 java -jar ./use.jar config history
+
+# 설정 변경 이력과 작업 사유 확인
 java -jar ./use.jar config history --type key
+
+# 설정 변경 이력과 작업 사유 확인
 java -jar ./use.jar config history --all
 ```
 
 ```text
 관리자 비밀번호(입력 숨김):
-JAR 설정 변경 이력: use.jar (버전 0.2.0)
+JAR 설정 변경 이력: use.jar (버전 0.2.1)
 빌드 일시 : 2026-11-23T05:05:18Z
 이력 검증 : 정상(4건, 해시 체인·현재 설정 일치)
 표시 범위 : pass 관련 1건(전체 4건)              ← 기본(pass)
@@ -1846,7 +2337,7 @@ JAR 설정 변경 이력: use.jar (버전 0.2.0)
 표시 범위 : 전체 4건                             ← --all: #1 관리자 비밀번호 설정([관리자])까지 전체
 ```
 
-관리정보(Salt·KDF·전체 지문)는 마스킹하지 않고, 키 원문·관리자 비밀번호는 이력에 없습니다. 이전 형식에서 이어진 `crypto.key.*`(AES 키) 변경은 key로 분류되어 기본 조회에 나오지 않으므로 `--type key`나 `--all`로 봅니다.
+관리정보(Salt·KDF·전체 지문)는 마스킹하지 않고, 키 원문·관리자 비밀번호는 이력에 없습니다. `crypto.key.*`(AES 키) 변경은 key로 분류되어 기본 조회에 나오지 않으므로 `--type key`나 `--all`로 봅니다.
 
 화면에 일부만 보여도 전체 이력을 먼저 검증합니다([2.11절](#topic-history--211-config-history--설정-변경-이력)).
 
@@ -1881,7 +2372,8 @@ AES·HMAC의 기본 결과는 Base64 한 줄입니다. OTP는 Base32 한 줄로 
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api keygen --type aes --bits 256 --out aes.key --reason 'interoperability test'
+# AES 키 생성
+java -jar java-crypto-kit-0.2.1.jar api keygen --type aes --bits 256 --out aes.key --reason 'interoperability test'
 ```
 
 ---

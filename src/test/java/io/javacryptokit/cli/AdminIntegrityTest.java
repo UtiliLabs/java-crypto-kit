@@ -11,7 +11,6 @@ import io.javacryptokit.TestSupport;
 import io.javacryptokit.config.LightObfuscation;
 import io.javacryptokit.core.CryptoService;
 import io.javacryptokit.i18n.Messages;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -25,8 +24,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
@@ -84,7 +81,7 @@ class AdminIntegrityTest {
     @Test
     void damagedHistoryOrAdminRecordsMakeTheJarDamagedAndNothingRunsOrIsWritten() throws Exception {
         Map<String, Path> damaged = damagedJars();
-        String token = TestSupport.jarDefaults().encryptText("dummy-token");
+        String token = CryptoService.of(JarConfigEditor.read(app).validated()).encryptText("dummy-token".toCharArray());
         for (Map.Entry<String, Path> item : damaged.entrySet()) {
             String name = item.getKey();
             Path jar = item.getValue();
@@ -98,7 +95,7 @@ class AdminIntegrityTest {
                     {"config", "key", "show", "--key-id", "default", "--export", dir.resolve("x.export").toString(), "--admin-pass-file", pwFile},
                     {"config", "history", "--all", "--admin-pass-file", pwFile},
                     {"config", "show", "--admin-pass-file", pwFile},
-                    {"config", "set", "crypto.lang=en", "--operator", "ops", "--out", dir.resolve("x.jar").toString(), "--admin-pass-file", pwFile},
+                    {"config", "set", "crypto.lang=en", "--operator", "ops", "--admin-pass-file", pwFile},
                     {"keygen", "--out", dir.resolve("x.key").toString(), "--reason", "r", "--admin-pass-file", pwFile},
                     {"encrypt"}, {"doctor"}}) {
                 assertEquals(1, cli.run(args), name + " " + String.join(" ", args));
@@ -107,7 +104,7 @@ class AdminIntegrityTest {
                 assertEquals("", cli.out(), name);
             }
             assertEquals(1, cli.run(terminal(PW, "New-admin-9!", "New-admin-9!"), "admin", "password", "change", "--operator", "ops",
-                    "--reason", "r", "--out", dir.resolve("x2.jar").toString()), name);
+                    "--reason", "r"), name);
             assertTrue(cli.err().contains("[사유: INTEGRITY]"), name + ": " + cli.err());
 
             // 2) 정상 CLI JAR에서 다른 JAR로 지정: 대상(--jar)·원본(--from-jar)·새 암호문(--to-jar) 모두 거부
@@ -116,10 +113,9 @@ class AdminIntegrityTest {
                     {"config", "key", "show", "--jar", jar.toString(), "--key-id", "default", "--export", dir.resolve("y.export").toString(),
                             "--admin-pass-file", pwFile},
                     {"config", "history", "--jar", jar.toString(), "--admin-pass-file", pwFile},
-                    {"config", "set", "crypto.lang=en", "--operator", "ops", "--jar", jar.toString(), "--out", dir.resolve("y.jar").toString(),
+                    {"config", "set", "crypto.lang=en", "--operator", "ops", "--jar", jar.toString(),
                             "--admin-pass-file", pwFile},
-                    {"config", "key", "add", "--key-id", "copied", "--from-jar", jar.toString(), "--operator", "ops", "--reason", "r", "--yes",
-                            "--out", dir.resolve("y2.jar").toString(), "--admin-pass-file", pwFile},
+                    {"config", "key", "add", "--key-id", "copied", "--from-jar", jar.toString(), "--operator", "ops", "--reason", "r", "--yes", "--admin-pass-file", pwFile},
                     {"rekey", "--to-jar", jar.toString(), "--value", token, "--admin-pass-file", pwFile}}) {
                 assertEquals(1, cli.run(args), name + " " + String.join(" ", args));
                 assertTrue(cli.err().contains("[사유: INTEGRITY]"), name + ": " + cli.err());
@@ -127,13 +123,12 @@ class AdminIntegrityTest {
             }
 
             // 3) 변경 경로의 공통 관문: 손상된 원본으로는 새 이력·결과 JAR를 만들지 않는다
-            CryptoCli.CliException e = assertThrows(CryptoCli.CliException.class, () -> JarConfigEditor.apply(jar,
-                    dir.resolve("z.jar"), false, null, new JarConfigEditor.Change("set",
+            CryptoCli.CliException e = assertThrows(CryptoCli.CliException.class, () -> JarConfigEditor.apply(JarConfigEditor.read(jar), new JarConfigEditor.Change("set",
                             Collections.singletonMap("crypto.lang", "en"), "ops", "r"), Instant.now()));
             assertEquals("INTEGRITY", e.code, name);
-            assertThrows(CryptoCli.CliException.class, () -> JarConfigEditor.applyAdmin(jar, dir.resolve("z2.jar"), null,
+            assertThrows(CryptoCli.CliException.class, () -> JarConfigEditor.applyAdmin(JarConfigEditor.read(jar),
                     AdminPassword.create("New-admin-9!".toCharArray(), AdminPassword.MIN_ITERATIONS), "ops",
-                    ConfigHistory.ADMIN_CHANGE, "r", Instant.now()));
+                    ConfigHistory.ADMIN_CHANGE, "r", Instant.now(), null));
 
             assertEquals(filesBefore, files(), name + ": 출력·임시 파일이 생기면 안 된다");
             assertArrayEquals(before, sha256(jar), name + ": 원본 JAR는 그대로");
@@ -174,7 +169,8 @@ class AdminIntegrityTest {
     private Path withAdminRecords(String name, String... commands) throws Exception {
         Path jar = copy(name);
         byte[] settings = JarConfigEditor.read(jar).settingsBytes;
-        ConfigHistory.Log log = ConfigHistory.read(null, settings, null, null, TestJars.VERSION);
+        ConfigHistory.Log log = ConfigHistory.read(null, JarConfigEditor.read(TestJars.build(dir.resolve("baseline.jar"))).settingsBytes,
+                null, null, TestJars.VERSION);
         byte[] plain = null;
         Instant time = Instant.parse("2026-11-24T00:00:00Z");
         for (String command : commands) {
@@ -240,18 +236,18 @@ class AdminIntegrityTest {
     @Test
     void keyRegistrationIsNotRevealedBeforeAuthentication() throws Exception {
         cli.withCliJar(app);
-        String token = TestSupport.jarDefaults().encryptText("dummy-token");
+        String token = CryptoService.of(JarConfigEditor.read(app).validated()).encryptText("dummy-token".toCharArray());
         // 같은 명령에서 등록된 Key ID와 없는 Key ID가 인증 전에는 같은 응답(ADMIN_AUTH)이다.
         String[][] pairs = {
             {"config key show --key-id default", "config key show --key-id notthere"},
-            {"config key use --key-id default --operator ops --reason r --yes --out u.jar",
-                "config key use --key-id notthere --operator ops --reason r --yes --out u.jar"},
-            {"config key remove --key-id default --operator ops --reason r --yes --out r.jar",
-                "config key remove --key-id notthere --operator ops --reason r --yes --out r.jar"},
+            {"config key use --key-id default --operator ops --reason r --yes",
+                "config key use --key-id notthere --operator ops --reason r --yes"},
+            {"config key remove --key-id default --operator ops --reason r --yes",
+                "config key remove --key-id notthere --operator ops --reason r --yes"},
             {"rekey --key-id default --value " + token, "rekey --key-id notthere --value " + token},
             {"config key add --key-id pass-default --generate --export " + dir.resolve("g.backup") + " --operator ops --reason r --yes"
-                + " --out g.jar", "config key add --key-id free01 --generate --export " + dir.resolve("g.backup") + " --operator ops"
-                + " --reason r --yes --out g.jar"}};
+                + "", "config key add --key-id free01 --generate --export " + dir.resolve("g.backup") + " --operator ops"
+                + " --reason r --yes"}};
         for (String[] pair : pairs) {
             String first = null;
             for (String line : pair) {
@@ -269,7 +265,7 @@ class AdminIntegrityTest {
         // embed-key: 현재 Key ID와 같은 ID(충돌)도 인증 전에는 알리지 않는다
         Path keyFile = TestSupport.writeRandomKeyFile(dir, "e.key");
         assertEquals(1, cli.run("config", "embed-key", "--from-file", keyFile.toString(), "--key-id", "default", "--operator", "ops",
-                "--reason", "r", "--yes", "--out", dir.resolve("e.jar").toString()));
+                "--reason", "r", "--yes"));
         assertTrue(cli.err().contains("[사유: ADMIN_AUTH]"), cli.err());
         // 인자 형식 오류는 인증 전에 바로 알린다(비밀 자료와 무관): 비밀번호를 묻기 전에 끝남
         CliHarness.FakeTerminal terminal = new CliHarness.FakeTerminal();
@@ -284,33 +280,17 @@ class AdminIntegrityTest {
     // ===================================================================================================
 
     @Test
-    void newResultJarsAndBackupsAreOwnerOnlyAndReplaceKeepsTheDeployedPermissions() throws Exception {
-        assumeTrue(JarConfigEditor.posix(), "POSIX 권한은 Linux·macOS에서 확인한다(Windows는 폴더 ACL을 상속, 사용자 가이드 12.2)");
-        cli.withCliJar(app);
-        Files.setPosixFilePermissions(app, PosixFilePermissions.fromString("rw-r--r--"));
-        Path created = dir.resolve("created.jar");
-        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "ops", "--out", created.toString(),
-                "--admin-pass-file", pwFile), cli.err());
-        assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(created)));
-        assertTrue(cli.out().contains("권한      : 소유자만(600)"), cli.out());
-        // 원본 교체: 운영 중인 파일의 권한(예: 640)은 그대로, 백업(이전 키가 든 JAR)은 소유자만
-        Path deployed = Files.copy(app, dir.resolve("deployed.jar"));
-        Files.setPosixFilePermissions(deployed, PosixFilePermissions.fromString("rw-r-----"));
-        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "ops", "--jar", deployed.toString(), "--replace",
-                "--admin-pass-file", pwFile), cli.err());
-        assertEquals("rw-r-----", PosixFilePermissions.toString(Files.getPosixFilePermissions(deployed)));
-        Path backup;
-        try (Stream<Path> list = Files.list(dir)) {
-            backup = list.filter(p -> p.getFileName().toString().startsWith("deployed.jar.bak-")).findFirst().orElse(null);
-        }
-        assertTrue(backup != null && "rw-------".equals(PosixFilePermissions.toString(Files.getPosixFilePermissions(backup))));
-        // 최초 설정 결과 JAR도 소유자만
-        Path fresh = TestJars.build(dir.resolve("fresh.jar"));
+    void setupProtectsJarAndLaterUpdatesKeepDeployedPermissions() throws Exception {
+        assumeTrue(JarConfigEditor.posix(), "POSIX filesystem required");
+        Path fresh = TestJars.build(dir.resolve("fresh-permissions.jar"));
+        Files.setPosixFilePermissions(fresh, PosixFilePermissions.fromString("rw-r--r--"));
         cli.withCliJar(fresh);
-        Path setUp = dir.resolve("set-up.jar");
-        assertEquals(0, cli.run("admin", "setup", "--operator", "ops", "--admin-pass-file", pwFile, "--out", setUp.toString()),
-                cli.err());
-        assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(setUp)));
+        assertEquals(0, cli.run("admin", "setup", "--admin-pass-file", pwFile), cli.err());
+        assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(fresh)));
+        Files.setPosixFilePermissions(fresh, PosixFilePermissions.fromString("rw-r-----"));
+        assertEquals(0, cli.run("config", "set", "crypto.lang=en", "--operator", "ops", "--replace",
+                "--admin-pass-file", pwFile), cli.err());
+        assertEquals("rw-r-----", PosixFilePermissions.toString(Files.getPosixFilePermissions(fresh)));
     }
 
     // ===================================================================================================
@@ -326,16 +306,7 @@ class AdminIntegrityTest {
     }
 
     private static byte[] entry(Path jar, String name) throws Exception {
-        try (JarFile file = new JarFile(jar.toFile())) {
-            JarEntry entry = file.getJarEntry(name);
-            try (InputStream in = file.getInputStream(entry)) {
-                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-                byte[] buffer = new byte[4096];
-                int read;
-                while ((read = in.read(buffer)) != -1) out.write(buffer, 0, read);
-                return out.toByteArray();
-            }
-        }
+        return CliHarness.effectiveEntry(jar, name);
     }
 
     private static byte[] historyPlain(Path jar) throws Exception {

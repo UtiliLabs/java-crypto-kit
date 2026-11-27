@@ -95,13 +95,12 @@ final class KeyCommands {
      *
      * <p>대상 키: 신규 설정({@code --to-config}·{@code --to-jar}, 없으면 실행 설정)에서 {@code --key-id}면 그 키, {@code --type}이면
      * 그 유형의 기본 키, 둘 다 없으면 <b>원래 암호문과 같은 유형</b>의 기본 키다(재암호화는 새 암호화가 아니므로 유형을 바꾸지 않는다.
-     * 예: 이전 형식의 AES 키 교체 흐름 embed-key → rekey가 공개 pass 키로 옮겨 가지 않게). 이전·신규 설정 옵션 없이 {@code --type}·
+     * 예: 이전 형식의 AES 키 교체 흐름 embed-key → rekey에서 AES 유형을 유지). 이전·신규 설정 옵션 없이 {@code --type}·
      * {@code --key-id}만 주면 같은 설정 안에서 다른 키로 바꾼다(회전, 유형 간 재암호화 포함). 원래 Key ID와 같은 Key ID, 같은 키(지문
      * 동일)로는 바꾸지 않는다.</p>
      *
-     * <p>자동 경고: 작업 전체를 자동 경고 억제 범위에서 실행한다. 이전 키(공개 기본 키일 수 있음)로 기존 암호문을 푸는 일은
-     * 경고하지 않고, 키 지문 조회·복호화·검증 중 실패하면 경고 없이 오류만 남긴다. 재암호화와 검증이 모두 성공해 새 암호문을
-     * 내보낼 때, 새 키가 공개 기본 키이면 그때 공통 경고를 한 번 남긴다(경고 정책·JVM당 1회 규칙은 같음).</p>
+     * <p>이전 공개 키를 지정하면 관리형 키 로딩에서 거부한다. 복호화·재암호화·검증이 모두 성공한 경우에만
+     * 새 암호문을 내보낸다.</p>
      */
     /**
      * rekey 사전 검사(관리자 인증 전): 유형·Key ID 형식, 이전·신규 설정 옵션을 한쪽에 둘 다 쓰지 않았는지, 바꿀 대상이 있는지만 본다
@@ -172,7 +171,7 @@ final class KeyCommands {
                 if (check != null) Arrays.fill(check, (byte) 0);
             }
 
-            // 모두 성공했다: 새 암호문이 공개 기본 키로 만들어졌으면 지금 경고하고(표준 오류), 표준 출력에는 새 암호문 한 줄만 쓴다.
+            // 모두 성공했다. 표준 출력에는 새 암호문 한 줄만 쓴다.
             if (toKey.publicDefaultKey()) DefaultKeyWarning.warnPublicKeyInUse(to.settings());
             out.println(newToken);
             return 0;
@@ -201,7 +200,7 @@ final class KeyCommands {
             }
         }
         if (jar != null) {
-            JarConfigEditor.Snapshot snap = JarConfigEditor.read(path(jar, jarOption));
+            JarConfigEditor.Snapshot snap = parsed.admin.snapshot(path(jar, jarOption));
             CryptoSettings settings = snap.validated();
             if (settings == null) {
                 throw new CredentialCryptoException(CredentialCryptoException.Reason.CONFIGURATION,

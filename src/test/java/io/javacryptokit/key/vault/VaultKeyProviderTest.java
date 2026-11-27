@@ -179,7 +179,7 @@ class VaultKeyProviderTest {
     @Test
     void vaultFailureNeverFallsBackToTheBuiltInKey() throws Exception {
         // 같은 키ID로 JAR 내장(공개) 키 암호문을 만든 뒤, Vault가 실패하면 그 암호문이 복호화되면 안 된다.
-        Path embedded = TestSupport.writeConfig(dir, "embedded-v01.properties", "crypto.key.type=key", "crypto.key.source=embedded",
+        Path embedded = TestSupport.writeManagedConfig(dir, "embedded-v01.properties", "crypto.key.type=key", "crypto.key.source=embedded",
                 "crypto.key.id=v01");
         String tokenWithBuiltInKey = CryptoService.of(TestSupport.isolatedSettings(embedded)).encryptText("x".toCharArray());
         CryptoSettings broken = settings("s.bad");

@@ -9,6 +9,9 @@ help aws-kms - use a data key protected by AWS KMS (crypto.key.source=aws-kms)
 2) Create the data key file (once): kms datakey --help
 3) Settings
    crypto.key.source=aws-kms          crypto.key.id=prod01
+   crypto.key.type=key   (to use this key when no type is given; if
+                         crypto.key.active.key names another ID, set it to
+                         prod01 or use --key-id prod01)
    crypto.aws.kms.key.id=alias/java-crypto-kit-prod
    crypto.aws.kms.data-key.file=/etc/java-crypto-kit/prod.datakey
    crypto.aws.region=ap-northeast-2   (empty = the SDK default region chain)

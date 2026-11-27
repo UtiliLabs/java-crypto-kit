@@ -66,6 +66,22 @@ class ApiCliTest {
     }
 
     @Test
+    void jwtCreationWithTooManyFinalClaimsLeavesNoOutput() throws Exception {
+        input("claims-signing.key", Encoding.BASE64.encode(Hmac.generateKey()));
+        java.util.Map<String, Object> claims = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < 999; i++) claims.put("c" + i, i);
+        input("claims.json", io.javacryptokit.json.StrictJson.write(claims));
+        assertEquals(1, run("api", "jwt", "create", "--algorithm", "hs256", "--key-file", "@claims-signing.key",
+                "--claims-file", "@claims.json", "--out", "@invalid.jwt"));
+        assertFalse(Files.exists(f("invalid.jwt")));
+        claims.remove("c998");
+        input("claims.json", io.javacryptokit.json.StrictJson.write(claims));
+        ok("api", "jwt", "create", "--algorithm", "hs256", "--key-file", "@claims-signing.key",
+                "--claims-file", "@claims.json", "--out", "@valid.jwt");
+        assertEquals(997L, Jwt.parseUnverified(text("valid.jwt")).claims().getLong("c997").longValue());
+    }
+
+    @Test
     void allQueriesAndExamplesFollowRegistryWithoutAuthentication() throws Exception {
         Path jar = TestJars.build(f("api test.jar"));
         cli.withCliJar(jar);
@@ -106,9 +122,9 @@ class ApiCliTest {
                 help[path.length] = "--examples";
                 ok(help);
                 String example = Messages.get(Messages.Language.fromCode(lang), "api.example." + spec.topic);
-                assertTrue(cli.out().contains("java -jar \"api test-cfg.jar\" api "), cli.out());
-                assertFalse(cli.out().contains("java -jar \"api test.jar\" api "), cli.out());
-                assertTrue(cli.out().contains("java -jar \"api test.jar\" admin setup --operator example"), cli.out());
+                assertTrue(cli.out().contains("java -jar \"api test.jar\" api "), cli.out());
+                assertFalse(cli.out().contains("java -jar \"api test-cfg.jar\" api "), cli.out());
+                assertTrue(cli.out().contains(updatePrefix("api test.jar") + " admin setup"), cli.out());
                 assertTrue(checkExampleLines(example).contains(spec.name), example);
                 exercised.add(spec.name);
             }
@@ -179,6 +195,10 @@ class ApiCliTest {
         }
     }
 
+    private static String updatePrefix(String file) {
+        return "java -jar \"" + file + "\"";
+    }
+
     @Test
     void managedAndApiExamplesShareSetupGuidanceWithoutUsingConfiguredJarForSetup() throws Exception {
         Path fresh = TestJars.build(f("sample release.jar"));
@@ -187,28 +207,28 @@ class ApiCliTest {
         for (Messages.Language language : Messages.Language.values()) {
             String lang = language == Messages.Language.KO ? "ko" : "en";
             String prelude = Messages.get(language, "cli.examples.setup").replace("{jar}", "\"sample release.jar\"")
-                    .replace("{configured}", "\"sample release-cfg.jar\"");
+                    .replace("{update}", updatePrefix("sample release.jar"));
             ok("file", "--examples", "--lang", lang);
             assertTrue(cli.out().startsWith(prelude), cli.out());
-            String operational = "java -jar \"sample release-cfg.jar\" ";
+            String operational = "java -jar \"sample release.jar\" ";
             assertTrue(cli.out().contains(operational + "file enc --in") && cli.out().contains(operational + "file dec --in"), cli.out());
             ok("api", "otp", "--examples", "--lang", lang);
             assertTrue(cli.out().startsWith(prelude), cli.out());
             assertTrue(cli.out().contains(operational + "api otp gen") && cli.out().contains(operational + "api otp verify"), cli.out());
-            assertFalse(cli.out().contains("java -jar \"sample release.jar\" api "), cli.out());
+            assertFalse(cli.out().contains("java -jar \"sample release-cfg.jar\" api "), cli.out());
             ok("admin", "--examples", "--lang", lang);
-            assertTrue(cli.out().contains("java -jar \"sample release.jar\" admin setup --operator ops"), cli.out());
-            assertTrue(cli.out().contains(operational + "admin password change"), cli.out());
+            assertTrue(cli.out().contains(updatePrefix("sample release.jar") + " admin setup"), cli.out());
+            assertTrue(cli.out().contains(updatePrefix("sample release.jar") + " admin password change"), cli.out());
             ok("config", "embed-key", "--examples", "--lang", lang);
-            assertTrue(cli.out().contains(operational + "config embed-key"), cli.out());
-            assertTrue(cli.out().contains("java -jar \"sample release-cfg-2.jar\" fingerprint"), cli.out());
+            assertTrue(cli.out().contains(updatePrefix("sample release.jar") + " config embed-key"), cli.out());
+            assertTrue(cli.out().contains("java -jar \"sample release.jar\" fingerprint"), cli.out());
             ok("--examples", "--lang", lang);
             assertTrue(cli.out().startsWith(prelude), cli.out());
             ok("api", "--examples", "--lang", lang);
             assertTrue(cli.out().startsWith(prelude), cli.out());
             ok("admin", "setup", "--examples", "--lang", lang);
             assertTrue(cli.out().startsWith(Messages.get(language, "cli.examples.setupOnly")), cli.out());
-            assertTrue(cli.out().contains("java -jar \"sample release.jar\" admin setup --operator ops"), cli.out());
+            assertTrue(cli.out().contains(updatePrefix("sample release.jar") + " admin setup"), cli.out());
             assertFalse(cli.out().contains("admin setup --operator example"), cli.out());
         }
 
@@ -217,7 +237,7 @@ class ApiCliTest {
         byte[] configuredBytes = Files.readAllBytes(configured);
         for (String lang : new String[] {"ko", "en"}) {
             ok("admin", "--examples", "--lang", lang);
-            assertTrue(cli.out().contains("java -jar \"java-crypto-kit-" + CliHelp.version() + ".jar\" admin setup"), cli.out());
+            assertTrue(cli.out().contains(updatePrefix("java-crypto-kit-" + CliHelp.version() + ".jar") + " admin setup"), cli.out());
             assertFalse(cli.out().contains("\"renamed.jar\" admin setup"), cli.out());
             assertTrue(cli.out().contains("\"renamed.jar\" admin password change"), cli.out());
         }
@@ -432,6 +452,16 @@ class ApiCliTest {
                 "--out", "@token");
         ok("api", "oauth", "create", "--algorithm", "hs256", "--key-file", "@jwt.key", "--issuer", "auth", "--audience", "svc",
                 "--subject", "subject", "--client-id", "client", "--scope", "read", "--out", "@access");
+        // 비정상 권한(제어문자가 든 역할·scope)은 발급·요구 조건 모두 입력 오류로 거부하고 결과 파일을 만들지 않는다.
+        for (String[] permission : new String[][] {{"--roles", "reader\u0001"}, {"--scope", "read\u0000"}}) {
+            assertEquals(1, run("api", "oauth", "create", "--algorithm", "hs256", "--key-file", "@jwt.key", "--issuer", "auth",
+                    "--audience", "svc", "--subject", "subject", "--client-id", "client", permission[0], permission[1],
+                    "--out", "@bad-access"), permission[0]);
+            assertFalse(Files.exists(f("bad-access")), permission[0]);
+            assertEquals(1, run("api", "oauth", "verify", "--algorithm", "hs256", "--key-file", "@jwt.key", "--issuer", "auth",
+                    "--audience", "svc", permission[0], permission[1], "--in", "@access"), permission[0]);
+            assertFalse(cli.out().trim().equals("OK"), cli.out());
+        }
         input("bad.key", "not-a-valid-private-value!");
         input("bad.jwt", "sensitive.token.invalid");
         input("bad.json", "{\"key\":\"sensitive value\"");

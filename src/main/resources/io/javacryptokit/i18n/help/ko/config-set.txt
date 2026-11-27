@@ -1,23 +1,24 @@
-config set - JAR 내부 설정 변경(기본: 원본을 두고 새 JAR 생성)
+config set - 같은 경로의 JAR 내부 설정 변경
 
 사용법
-  java -jar {jar} config set <설정>=<값> [...]
-       --operator <ID> [--reason <사유>] [--jar <jar>]
-       [--out <jar> | --replace] [--yes]
+  {update} config set <설정>=<값> [...]
+                           crypto.key.id는 예약·등록된 ID를 거부합니다.
+                      이력 ID는 같은 키 지문이 확인될 때만 복원합니다.
+  --operator <ID> [--reason <사유>] [--jar <jar>]
+       [--replace] [--yes]
        [--admin-pass-file <파일>] [--lang en|ko]
 
 옵션
   <설정>=<값>       바꿀 설정(하나 이상, 이름·허용값: config help).
                     crypto.key.embedded는 바꿀 수 없습니다(config embed-key).
                     키 목록 항목은 위치 항목(file 등)만 바꿀 수 있습니다.
+                    이력에 지문이 있으면 같은 AES 키를 확인합니다.
+                    공급원을 전환하기 전에 새 위치를 준비할 수 있습니다.
   --operator <ID>   이력에 남길 수정자 ID(필수, 기록용)
   --reason <사유>   이력에 남길 사유(한 줄 200자 이하). 키 관련 설정을
                     바꾸면 필수(없으면 대화형 터미널에서 질문), 그 밖은 선택
   --jar <jar>       바꿀 JAR(선택, 기본: 실행 중인 JAR)
-  --out <jar>       결과 JAR(선택, 기본 <이름>-cfg.jar, 그다음
-                    -cfg-2.jar). 기존 파일은 덮어쓰지 않습니다.
-  --replace         새 JAR 대신 원본 교체(<이름>.bak-<UTC> 백업 후 원자적
-                    교체). --out과 함께 쓸 수 없습니다.
+  --replace           호환 옵션. 원래 경로에 저장합니다.
   --yes             키 관련 설정을 바꿀 때의 CHANGE 확인 생략
                     (키와 무관한 설정은 확인하지 않습니다)
   --admin-pass-file <파일>
@@ -26,10 +27,10 @@ config set - JAR 내부 설정 변경(기본: 원본을 두고 새 JAR 생성)
   --lang en|ko      이번 실행의 메시지 언어(선택)
 
 결과
-  생성 JAR  : /opt/app/java-crypto-kit-{version}-cfg.jar
+  갱신 JAR  : /opt/app/java-crypto-kit-{version}.jar
   변경 항목 : crypto.lang (ko -> en)
               (여러 개면 한 줄에 하나씩)
 
 예제
-  java -jar {jar} config set crypto.lang=en --operator ops
+  {update} config set crypto.lang=en --operator ops
   (--replace·키 파일 전환·Pool 선택 예제: docs/user-guide.md 2.12절)

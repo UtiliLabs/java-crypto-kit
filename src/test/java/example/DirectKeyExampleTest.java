@@ -39,7 +39,10 @@ class DirectKeyExampleTest {
     @Test
     void separateKeysAndTheManagedKeysWorkSideBySide() throws Exception {
         assumeTrue(System.getenv("CRYPTO_CONFIG_FILE") == null && System.getProperty("crypto.config.file") == null);
-        assertTrue(DirectKeyExample.separateKeys(key(), key()));
+        try (AutoCloseable ignored = io.javacryptokit.TestSupport.systemProperty("crypto.config.file",
+                io.javacryptokit.TestSupport.managedConfig().toString())) {
+            assertTrue(DirectKeyExample.separateKeys(key(), key()));
+        }
     }
 
     @Test

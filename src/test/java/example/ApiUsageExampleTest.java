@@ -25,7 +25,7 @@ class ApiUsageExampleTest {
         Files.write(keyFile, (Base64.getEncoder().encodeToString(key) + "\n").getBytes(StandardCharsets.US_ASCII));
         Path config = dir.resolve("example.properties");
         String path = keyFile.toAbsolutePath().toString().replace('\\', '/');
-        Files.write(config, ("crypto.key.source=file\ncrypto.key.id=example01\ncrypto.key.file=" + path
+        Files.write(config, ("crypto.key.type=key\ncrypto.key.source=file\ncrypto.key.id=example01\ncrypto.key.file=" + path
                 + "\ncrypto.warning.enabled=false\n").getBytes(StandardCharsets.UTF_8));
         return config;
     }

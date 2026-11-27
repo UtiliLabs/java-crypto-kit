@@ -47,7 +47,7 @@ class PoolFailureSanitizationTest {
     void isolate() {
         assumeTrue(TestSupport.noConfigEnvironmentVariables(), "설정 경로 환경변수가 있으면 Factory 시험 결과가 달라진다");
         AutoCloseable common = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY, null);
-        AutoCloseable others = TestSupport.clearOtherConfigProperties();
+        AutoCloseable others = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY, TestSupport.managedConfig().toString());
         AutoCloseable jvm = TestSupport.jvmSettings();
         isolation = () -> {
             jvm.close();
@@ -102,7 +102,7 @@ class PoolFailureSanitizationTest {
             "tomcat-jdbc,cycle"})
     void downstreamPoolFailureNeverLeaksThePlainPassword(String pool, String kind) throws Exception {
         String secret = "dummy-plain-" + UUID.randomUUID();
-        Path config = TestSupport.writeConfig(dir, "pool.properties", "crypto.key.source=embedded",
+        Path config = TestSupport.writeManagedConfig(dir, "pool.properties", "crypto.key.source=embedded",
                 "crypto.pool.factory=" + ("dbcp2".equals(pool) ? CryptoSettings.DBCP2_FACTORY : CryptoSettings.TOMCAT_JDBC_FACTORY));
         try (AutoCloseable ignored = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY, config.toString());
              TestSupport.LogCapture log = new TestSupport.LogCapture()) {
@@ -144,7 +144,7 @@ class PoolFailureSanitizationTest {
     @Test
     void sqlStateIsKeptForDiagnosisButMessageIsDropped() throws Exception {
         String secret = "dummy-plain-" + UUID.randomUUID();
-        String token = TestSupport.jarDefaults().encryptText(secret);
+        String token = TestSupport.managedCrypto().encryptText(secret);
         BasicDataSourceFactory.nextFailure = new SQLException("Access denied, password " + secret, "28000", 1045);
         NamingException thrown = assertThrows(NamingException.class,
                 () -> new EncryptedDataSourceFactory().getObjectInstance(resource(token), null, null, null));
@@ -155,7 +155,7 @@ class PoolFailureSanitizationTest {
     @Test
     void nonStandardSqlStateIsNotCopiedIntoTheMessage() throws Exception {
         String secret = "pw" + UUID.randomUUID().toString().substring(0, 3);
-        String token = TestSupport.jarDefaults().encryptText("dummy-pw");
+        String token = TestSupport.managedCrypto().encryptText("dummy-pw");
         // 드라이버가 SQLState 자리에 임의 문자열(여기서는 비밀값 흉내)을 넣어도 표준 5자리 형식이 아니면 버린다.
         BasicDataSourceFactory.nextFailure = new SQLException("x", "state:" + secret);
         NamingException thrown = assertThrows(NamingException.class,
@@ -167,7 +167,7 @@ class PoolFailureSanitizationTest {
     @Test
     void jvmFatalErrorsArePropagatedUnchanged() throws Exception {
         // 메모리 부족 같은 JVM 장애는 JVM이 만든 고정 메시지라 사용자 데이터가 없고, 장애 처리를 위해 그대로 전달한다.
-        String token = TestSupport.jarDefaults().encryptText("dummy-pw");
+        String token = TestSupport.managedCrypto().encryptText("dummy-pw");
         OutOfMemoryError oom = new OutOfMemoryError("Java heap space");
         BasicDataSourceFactory.nextFailure = oom;
         OutOfMemoryError thrown = assertThrows(OutOfMemoryError.class,

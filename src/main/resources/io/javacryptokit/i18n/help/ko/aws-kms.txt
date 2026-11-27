@@ -9,6 +9,9 @@ help aws-kms - AWS KMS로 보호한 데이터 키 사용(crypto.key.source=aws-k
 2) 데이터 키 파일 만들기(한 번): kms datakey --help
 3) 설정
    crypto.key.source=aws-kms          crypto.key.id=prod01
+   crypto.key.type=key   (유형을 생략한 암호화에도 이 키를 쓸 때.
+                         crypto.key.active.key에 다른 ID가 있으면
+                         prod01로 바꾸거나 --key-id prod01로 선택)
    crypto.aws.kms.key.id=alias/java-crypto-kit-prod
    crypto.aws.kms.data-key.file=/etc/java-crypto-kit/prod.datakey
    crypto.aws.region=ap-northeast-2   (비우면 SDK 기본 리전 체계)

@@ -106,11 +106,13 @@ public final class Passwords {
      *
      * @param stored     저장 문자열
      * @param algorithm  현재 정책의 알고리즘
-     * @param iterations 현재 정책의 반복 횟수
+     * @param iterations 현재 정책의 반복 횟수(100,000~5,000,000)
      * @return 알고리즘이 다르거나 반복 횟수가 정책보다 적으면 true
+     * @throws IllegalArgumentException 목표 정책의 반복 횟수 또는 저장값 형식 오류
      */
     public static boolean needsRehash(String stored, Pbkdf2Algorithm algorithm, int iterations) {
         Text.require(algorithm, "algorithm");
+        Pbkdf2.checkIterations(iterations, Pbkdf2.MIN_ITERATIONS);
         Parsed parsed = parse(stored);
         return parsed.algorithm != algorithm || parsed.iterations < iterations;
     }

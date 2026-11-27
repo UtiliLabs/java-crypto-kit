@@ -32,8 +32,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * 한 번만 계산해 둔다. Passphrase가 바뀌면 해시가 달라 새로 파생하고, 지문 고정 검사로 걸러진다.</p>
  */
 public final class PassKdf {
-    /** 공개 기본 Passphrase(비밀 아님, 공개 예제). */
-    public static final String PUBLIC_PASSPHRASE = "java-crypto-kit-public-passphrase-v1";
     /** 공개 기본 Passphrase의 Key ID. */
     public static final String PUBLIC_KEY_ID = "pass-default";
     /** 파생 방식 이름(프로필 kdf 값). */
@@ -51,11 +49,6 @@ public final class PassKdf {
     private static final int CACHE_LIMIT = 64;
 
     private PassKdf() { }
-
-    /** @return 공개 기본 Passphrase의 고정 Salt: SHA-256("java-crypto-kit/pass-default/salt/v1")의 앞 16바이트 */
-    public static byte[] publicSalt() {
-        return Arrays.copyOf(sha256("java-crypto-kit/pass-default/salt/v1".getBytes(StandardCharsets.US_ASCII)), SALT_BYTES);
-    }
 
     /** @return 새 무작위 Salt(16바이트) */
     public static byte[] newSalt() {
@@ -145,10 +138,16 @@ public final class PassKdf {
 
     /** @return 정규화한 입력이 공개 기본 Passphrase와 같으면 true(사용자 키로 등록하지 않는다) */
     public static boolean isPublicPassphrase(char[] normalized) {
-        char[] pub = PUBLIC_PASSPHRASE.toCharArray();
-        boolean same = pub.length == normalized.length;
-        for (int i = 0; i < pub.length && i < normalized.length; i++) same &= pub[i] == normalized[i];
-        return same;
+        ByteBuffer bytes = StandardCharsets.UTF_8.encode(CharBuffer.wrap(normalized));
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update(bytes);
+            return MessageDigest.isEqual(digest.digest(), java.util.Base64.getDecoder().decode("RwWxbCnF9DWxQzI2QvYemmwuvUYG631gKZ6KH0hhalI="));
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("SHA-256");
+        } finally {
+            if (bytes.hasArray()) Arrays.fill(bytes.array(), (byte) 0);
+        }
     }
 
     /** 캐시 키: 원문 대신 해시만 보관한다(Key ID·Salt·반복 횟수·원문이 모두 같아야 같은 키). */
@@ -175,11 +174,4 @@ public final class PassKdf {
         }
     }
 
-    private static byte[] sha256(byte[] data) {
-        try {
-            return MessageDigest.getInstance("SHA-256").digest(data);
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("SHA-256");
-        }
-    }
 }

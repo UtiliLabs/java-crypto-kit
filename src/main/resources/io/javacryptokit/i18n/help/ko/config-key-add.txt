@@ -1,11 +1,11 @@
-config key add - 키 목록에 키 추가(새 JAR 생성)
+config key add - 키 목록에 키 추가(현재 JAR 갱신)
 
 사용법
-  java -jar {jar} config key add --key-id <ID>
+  {update} config key add --key-id <ID>
        --operator <ID> [--type pass|key]
        [--generate [--export <파일>] | --from-file <파일>
        | --from-jar <jar>] [--source <공급원> --location <위치>] [--active]
-       [--reason <사유>] [--jar <jar>] [--out <jar> | --replace] [--yes]
+       [--reason <사유>] [--jar <jar>] [--replace] [--yes]
        [--admin-pass-file <파일>] [--lang en|ko]
 
 재료(하나만, 없으면 pass는 Passphrase를 숨김 입력 2회로 받음)
@@ -34,8 +34,7 @@ config key add - 키 목록에 키 추가(새 JAR 생성)
   --reason <사유>     이력에 남길 사유(필수). 없으면 대화형 터미널에서 묻고,
                       비대화형이면 재료 입력·생성 전에 오류로 멈춥니다.
   --jar <jar>         바꿀 JAR(선택, 기본: 실행 중인 JAR)
-  --out <jar>         결과 JAR(선택, 기본 <이름>-cfg.jar)
-  --replace           원본 교체(백업 후)
+  --replace           호환 옵션. 원래 경로에 저장합니다.
   --yes               CHANGE 확인 생략(사유는 생략할 수 없음)
   --admin-pass-file <파일>
                       관리자 비밀번호 파일(비대화형 인증, 한 줄, 권한 600)
@@ -46,5 +45,5 @@ config key add - 키 목록에 키 추가(새 JAR 생성)
   원본 JAR 없이 pass 키를 복원하려면 --export 백업을 보관하세요.
 
 예제
-  java -jar {jar} config key add --key-id p2 --operator ops
+  {update} config key add --key-id p2 --operator ops
   (복원·--type key·--source env 등: docs/user-guide.md 2.18절, 5.6절)

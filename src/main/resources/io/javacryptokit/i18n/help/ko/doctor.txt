@@ -12,7 +12,7 @@ doctor - 설정 적용과 키·암복호화 동작 점검(WAS 기동 전)
 
 결과
   [PASS] 설정 로딩 정상
-  [INFO] 기본 유형 pass, pass 기본 pass-default, key 기본 key01
+  [INFO] 기본 유형 pass, pass 기본 app-pass, key 기본 key01
   [INFO] 키 key01 (key, 기본, crypto.key.*):
          embedded, JAR 내장(crypto.key.embedded)
   [PASS] 키 로딩 정상: key01, 사용자 지정, 지문 ab12cd34ef56...7890abcd

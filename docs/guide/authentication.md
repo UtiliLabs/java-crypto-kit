@@ -344,6 +344,7 @@ public static AccessTokenVerifier keycloakStyle(String issuer, String jwksJson) 
 - **공급자별 차이(설정형 예):** Microsoft Entra ID v2는 `typ: JWT`, 위임 권한 `scp`(공백 구분)·앱 권한 `roles`(배열), 클라이언트 `azp`, `ver: 2.0` → `.types("JWT").scopeClaim("scp").rolesClaim("roles").clientIdClaim("azp").requireClaimValue("ver", "2.0").requirePermissionClaim(true)`. Keycloak은 접근 토큰 클레임 `typ: Bearer`, ID Token `typ: ID` → `.requireClaimValue("typ", "Bearer").clientIdClaim("azp")`. 위 설정은 공급자별 구성의 예시이며, `ver`·`roles` 등의 존재만으로 ID Token이 반드시 거부되는 것은 아닙니다.
 
   해당 인증 서버에서 실제 발급한 Access Token과 ID Token을 비교하여 구분 정책을 검증한 뒤 적용합니다. Entra 실서버 연동은 시험하지 않았습니다(Keycloak은 Docker 하니스로 실연동).
+- **OAuth 식별자:** RFC 9068의 `sub`·`jti`·`client_id` 및 설정형 프로파일의 지정 클라이언트 ID는 비어 있거나 공백·제어문자만으로 이루어질 수 없습니다. 제어문자가 포함된 값도 거부하며 정상 식별자의 대소문자와 Unicode는 보존합니다.
 - **설정형 프로파일의 빌더 검증:** `build()`는 최종 설정을 검사합니다. `JWT`를 허용하는 헤더 유형만 지정하거나, 일반 등록 클레임만 요구하거나, 빈 조건을 추가하거나, 이전에 지정했던 구분 조건을 해제하면 충분한 구분 조건이 아닙니다. 실제 공급자 규칙에 맞는 전용 헤더 유형, 업무 클레임의 존재·값·금지 조건 또는 비어 있지 않은 권한 조건을 지정해야 합니다. 이 검사 자체가 공급자별 토큰 정책의 정확성을 보장하지는 않으므로 실제 발급 토큰으로 별도 확인합니다.
 - **ID Token 오인 방지:** 대상(aud) 일치만으로 판단하지 않고 토큰 종류 조건을 함께 둡니다(같은 앱 등록을 쓰면 ID Token의 aud가 API와 같을 수 있음).
 - **발급(`AccessTokens`):** 자체 인증 서버·시험·서버 간 발급용으로 `typ: at+jwt`와 필수 클레임(jti는 256비트 난수, iat는 현재)을 넣습니다. 토큰 엔드포인트·Refresh Token·폐기 기능은 없습니다.
@@ -485,7 +486,7 @@ public static String partnerAuthorization(URI tokenEndpoint, char[] clientSecret
 
 **응답으로 다음 호출을 결정하기**
 
-- 호출에 필요한 권한과 발급 응답의 권한을 비교하려면 `scopeInResponse()`부터 확인합니다. `requestedScopes()`는 요청값이고 `grantedScopes()`는 서버가 명시한 값입니다. 응답에 scope가 없으면 후자는 빈 집합입니다.
+- 호출에 필요한 권한과 발급 응답의 권한을 비교하려면 `scopeInResponse()`부터 확인합니다. `requestedScopes()`는 요청값이고 `grantedScopes()`는 서버가 명시한 값입니다. 응답에 scope가 없으면 후자는 빈 집합입니다. 토큰 발급 및 활성 Introspection 성공 응답에 scope가 있으면 RFC 6749 구문을 검사하며 잘못된 값은 `INVALID_RESPONSE`로 처리합니다. 비활성 Introspection은 다른 응답 필드를 사용하지 않습니다.
 - `expiresIn()`은 초 단위 `OptionalLong`입니다. 서버가 수명을 주지 않으면 비어 있고 `expiresAt()`도 `null`입니다. 만료 전에 다시 요청하는 시점과 캐시는 호출 서비스에서 관리합니다.
 - `clientSecretBasic`은 HTTP 인증 헤더, `clientSecretPost`는 폼 본문을 사용합니다. 인증 서버가 지원하는 한 가지를 한 번만 지정하세요. 같은 Builder에서 인증 방식을 두 번 지정하면 입력 오류입니다.
 
@@ -499,7 +500,7 @@ public static String partnerAuthorization(URI tokenEndpoint, char[] clientSecret
 <a name="api-jwt"></a>
 ### JWT 및 JWKS
 
-생성은 HS256·RS256·ES256 중 하나를 명시합니다. 검증은 지정 알고리즘으로만 수행하며 만료(exp)를 요구합니다. 로컬 JWKS를 호출자가 신뢰해야 합니다. `--claims-file`의 업무 클레임과 표준 클레임 전용 옵션을 나눕니다. 분석 결과는 미검증 안내와 헤더·페이로드 라벨이 있는 보호 텍스트 파일(`.txt`)입니다. Compact JWT의 한도는 64 KiB이고 신뢰한 로컬 JWKS 파일은 1 MiB입니다. 입력을 읽고 검증한 토큰이 거부되면 stdout에는 `FAIL`, stderr에는 사유가 표시됩니다.
+생성은 HS256·RS256·ES256 중 하나를 명시합니다. 검증은 지정 알고리즘으로만 수행하며 만료(exp)를 요구합니다. 로컬 JWKS를 호출자가 신뢰해야 합니다. `--claims-file`의 업무 클레임과 표준 클레임 전용 옵션을 나눕니다. 분석 결과는 미검증 안내와 헤더·페이로드 라벨이 있는 보호 텍스트 파일(`.txt`)입니다. Compact JWT의 한도는 64 KiB이고 신뢰한 로컬 JWKS 파일은 1 MiB입니다. 생성 시 자동 `iat`·`exp`를 포함한 최종 JSON에 분석과 같은 제한(깊이 16, 객체당 멤버 1,000, 배열당 원소 10,000)을 적용합니다. 입력을 읽고 검증한 토큰이 거부되면 stdout에는 `FAIL`, stderr에는 사유가 표시됩니다.
 
 | 명령 | 관리자 인증 | 명령별 옵션 |
 |---|---|---|
@@ -527,7 +528,7 @@ public static String partnerAuthorization(URI tokenEndpoint, char[] clientSecret
 - `--jwt-id` — 사용자 지정 토큰 ID(jti).
 - `--key-encoding` — 공유키 표현. 기본 base64.
 - `--key-file` — 인코딩한 비밀키 한 줄이 든 보호 파일.
-- `--kid` — 서명 키 ID 또는 기대 키 ID(kid).
+- `--kid` — 만들 때는 서명 키 ID(토큰 헤더 `kid`)입니다. 검증할 때는 선택된 신뢰 키의 ID를 확인합니다. 토큰 헤더에 `kid`가 없어도 그 알고리즘의 신뢰 키가 하나뿐이면 그 키를 선택하므로, 헤더 `kid`가 있는지를 검사하는 옵션이 아닙니다.
 - `--not-before` — 선택형 ISO-8601 토큰 사용 시작 시각.
 - `--out` — 새 출력 경로. 비밀 결과에는 보호 폴더를 씁니다.
 - `--private-key` — PKCS#8 개인키 PEM/DER 보호 파일.
@@ -543,10 +544,17 @@ public static String partnerAuthorization(URI tokenEndpoint, char[] clientSecret
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api keygen --type hmac --out jwt.key --reason 'local JWT example'
-java -jar java-crypto-kit-0.2.0-cfg.jar api jwt create --alg hs256 --key-file jwt.key --iss test-app --sub user01 --aud test-api --out jwt.txt
-java -jar java-crypto-kit-0.2.0-cfg.jar api jwt inspect --in jwt.txt --out jwt-inspection.txt
-java -jar java-crypto-kit-0.2.0-cfg.jar api jwt verify --alg hs256 --key-file jwt.key --iss test-app --aud test-api --in jwt.txt
+# HMAC 키 생성
+java -jar java-crypto-kit-0.2.1.jar api keygen --type hmac --out jwt.key --reason 'local JWT example'
+
+# 업무 클레임을 포함한 JWT 발급
+java -jar java-crypto-kit-0.2.1.jar api jwt create --alg hs256 --key-file jwt.key --iss test-app --sub user01 --aud test-api --out jwt.txt
+
+# 검증 전 JWT 헤더와 클레임 확인
+java -jar java-crypto-kit-0.2.1.jar api jwt inspect --in jwt.txt --out jwt-inspection.txt
+
+# JWT 서명과 발급자·대상 검증
+java -jar java-crypto-kit-0.2.1.jar api jwt verify --alg hs256 --key-file jwt.key --iss test-app --aud test-api --in jwt.txt
 ```
 
 **RSA·EC·JWKS 예제**는 `api jwt --examples`에서 함께 확인할 수 있습니다. RSA 예제의 `claims.json`과 `expected.json`에는 각각 `{"department":"dev"}` 같은 업무 값과 기대 값을 넣습니다. `trusted-jwks.json`에는 같은 RSA 공개키를 서명에 쓴 `kid`로 등록합니다. 실제 서비스에서는 신뢰한 발급자의 키 목록으로 검증하세요.
@@ -597,7 +605,7 @@ java -jar java-crypto-kit-0.2.0-cfg.jar api jwt verify --alg hs256 --key-file jw
 - `--jwt-id` — 사용자 지정 토큰 ID(jti).
 - `--key-encoding` — 공유키 표현. 기본 base64.
 - `--key-file` — 인코딩한 비밀키 한 줄이 든 보호 파일.
-- `--kid` — 서명 키 ID 또는 기대 키 ID(kid).
+- `--kid` — 만들 때는 서명 키 ID(토큰 헤더 `kid`)입니다. 검증할 때는 선택된 신뢰 키의 ID를 확인합니다. 토큰 헤더에 `kid`가 없어도 그 알고리즘의 신뢰 키가 하나뿐이면 그 키를 선택하므로, 헤더 `kid`가 있는지를 검사하는 옵션이 아닙니다.
 - `--max-response-bytes` — 응답 제한(바이트). 기본 65536.
 - `--out` — 새 출력 경로. 비밀 결과에는 보호 폴더를 씁니다.
 - `--private-key` — PKCS#8 개인키 PEM/DER 보호 파일.
@@ -621,16 +629,24 @@ java -jar java-crypto-kit-0.2.0-cfg.jar api jwt verify --alg hs256 --key-file jw
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api oauth token --endpoint https://auth.example.com/token --client-id test-app --client-secret-file client.pw --auth-method basic --out access.txt
-java -jar java-crypto-kit-0.2.0-cfg.jar api oauth token --endpoint https://auth.example.com/token --client-id test-app --client-secret-file client.pw --auth-method post --out access-post.txt
-java -jar java-crypto-kit-0.2.0-cfg.jar api oauth introspect --endpoint https://auth.example.com/introspect --client-id test-app --client-secret-file client.pw --in access.txt --out status.json
+# OAuth 서버에서 액세스 토큰 발급
+java -jar java-crypto-kit-0.2.1.jar api oauth token --endpoint https://auth.example.com/token --client-id test-app --client-secret-file client.pw --auth-method basic --out access.txt
+
+# OAuth 서버에서 액세스 토큰 발급
+java -jar java-crypto-kit-0.2.1.jar api oauth token --endpoint https://auth.example.com/token --client-id test-app --client-secret-file client.pw --auth-method post --out access-post.txt
+
+# 서버에서 액세스 토큰 활성 상태 조회
+java -jar java-crypto-kit-0.2.1.jar api oauth introspect --endpoint https://auth.example.com/introspect --client-id test-app --client-secret-file client.pw --in access.txt --out status.json
 ```
 
 다음 예제는 로컬에서 RFC 9068 토큰을 생성·검증합니다. RSA 시험용 키쌍을 준비하고, 위 발급 파일과 구분해 새 `access-local.txt`에 저장합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api oauth create --alg rs256 --priv-key rsa-private.pem --iss test-app --sub user01 --aud test-api --client-id demo --scope read --out access-local.txt
-java -jar java-crypto-kit-0.2.0-cfg.jar api oauth verify --profile rfc9068 --alg rs256 --pub-key rsa-public.pem --iss test-app --aud test-api --scope read --in access-local.txt
+# 서명된 액세스 토큰 생성
+java -jar java-crypto-kit-0.2.1.jar api oauth create --alg rs256 --priv-key rsa-private.pem --iss test-app --sub user01 --aud test-api --client-id demo --scope read --out access-local.txt
+
+# 액세스 토큰의 서명과 정책 검증
+java -jar java-crypto-kit-0.2.1.jar api oauth verify --profile rfc9068 --alg rs256 --pub-key rsa-public.pem --iss test-app --aud test-api --scope read --in access-local.txt
 ```
 
 JWKS 검증과 설정형 프로파일의 복사 명령은 `api oauth verify --examples`에서 확인하세요. JWKS는 신뢰한 발급자가 배포한 JSON을 별도 경로로 받아 로컬에서 사용합니다. Java 연동은 `Jwks.parse`로 같은 목록을 파싱할 수 있습니다. 설정형 프로파일에는 실제 발급자·대상과 함께 전용 `typ`, 예상 업무 클레임 또는 요구 스코프·역할처럼 토큰을 구분할 조건을 지정합니다.
@@ -673,10 +689,17 @@ HOTP는 SHA1과 호출자가 제공한 카운터를 사용합니다. TOTP는 ISO
 그룹 예제와 개별 생성·검증 예제는 같은 UTC 시각을 사용하는 재현 시험입니다. 생성한 `otp-code.txt`를 검증에 전달합니다. 운영에서는 `--at`을 생략하세요.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api keygen --type otp --enc base32 --out otp.key --reason 'OTP test'
-java -jar java-crypto-kit-0.2.0-cfg.jar api otp uri --type totp --key-file otp.key --issuer TestApp --account user01 --out otp-uri.txt
-java -jar java-crypto-kit-0.2.0-cfg.jar api otp gen --key-file otp.key --at 2026-11-26T00:00:00Z --out otp-code.txt
-java -jar java-crypto-kit-0.2.0-cfg.jar api otp verify --key-file otp.key --at 2026-11-26T00:00:00Z --in otp-code.txt
+# OTP 키 생성
+java -jar java-crypto-kit-0.2.1.jar api keygen --type otp --enc base32 --out otp.key --reason 'OTP test'
+
+# OTP 등록 URI 생성
+java -jar java-crypto-kit-0.2.1.jar api otp uri --type totp --key-file otp.key --issuer TestApp --account user01 --out otp-uri.txt
+
+# OTP 코드 생성
+java -jar java-crypto-kit-0.2.1.jar api otp gen --key-file otp.key --at 2026-11-26T00:00:00Z --out otp-code.txt
+
+# 같은 키와 시간 조건으로 OTP 검증
+java -jar java-crypto-kit-0.2.1.jar api otp verify --key-file otp.key --at 2026-11-26T00:00:00Z --in otp-code.txt
 ```
 
 ---

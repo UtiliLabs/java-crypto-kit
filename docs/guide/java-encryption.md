@@ -47,7 +47,7 @@ DB 비밀번호를 한 번 암호화해 설정 파일에 넣는 작업은 [CLI](
 - 업무 키를 고정하려면 `encryptText(value, KeyType.KEY, "app-aes")`(등록된 key 유형 예) 또는 `withKeyId("app-aes")`.
 - 복호화에는 유형을 지정하지 않습니다. 기존 키를 제거하거나 다른 키로 덮으면 복원할 수 없습니다.
 
-공개 JAR 기본 키는 시험용입니다. 운영 키 준비부터 배포까지는 [키 관리 가이드](key-management.md#choose-key-material)를 참조하세요.
+배포 원본 JAR에는 키가 없으며, `admin setup`이 JAR마다 독립된 랜덤 PASS·KEY를 생성합니다. 운영 키 준비부터 배포까지는 [키 관리 가이드](key-management.md#choose-key-material)를 참조하세요.
 
 <a name="topic-java-api"></a>
 
@@ -92,7 +92,7 @@ Java API는 CLI 관리자 비밀번호를 요구하지 않으며 JAR의 관리�
 | 바이트 복호화 | `decryptBytes(String)` | 암호문 → **`byte[]`** | 원래 바이트를 그대로 복원 |
 | 검증·판별 | `verify(String)` / `isToken(String)` | 암호문 → `boolean` | `isToken`은 접두어만 검사하며 복호화 가능·무결성 확인이 아님 |
 | 상태 | `keyId()` / `keyType()` / `keySource()` | 없음 → `String`·`KeyType` | `encryptText(값)`이 **실제로 쓰는 키**의 키 ID·유형·공급원. 키 원문은 반환하지 않음 |
-| 키 목록 | `keys()` | 없음 → `List<KeyInfo>` | 등록된 키마다 키 ID·유형·공급원·유형 기본 여부·암호화 기본 여부·공개 기본 키 여부·사용 가능 여부(실패 사유)·짧은 지문. 공개 키 자동 경고를 내지 않음 |
+| 키 목록 | `keys()` | 없음 → `List<KeyInfo>` | 등록된 키마다 키 ID·유형·공급원·유형 기본 여부·암호화 기본 여부·공개된 기본 키 여부·사용 가능 여부(실패 사유)·짧은 지문. 공개 키 자동 경고를 내지 않음 |
 | 파일 | `encryptFile(Path, Path)` / `decryptFile(Path, Path)` | 입력·출력 경로 → 없음 | 원본 보존, 출력 덮어쓰기 금지, 대용량 스트리밍 |
 
 `B64[...]`가 필요하면 설정 `crypto.output.encoding=base64`를 씁니다.
@@ -101,13 +101,13 @@ Java API는 CLI 관리자 비밀번호를 요구하지 않으며 JAR의 관리�
 
 ### 등록된 키의 상태 활용 (`KeyInfo`)
 
-`crypto.keys()`의 각 항목은 키 자체가 아니라 상태 정보입니다. 서버 시작 전 필요한 키가 등록되어 있는지, 기본 키가 공개 키인지 확인할 때 활용합니다.
+`crypto.keys()`의 각 항목은 키 자체가 아니라 상태 정보입니다. 서버 시작 전 필요한 PASS (Passphrase) 또는 KEY (AES Key) 프로필이 설정되어 있고 사용 가능한지 확인할 때 활용합니다. 공식 JAR에서 관리형 기본 키 오류가 나면 설정을 마친 JAR 또는 유효한 외부 설정을 사용하세요. 특정 유형의 활성 키가 없으면 해당 유형의 활성 키 ID를 확인합니다.
 
 | 메서드 | 반환값 및 활용 |
 |---|---|
 | `keyId()` / `type()` / `source()` | 키 ID / `KeyType` / 공급원 문자열 |
 | `isTypeDefault()` / `isEncryptionDefault()` | 해당 유형의 기본 키인지 / 새 암호화의 기본 키인지 |
-| `isPublicDefault()` | 공개 기본 키인지. 운영 키 검토에 사용 |
+| `isPublicDefault()` | 공개된 기본 키인지. 운영 키 검토에 사용 |
 | `isAvailable()` | 현재 키 로딩 성공 여부 |
 | `failureReason()` / `failureMessage()` | 사용 불가 원인. 정상 키에서는 실패 정보가 없음 |
 | `fingerprint()` | 키 비교용 지문(원문 아님) |
@@ -120,7 +120,7 @@ Java API는 CLI 관리자 비밀번호를 요구하지 않으며 JAR의 관리�
 
 | 개발 환경 | 적용 방법 |
 |---|---|
-| Gradle | `dependencies { implementation files('libs/java-crypto-kit-0.2.0.jar') }` |
+| Gradle | `dependencies { implementation files('libs/java-crypto-kit-0.2.1.jar') }` |
 | Eclipse / IntelliJ IDEA / VS Code | 프로젝트의 Java Build Path 또는 Gradle 의존성에 JAR를 등록 |
 | javac / java | Windows는 클래스패스 구분자 `;`, Linux/macOS는 `:`. [6.2절](#topic-java-api--62-문자열-암복호화와-직접-실행) 참조 |
 | Tomcat JNDI Factory | Tomcat `lib`에 JAR 설치. 웹앱 자체 라이브러리와는 별개의 배치 정책([3.7절](tomcat-jdbc.md#topic-tomcat--37-jar를-lib과-웹앱에-함께-둘-때)) |
@@ -149,19 +149,23 @@ public class CryptoExample {
 
 ```powershell
 # Windows PowerShell(클래스패스 구분자 ;)
-javac -cp .\java-crypto-kit-0.2.0-cfg-2.jar .\CryptoExample.java
-java -cp '.;java-crypto-kit-0.2.0-cfg-2.jar' CryptoExample
+javac -cp .\java-crypto-kit-0.2.1.jar .\CryptoExample.java
+
+# 예제 프로그램 실행
+java -cp '.;java-crypto-kit-0.2.1.jar' CryptoExample
 ```
 
 ```bash
 # Linux(클래스패스 구분자 :)
-javac -cp ./java-crypto-kit-0.2.0-cfg-2.jar CryptoExample.java
-java -cp '.:java-crypto-kit-0.2.0-cfg-2.jar' CryptoExample
+javac -cp ./java-crypto-kit-0.2.1.jar CryptoExample.java
+
+# 예제 프로그램 실행
+java -cp '.:java-crypto-kit-0.2.1.jar' CryptoExample
 ```
 
 이 코드는 예시 값의 일치 여부만 확인하며 평문이나 키를 출력하지 않습니다.
 
-공개 JAR로 실행하면 JDK 로그(java.util.logging)에 `[java-crypto-kit] 공개 기본 키 사용 중 (별도 키 설정 권장)` WARNING이 JVM당 한 번 나오는 것이 정상입니다([12.1절](../reference/security.md#121-공개-기본-키-경고)). 실제 서비스에서는 사용자 지정 키를 내장한 JAR나 외부 키 설정을 쓰고, 암호화하는 쪽과 복호화하는 쪽이 같은 키·키ID를 써야 합니다.
+배포 원본에서 관리형 키를 사용하려면 유효한 외부 키를 지정하세요. 내장 키를 쓰면 최초 설정 JAR를 배치하세요. 키가 없는 상태에서 관리형 암호화를 요청하면 CONFIGURATION 오류가 발생합니다.
 
 <a name="topic-java-api--63-byte-입력과-출력"></a>
 ### `byte[]` 입력과 출력 (6.3)
@@ -250,7 +254,7 @@ Gradle 프로젝트의 `libs/`에 JAR를 넣습니다.
 
 ```groovy
 dependencies {
-    implementation files('libs/java-crypto-kit-0.2.0.jar')
+    implementation files('libs/java-crypto-kit-0.2.1.jar')
 }
 ```
 
@@ -282,14 +286,22 @@ public class JckExample {
 
 ```powershell
 # Windows PowerShell
-javac -cp .\java-crypto-kit-0.2.0.jar .\JckExample.java
-java -cp '.;java-crypto-kit-0.2.0.jar' JckExample
+
+# 예제 Java 소스 컴파일
+javac -cp .\java-crypto-kit-0.2.1.jar .\JckExample.java
+
+# 예제 프로그램 실행
+java -cp '.;java-crypto-kit-0.2.1.jar' JckExample
 ```
 
 ```bash
 # Linux / macOS
-javac -cp ./java-crypto-kit-0.2.0.jar JckExample.java
-java -cp '.:java-crypto-kit-0.2.0.jar' JckExample
+
+# 예제 Java 소스 컴파일
+javac -cp ./java-crypto-kit-0.2.1.jar JckExample.java
+
+# 예제 프로그램 실행
+java -cp '.:java-crypto-kit-0.2.1.jar' JckExample
 ```
 
 결과: `PASS`. 예제 키는 메모리에서 생성합니다. 실제 암복호화에는 동일한 키를 안전하게 보관·공유해야 합니다.
@@ -311,7 +323,7 @@ JAR 내장 키·키 목록·외부 설정 파일·JVM 속성을 읽거나 바꾸
 | 키 출처 | JAR 내장·파일·환경변수·Vault·KMS(설정) | 호출자가 준 키·Passphrase(이 객체만 복사본 보관) |
 | 키 선택 | 암호문의 Key ID로 키 목록에서 선택 | 이 객체의 Key ID 하나만(다르면 `KEY_ID_MISMATCH`) |
 | 형식 | `ENC[v1:...]`·`B64[...]`(설정)·JCKF(v2 쓰기, v1/v2 읽기) | `ENC[v1:...]`·JCKF(v2 쓰기, v1/v2 읽기, AES-256) |
-| 변경 이력·관리자 인증·경고 | 관리형 규칙 | 없음(공개 기본 키 경고도 없음) |
+| 변경 이력·관리자 인증·경고 | 관리형 규칙 | 없음(공개된 기본 키 경고도 없음) |
 | 오류 문구 언어 | 설정 `crypto.lang` | 한국어 고정(사유 코드는 같음) |
 
 ```java
@@ -624,14 +636,29 @@ true
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api keygen --type aes --out aes.key --reason 'AES interop'
-java -jar java-crypto-kit-0.2.0-cfg.jar api aes enc --key-file aes.key --in sample.txt --out aes.b64
-java -jar java-crypto-kit-0.2.0-cfg.jar api aes dec --key-file aes.key --in aes.b64 --out restored.txt
-java -jar java-crypto-kit-0.2.0-cfg.jar api aes enc --fmt enc --key-id app-key-01 --key-file aes.key --in sample.txt --out aes.enc
-java -jar java-crypto-kit-0.2.0-cfg.jar api aes dec --fmt enc --key-id app-key-01 --key-file aes.key --in aes.enc --out restored-enc.txt
-java -jar java-crypto-kit-0.2.0-cfg.jar api rand bytes --len 16 --enc hex --out salt.hex
-java -jar java-crypto-kit-0.2.0-cfg.jar api aes enc --type pass --pass-file sample.pass --salt-file salt.hex --in sample.txt --out pass.b64
-java -jar java-crypto-kit-0.2.0-cfg.jar api aes dec --type pass --pass-file sample.pass --salt-file salt.hex --in pass.b64 --out pass-restored.txt
+# AES 키 생성
+java -jar java-crypto-kit-0.2.1.jar api keygen --type aes --out aes.key --reason 'AES interop'
+
+# AES-GCM으로 입력 암호화
+java -jar java-crypto-kit-0.2.1.jar api aes enc --key-file aes.key --in sample.txt --out aes.b64
+
+# 인증 태그를 확인하고 AES 암호문 복호화
+java -jar java-crypto-kit-0.2.1.jar api aes dec --key-file aes.key --in aes.b64 --out restored.txt
+
+# AES-GCM으로 입력 암호화
+java -jar java-crypto-kit-0.2.1.jar api aes enc --fmt enc --key-id app-key-01 --key-file aes.key --in sample.txt --out aes.enc
+
+# 인증 태그를 확인하고 AES 암호문 복호화
+java -jar java-crypto-kit-0.2.1.jar api aes dec --fmt enc --key-id app-key-01 --key-file aes.key --in aes.enc --out restored-enc.txt
+
+# 지정한 길이의 보안 난수 바이트 생성
+java -jar java-crypto-kit-0.2.1.jar api rand bytes --len 16 --enc hex --out salt.hex
+
+# AES-GCM으로 입력 암호화
+java -jar java-crypto-kit-0.2.1.jar api aes enc --type pass --pass-file sample.pass --salt-file salt.hex --in sample.txt --out pass.b64
+
+# 인증 태그를 확인하고 AES 암호문 복호화
+java -jar java-crypto-kit-0.2.1.jar api aes dec --type pass --pass-file sample.pass --salt-file salt.hex --in pass.b64 --out pass-restored.txt
 ```
 
 <a name="api-rsa"></a>
@@ -663,9 +690,14 @@ OAEP 해시와 MGF1은 같은 SHA-256 또는 SHA-512를 사용합니다. RSA 204
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api keygen --type rsa --out rsa --reason 'RSA interop'
-java -jar java-crypto-kit-0.2.0-cfg.jar api rsa enc --pub-key rsa-public.pem --in sample.txt --out rsa.b64
-java -jar java-crypto-kit-0.2.0-cfg.jar api rsa dec --priv-key rsa-private.pem --in rsa.b64 --out restored.txt
+# RSA 키 생성
+java -jar java-crypto-kit-0.2.1.jar api keygen --type rsa --out rsa --reason 'RSA interop'
+
+# RSA 공개 키로 입력 암호화
+java -jar java-crypto-kit-0.2.1.jar api rsa enc --pub-key rsa-public.pem --in sample.txt --out rsa.b64
+
+# RSA 개인 키로 암호문 복호화
+java -jar java-crypto-kit-0.2.1.jar api rsa dec --priv-key rsa-private.pem --in rsa.b64 --out restored.txt
 ```
 
 <a name="api-hybrid"></a>
@@ -698,9 +730,14 @@ java -jar java-crypto-kit-0.2.0-cfg.jar api rsa dec --priv-key rsa-private.pem -
 입력 파일은 실제 테스트 파일로 바꾸고 결과 경로에는 새 파일명을 사용합니다. 비대화형 민감 명령에는 `--admin-pass-file`을 추가합니다.
 
 ```sh
-java -jar java-crypto-kit-0.2.0-cfg.jar api keygen --type rsa --out rsa --reason 'Hybrid interop'
-java -jar java-crypto-kit-0.2.0-cfg.jar api hybrid enc --pub-key rsa-public.pem --in sample.txt --out hybrid.b64
-java -jar java-crypto-kit-0.2.0-cfg.jar api hybrid dec --priv-key rsa-private.pem --in hybrid.b64 --out restored.txt
+# RSA 키 생성
+java -jar java-crypto-kit-0.2.1.jar api keygen --type rsa --out rsa --reason 'Hybrid interop'
+
+# 수신자 공개 키로 하이브리드 봉투 생성
+java -jar java-crypto-kit-0.2.1.jar api hybrid enc --pub-key rsa-public.pem --in sample.txt --out hybrid.b64
+
+# 수신자 개인 키로 하이브리드 봉투 복호화
+java -jar java-crypto-kit-0.2.1.jar api hybrid dec --priv-key rsa-private.pem --in hybrid.b64 --out restored.txt
 ```
 
 ---

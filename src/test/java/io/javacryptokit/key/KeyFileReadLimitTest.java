@@ -41,7 +41,7 @@ class KeyFileReadLimitTest {
     @Test
     void keyFileOfExactlyTheLimitIsReadAndThenValidated() throws Exception {
         Path padded = dir.resolve("padded.key");
-        String key = TestSupport.publicKeyBase64();
+        String key = TestSupport.managedSettings()[0].split("=", 2)[1];
         StringBuilder text = new StringBuilder(key).append("\r\n");
         while (text.length() < 512) text.append(' ');
         Files.write(padded, text.toString().getBytes(StandardCharsets.US_ASCII));

@@ -72,6 +72,18 @@ final class Jose {
         return (Map<String, Object>) value;
     }
 
+    /** 서명할 JSON도 검증기와 같은 UTF-8·JOSE 상한으로 검사한다. */
+    static String encodeObject(Map<String, Object> object) {
+        byte[] json;
+        try {
+            json = Bytes.utf8(StrictJson.write(object));
+            object(json);
+        } catch (IllegalArgumentException | JwtException e) {
+            throw invalid("jwt.err.json");
+        }
+        return encode(json);
+    }
+
     /** typ 비교용 정규화(RFC 7515 4.1.9: 대소문자 무시, "application/" 생략 가능). */
     static String normalizeType(String type) {
         String lower = type.toLowerCase(Locale.ROOT);

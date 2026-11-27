@@ -110,17 +110,45 @@ public final class CliHarness implements AutoCloseable {
      */
     public static java.nio.file.Path configure(java.nio.file.Path jar, String password) throws java.io.IOException {
         byte[] entry = AdminPassword.create(password.toCharArray(), AdminPassword.MIN_ITERATIONS);
-        java.nio.file.Path temp = jar.resolveSibling(jar.getFileName() + ".setup.jar");
         try {
-            JarConfigEditor.applyAdmin(jar, temp, null, entry, "test-setup", ConfigHistory.ADMIN_SETUP,
-                    io.javacryptokit.i18n.Messages.get("admin.reason.setup"), java.time.Instant.now());
-            java.nio.file.Files.move(temp, jar, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            JarConfigEditor.applyAdmin(JarConfigEditor.read(jar), entry, "test-setup", ConfigHistory.ADMIN_SETUP,
+                    io.javacryptokit.i18n.Messages.get("admin.reason.setup"), java.time.Instant.now(), null);
             return jar;
         } catch (CryptoCli.CliException | io.javacryptokit.CredentialCryptoException e) {
             throw new java.io.IOException(e.getMessage(), e);
-        } finally {
-            java.nio.file.Files.deleteIfExists(temp);
         }
+    }
+
+    /** Reads the production state view, then falls back to legacy resources. */
+    static byte[] effectiveEntry(java.nio.file.Path jar, String name) throws java.io.IOException {
+        try (java.util.jar.JarFile file = new java.util.jar.JarFile(jar.toFile())) {
+            String format = file.getManifest().getMainAttributes().getValue(io.javacryptokit.config.JarState.ATTRIBUTE);
+            if (format != null && isStateEntry(name)) {
+                io.javacryptokit.config.JarState.State state = io.javacryptokit.config.JarState.read(jar, format);
+                if (state != null) {
+                    if (JarConfigEditor.SETTINGS_ENTRY.equals(name)) return state.settings;
+                    if (ConfigHistory.ENTRY.equals(name)) return state.history;
+                    return state.admin;
+                }
+            }
+            java.util.jar.JarEntry entry = file.getJarEntry(name);
+            if (entry == null) return null;
+            try (java.io.InputStream in = file.getInputStream(entry);
+                 java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream()) {
+                byte[] buffer = new byte[4096];
+                for (int n; (n = in.read(buffer)) != -1; ) bytes.write(buffer, 0, n);
+                return bytes.toByteArray();
+            }
+        }
+    }
+
+    private static boolean isStateEntry(String name) {
+        return JarConfigEditor.SETTINGS_ENTRY.equals(name) || ConfigHistory.ENTRY.equals(name) ||
+                AdminPassword.ENTRY.equals(name);
+    }
+
+    private static byte[] valueOrEmpty(byte[] original) {
+        return original == null ? new byte[0] : original;
     }
 
     /**
@@ -129,6 +157,24 @@ public final class CliHarness implements AutoCloseable {
      * @return jar
      */
     public static java.nio.file.Path replaceEntry(java.nio.file.Path jar, String name, byte[] content) throws java.io.IOException {
+        String format;
+        try (java.util.jar.JarFile file = new java.util.jar.JarFile(jar.toFile())) {
+            format = file.getManifest().getMainAttributes().getValue(io.javacryptokit.config.JarState.ATTRIBUTE);
+        }
+        if (format != null && isStateEntry(name)) {
+            io.javacryptokit.config.JarState.State state = io.javacryptokit.config.JarState.read(jar, format);
+            if (state != null) {
+                try {
+                    io.javacryptokit.config.JarState.update(jar, format, JarConfigEditor.sha256(jar),
+                            JarConfigEditor.SETTINGS_ENTRY.equals(name) ? content : state.settings,
+                            valueOrEmpty(ConfigHistory.ENTRY.equals(name) ? content : state.history),
+                            valueOrEmpty(AdminPassword.ENTRY.equals(name) ? content : state.admin), false);
+                } catch (CryptoCli.CliException e) {
+                    throw new java.io.IOException(e);
+                }
+                return jar;
+            }
+        }
         java.nio.file.Path temp = java.nio.file.Files.createTempFile(jar.toAbsolutePath().getParent(), ".edit", ".jar");
         boolean found = false;
         try (java.util.jar.JarFile in = new java.util.jar.JarFile(jar.toFile(), false);
@@ -143,7 +189,14 @@ public final class CliHarness implements AutoCloseable {
                     out.closeEntry();
                     continue;
                 }
-                out.putNextEntry(new java.util.jar.JarEntry(entry.getName()));
+                java.util.jar.JarEntry copy = new java.util.jar.JarEntry(entry.getName());
+                if (entry.getName().startsWith("META-INF/jck-state/")) {
+                    copy.setMethod(java.util.zip.ZipEntry.STORED);
+                    copy.setSize(0);
+                    copy.setCrc(0);
+                    copy.setExtra(entry.getExtra());
+                }
+                out.putNextEntry(copy);
                 if (!entry.isDirectory()) {
                     try (java.io.InputStream data = in.getInputStream(entry)) {
                         byte[] buffer = new byte[8192];
@@ -234,7 +287,7 @@ public final class CliHarness implements AutoCloseable {
      * @param jvmPairs 이번 시험에서 쓸 -D 설정("이름=값"). 없으면 모두 지운 상태.
      */
     public CliHarness(String... jvmPairs) {
-        this.configPath = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY, null);
+        this.configPath = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY, TestSupport.managedConfig().toString());
         this.jvm = TestSupport.jvmSettings(jvmPairs);
         DefaultKeyWarning.resetForTests();
     }

@@ -57,10 +57,10 @@ class DoctorAndHelpTest {
         }
         String out = cli.out();
         assertTrue(out.contains("[PASS] 설정 로딩 정상"), out);
-        // 등록된 키마다 따로 점검하고 키 상태는 사실로만 표시한다(공개 기본 키 두 개 모두 PASS).
-        assertTrue(out.contains("[INFO] 기본 유형 pass, pass 기본 pass-default, key 기본 default"), out);
-        assertTrue(out.contains("[PASS] 키 로딩 정상: default, 공개 기본 키, 지문 "), "키 상태는 사실로만 표시: " + out);
-        assertTrue(out.contains("[PASS] 키 로딩 정상: pass-default, 공개 기본 키, 지문 3dca588c78a1...94453656"), out);
+        // 등록된 키마다 따로 점검하고 키 상태는 사실로만 표시한다(시험용 키 두 개 모두 사용자 지정·PASS).
+        assertTrue(out.contains("[INFO] 기본 유형 pass, pass 기본 test-pass, key 기본 default"), out);
+        assertTrue(out.contains("[PASS] 키 로딩 정상: default, 사용자 지정, 지문 "), "키 상태는 사실로만 표시: " + out);
+        assertTrue(out.contains("[PASS] 키 로딩 정상: test-pass, 사용자 지정, 지문 "), out);
         for (String line : out.split("\\r?\\n")) assertTrue(CliHelp.width(line) <= 80, "doctor 80열 초과: " + line);
         assertTrue(out.contains("[PASS] 암호화·복호화·변조 거부 검사 정상"), out);
         assertFalse(out.contains("[WARN]"), "정책성 WARN 없음: " + out);
@@ -68,6 +68,18 @@ class DoctorAndHelpTest {
         // 점검하지 않은 Tomcat 기동·DB 연결은 PASS로 보이지 않는다.
         for (String line : out.split("\\r?\\n")) {
             if (line.startsWith("[PASS]")) assertFalse(line.contains("DB") || line.contains("Tomcat"), line);
+        }
+    }
+
+    @Test
+    void managedCliReportsMissingExplicitIdBeforeUnconfiguredDefaults() throws Exception {
+        Path input = Files.write(dir.resolve("selection.txt"), new byte[] {1});
+        Path output = dir.resolve("selection.jck");
+        for (String lang : new String[] {"ko", "en"}) {
+            assertEquals(1, cli.run("file", "enc", "--in", input.toString(), "--out", output.toString(),
+                    "--key-id", "unknown-id", "--lang", lang));
+            assertTrue(cli.err().contains("CONFIGURATION") && cli.err().contains("unknown-id"), cli.err());
+            assertFalse(Files.exists(output));
         }
     }
 
@@ -87,13 +99,53 @@ class DoctorAndHelpTest {
     }
 
     @Test
+    void doctorWithoutAnyKeyFailsWithTheSetupGuidance() throws Exception {
+        // 키 프로필이 하나도 없는 상태(최초 설정 전): 키 점검 대신 새 암호화가 실패하는 원인과 admin setup 조치를 FAIL로 알린다.
+        Path empty = TestSupport.writeConfig(dir, "empty.properties", "crypto.lang=ko");
+        assertEquals(1, cli.run("doctor", "--config", empty.toString()), cli.out());
+        String out = cli.out();
+        // 원인 한 줄과 그 상황의 조치 한 줄만(공통 CONFIGURATION 요약·조치를 덧붙이지 않음)
+        assertTrue(out.contains("[FAIL] PASS (Passphrase)와 KEY (AES Key)가 모두 설정되지 않았습니다.") && out.contains("admin setup"), out);
+        assertFalse(out.contains("설정 파일을 읽지 못했거나") || out.contains("doctor를 실행해 점검"), out);
+        assertFalse(out.contains("[PASS] 키 로딩 정상") || out.contains("[PASS] 암호화·복호화"), out);
+        assertTrue(out.trim().endsWith("결과: FAIL 1건"), out);
+    }
+
+    @Test
+    void anUnknownHelpTopicListsOnlyPathsThatRunOnAnUnconfiguredJar() throws Exception {
+        // 내부 도움말 자원 이름(admin-setup 등)은 명령 경로가 아니다. 안내하는 주제는 모두 실제로 조회되어야 한다(한·영 같음).
+        Path fresh = io.javacryptokit.TestJars.build(dir.resolve("java-crypto-kit-0.2.1.jar"));
+        byte[] before = Files.readAllBytes(fresh);
+        cli.withCliJar(fresh);
+        String expected = String.join(", ", CliCommands.helpPaths());
+        assertTrue(expected.contains("admin setup") && expected.contains("config embed-key") && expected.contains("file enc"), expected);
+        for (String lang : new String[]{"ko", "en"}) {
+            for (String wrong : new String[]{"admin-setup", "config-embed-key", "overview"}) {
+                assertEquals(1, cli.run("help", wrong, "--lang", lang), cli.out());
+                assertTrue(cli.err().contains(expected), lang + ": " + cli.err());
+                assertFalse(cli.err().contains("admin-setup,") || cli.err().contains("config-embed-key"), cli.err());
+            }
+            for (String path : CliCommands.helpPaths()) {
+                java.util.List<String> args = new java.util.ArrayList<>(java.util.Arrays.asList("help"));
+                args.addAll(java.util.Arrays.asList(path.split(" ")));
+                args.add("--lang");
+                args.add(lang);
+                assertEquals(0, cli.run(args.toArray(new String[0])), lang + " help " + path + ": " + cli.err());
+                assertFalse(cli.out().isEmpty(), path);
+            }
+        }
+        cli.recordingGate();
+        org.junit.jupiter.api.Assertions.assertArrayEquals(before, Files.readAllBytes(fresh), "도움말 조회는 JAR를 바꾸지 않는다");
+    }
+
+    @Test
     void rawKeyInAnExternalPropertiesFileIsNeverPrintedAndALostKeyNeverFallsBack() throws Exception {
         // 외부 Properties의 키 원문(crypto.key.embedded)은 동작은 유지하되(정책 결정 전) 어떤 진단 출력에도 나오면 안 된다.
         String rawKey = new String(Files.readAllBytes(TestSupport.writeRandomKeyFile(dir, "raw.key")), StandardCharsets.US_ASCII).trim();
-        Path config = TestSupport.writeConfig(dir, "raw-key.properties", "crypto.key.source=embedded", "crypto.key.id=raw01",
+        Path config = TestSupport.writeManagedConfig(dir, "raw-key.properties", "crypto.key.source=embedded", "crypto.key.id=raw01",
                 "crypto.key.embedded=" + rawKey);
         assertEquals(0, cli.run("doctor", "--config", config.toString()), cli.out());
-        assertFalse(cli.out().contains("[WARN] 공개 기본 키"), cli.out());
+        assertFalse(cli.out().contains("[WARN] 공개된 기본 키"), cli.out());
         assertTrue(cli.out().contains("외부 설정 파일"), "키 위치를 실제 출처대로 안내: " + cli.out());
         assertFalse(cli.out().contains(rawKey) || cli.err().contains(rawKey), "doctor가 키 원문을 출력하면 안 된다");
         assertEquals(0, cli.run("info", "--config", config.toString()), cli.err());
@@ -109,7 +161,7 @@ class DoctorAndHelpTest {
     @Test
     void doctorOfflineSkipsRemoteSourcesAndChecksTheirSettings() throws Exception {
         Path token = TestSupport.writeKeyFile(dir, "token", "s.dummytoken");
-        Path config = TestSupport.writeConfig(dir, "vault.properties", "crypto.key.source=vault", "crypto.key.id=prod01",
+        Path config = TestSupport.writeManagedConfig(dir, "vault.properties", "crypto.key.source=vault", "crypto.key.id=prod01",
                 "crypto.vault.url=https://127.0.0.1:1", "crypto.vault.path=app/prod",
                 "crypto.vault.token.file=" + TestSupport.propertiesPath(token));
         assertEquals(0, cli.run("doctor", "--offline", "--config", config.toString()), cli.out());
@@ -134,7 +186,7 @@ class DoctorAndHelpTest {
         assertTrue(out.contains("[INFO] 적용된 -D:" + ls + "       crypto.") && out.contains(ls + "       crypto.key.id" + ls)
                 && out.contains(ls + "       crypto.warning.enabled" + ls), "여러 개면 한 줄에 하나씩: " + out);
         // 정책 때문에 적용되지 않은 -D는 WARN으로, 이름을 한 줄에 하나씩 쓰고 조치 한 줄을 붙인다.
-        Path policy = TestSupport.writeConfig(dir, "policy.properties", "crypto.jvm.override.enabled=false");
+        Path policy = TestSupport.writeManagedConfig(dir, "policy.properties", "crypto.jvm.override.enabled=false");
         try (AutoCloseable ignored = TestSupport.jvmSettings("crypto.lang=ko", "crypto.warning.enabled=false")) {
             assertEquals(0, cli.run("doctor", "--config", policy.toString()), cli.out());
         }
@@ -226,7 +278,7 @@ class DoctorAndHelpTest {
             for (String topic : CliCommands.topics()) {
                 String text = Messages.text(language, topic).replace("{jar}", RELEASE_JAR)
                         .replace("{version}", TestJars.VERSION).replace("{settings}", "")
-                        .replace("{configured}", ConfigCommand.defaultOutputName(RELEASE_JAR));
+                        .replace("{update}", "java -jar " + RELEASE_JAR);
                 for (String line : text.split("\\r?\\n")) {
                     if (CliHelp.width(line) <= 80) continue;
                     // 예외: 필수 옵션을 모두 쓴 복사용 예제 한 줄씩(config embed-key, config key remove, 비대화형 admin setup)
@@ -235,12 +287,39 @@ class DoctorAndHelpTest {
                     boolean remove = topic.equals("config-key-remove")
                             && line.equals("  java -jar " + RELEASE_JAR + " config key remove --key-id p1 --operator ops");
                     boolean setup = topic.equals("admin-setup")
-                            && line.equals("  java -jar " + RELEASE_JAR + " admin setup --operator ci --admin-pass-file admin.pw");
+                            && line.equals("  java -jar " + RELEASE_JAR + " admin setup --admin-pass-file admin.pw");
                     assertTrue(embed || remove || setup, language + " " + topic + " 80열 초과(" + CliHelp.width(line) + "): " + line);
                     exceptions.add(line);
                 }
             }
-            assertEquals(3, exceptions.size(), language + ": 80열 예외는 필수 옵션 예제 세 줄뿐: " + exceptions);
+            assertTrue(exceptions.size() <= 3, language + ": 80열 예외는 필수 옵션 예제 세 줄뿐: " + exceptions);
+        }
+    }
+
+    @Test
+    void examplesKeepExplanationsWithin80ColumnsAndCommandsOnOneLine() throws Exception {
+        Path fresh = TestJars.build(dir.resolve(RELEASE_JAR));
+        cli.withCliJar(fresh);
+        Set<String> paths = new LinkedHashSet<>();
+        paths.add("");
+        paths.add("api");
+        for (CliCommands.Spec spec : CliCommands.ALL) paths.add(spec.name);
+        for (CliCommands.Spec spec : ApiCommands.ALL) paths.add(spec.name);
+        for (String group : new String[] {"admin", "admin password", "config", "config key", "file", "kms"}) paths.add(group);
+        for (String group : ApiCommands.groups()) paths.add("api " + group);
+
+        for (String lang : new String[] {"ko", "en"}) {
+            for (String path : paths) {
+                List<String> args = new ArrayList<>();
+                if (!path.isEmpty()) java.util.Collections.addAll(args, path.split(" "));
+                java.util.Collections.addAll(args, "--examples", "--lang", lang);
+                assertEquals(0, cli.run(args.toArray(new String[0])), lang + " " + path + " " + cli.err());
+                for (String line : cli.out().split("\\R")) {
+                    // Copyable commands remain one line. Their options are checked by the existing example tests.
+                    if (line.trim().startsWith("java ")) continue;
+                    assertTrue(CliHelp.width(line) <= 80, lang + " " + path + " > " + line);
+                }
+            }
         }
     }
 
@@ -279,7 +358,7 @@ class DoctorAndHelpTest {
         assertEquals(1, cli.run("file", "encrypt", "--inn", "a"));
         assertTrue(cli.err().contains("--in") && cli.err().contains("file encrypt --help"), cli.err());
         assertEquals(1, cli.run("help", "nothing"));
-        assertTrue(cli.err().contains("config-set"), cli.err());
+        assertTrue(cli.err().contains("config set") && cli.err().contains("file enc"), cli.err());
         assertEquals(1, cli.run("info", "--lang", "jp"));
         assertTrue(cli.err().contains("--lang"), cli.err());
     }

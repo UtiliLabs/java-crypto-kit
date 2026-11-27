@@ -9,7 +9,7 @@ public final class Diagnostic {
     public enum Status {
         /** 정상. */
         PASS,
-        /** 동작은 하지만 위험이 있음(예: 공개 기본 키). */
+        /** 동작은 하지만 주의가 필요함. */
         WARN,
         /** 실패(이대로는 WAS 기동·복호화가 실패함). 종료 코드가 0이 아니다. */
         FAIL,

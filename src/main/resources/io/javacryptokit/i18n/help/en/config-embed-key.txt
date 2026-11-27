@@ -1,26 +1,24 @@
-config embed-key - build a crypto.key.* AES key and a new key ID into a new JAR
+config embed-key - set the crypto.key.* AES key and ID
 
 Usage
-  java -jar {jar} config embed-key --from-file <key file>
+  {update} config embed-key --from-file <key file>
        --key-id <new key ID> --operator <ID> [--source embedded]
-       [--reason <text>] [--jar <jar>] [--out <jar> | --replace]
+       [--reason <text>] [--jar <jar>] [--replace]
        [--yes] [--admin-pass-file <file>] [--lang en|ko]
 
 Options
   --from-file <key file>   Key file in keygen format (required, no raw key)
   --key-id <new key ID>    New key ID (required, 1-64 letters, digits, _ or -).
-                           Registered and public default key IDs cannot be
-                           used; an ID used in the history only to restore the
-                           same key (matching full fingerprint).
+                           Registered IDs and the reserved IDs default and
+                           pass-default cannot be used; a history ID only to
+                           restore the same key (matching full fingerprint).
   --operator <ID>          Operator ID for the history (required)
   --source embedded        Needed only when the target JAR's crypto.key.source
                            is not embedded (switches it). Omit it otherwise.
   --reason <text>          Reason for the history (required, asked
                            interactively)
   --jar <jar>              JAR to change (optional, default: the running JAR)
-  --out <jar>              Result JAR (optional, default <name>-cfg.jar)
-                           An existing file is never overwritten.
-  --replace                Replace the original (backup first)
+  --replace           Compatibility flag. Updates the same path.
   --yes                    Skip the CHANGE confirmation (not the reason)
   --admin-pass-file <file> Admin password file (non-interactive, mode 600)
                            Without it the admin password is asked (hidden)
@@ -31,13 +29,13 @@ Options
   Adding and rotating keys: help config key
 
 Result
-  Created JAR : C:\work\java-crypto-kit-{version}-cfg.jar
+  Updated JAR : C:\work\java-crypto-kit-{version}.jar
   Changes     : crypto.key.embedded (secret)
-                crypto.key.id (default -> key01)
-                crypto.keys.default.type ((none) -> key)
+                crypto.key.id (key-<generated ID> -> key01)
+                crypto.keys.<previous key ID>.type ((none) -> key)
                 ...
   Fingerprint : ab12cd34ef56...7890abcd
 
 Examples
-  java -jar {jar} config embed-key --from-file example.key --key-id key01 --operator ops
-  java -jar {editedJar} fingerprint --type key
+  {update} config embed-key --from-file example.key --key-id key01 --operator ops
+  java -jar {jar} fingerprint --type key

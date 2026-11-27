@@ -22,6 +22,7 @@ final class AdminAccess implements AdminGate {
     private final Path cliJar;
     private AdminPassword.Status status;
     private JarConfigEditor.Snapshot snapshot;
+    private final List<JarConfigEditor.Snapshot> otherSnapshots = new ArrayList<>();
     private char[] password;
     private boolean authenticated;
 
@@ -86,11 +87,13 @@ final class AdminAccess implements AdminGate {
     @Override
     public void checkIntact(Path jar) throws CryptoCli.CliException {
         if (cliJar != null && sameFile(jar, cliJar)) return; // 실행 중인 JAR는 명령 전에 상태를 확인했다
-        AdminPassword.Status otherStatus = AdminPassword.statusOf(JarConfigEditor.read(jar));
+        JarConfigEditor.Snapshot other = JarConfigEditor.read(jar);
+        AdminPassword.Status otherStatus = AdminPassword.statusOf(other);
         if (otherStatus.state == AdminPassword.State.DAMAGED) {
             throw new CryptoCli.CliException("INTEGRITY", Messages.get("admin.err.otherDamaged", Messages.get("admin.role.to"),
                     JarConfigEditor.name(jar), otherStatus.detail));
         }
+        otherSnapshots.add(other);
     }
 
     /**
@@ -100,6 +103,7 @@ final class AdminAccess implements AdminGate {
     private void authenticateOther(CliCommands.Parsed parsed, CryptoCli.TerminalProvider terminals, Path jar, String role)
             throws CryptoCli.CliException {
         JarConfigEditor.Snapshot other = JarConfigEditor.read(jar);
+        otherSnapshots.add(other);
         AdminPassword.Status otherStatus = AdminPassword.statusOf(other);
         String name = JarConfigEditor.name(jar);
         switch (otherStatus.state) {
@@ -173,6 +177,15 @@ final class AdminAccess implements AdminGate {
     public synchronized void close() {
         if (password != null) Arrays.fill(password, '\0');
         password = null;
+    }
+
+    @Override
+    public JarConfigEditor.Snapshot snapshot(Path jar) throws CryptoCli.CliException {
+        if (snapshot != null && sameFile(jar, cliJar)) return snapshot;
+        for (JarConfigEditor.Snapshot other : otherSnapshots) {
+            if (sameFile(jar, other.jar)) return other;
+        }
+        throw new CryptoCli.CliException("ADMIN_AUTH", Messages.get("admin.err.notSetCli"));
     }
 
     private static boolean sameFile(Path a, Path b) {

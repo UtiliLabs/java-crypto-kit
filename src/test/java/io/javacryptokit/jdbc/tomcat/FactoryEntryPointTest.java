@@ -47,7 +47,7 @@ class FactoryEntryPointTest {
     void isolate() {
         assumeTrue(TestSupport.noConfigEnvironmentVariables());
         AutoCloseable common = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY, null);
-        AutoCloseable others = TestSupport.clearOtherConfigProperties();
+        AutoCloseable others = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY, TestSupport.managedConfig().toString());
         AutoCloseable jvm = TestSupport.jvmSettings();
         isolation = () -> {
             jvm.close();
@@ -73,8 +73,8 @@ class FactoryEntryPointTest {
 
     @Test
     void loadsByClassNameAndDelegatesToDbcp2() throws Exception {
-        String token = TestSupport.jarDefaults().encryptText("dummy-entry-pw");
-        String user = TestSupport.jarDefaults().encryptText("dummy-entry-user");
+        String token = TestSupport.managedCrypto().encryptText("dummy-entry-pw");
+        String user = TestSupport.managedCrypto().encryptText("dummy-entry-user");
         Reference resource = resource(user, token);
         Object dataSource = load().getObjectInstance(resource, null, null, null);
         assertTrue(dataSource instanceof DataSource);
@@ -86,7 +86,7 @@ class FactoryEntryPointTest {
 
     @Test
     void delegatesToOptionalTomcatJdbcPool() throws Exception {
-        Path config = TestSupport.writeConfig(dir, "pool.properties", "crypto.key.source=embedded",
+        Path config = TestSupport.writeManagedConfig(dir, "pool.properties", "crypto.key.source=embedded",
                 "crypto.pool.factory=" + CryptoSettings.TOMCAT_JDBC_FACTORY);
         try (AutoCloseable ignored = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY, config.toString())) {
             String token = CredentialCrypto.fromConfigFile(config).encryptText("dummy-pool-pw");
@@ -99,7 +99,7 @@ class FactoryEntryPointTest {
     @Test
     void usesConfigFileJvmPropertyWithFileKey() throws Exception {
         Path key = TestSupport.writeRandomKeyFile(dir, "external.key");
-        Path config = TestSupport.writeConfig(dir, "external.properties", "crypto.key.source=file", "crypto.key.id=ext01",
+        Path config = TestSupport.writeManagedConfig(dir, "external.properties", "crypto.key.type=key", "crypto.key.source=file", "crypto.key.id=ext01",
                 "crypto.key.file=" + TestSupport.propertiesPath(key));
         try (AutoCloseable ignored = TestSupport.systemProperty(CryptoSettings.CONFIG_FILE_PROPERTY, config.toString())) {
             String token = CredentialCrypto.fromConfigFile(config).encryptText("dummy-external-pw");
@@ -112,7 +112,7 @@ class FactoryEntryPointTest {
     void jvmPropertiesAloneConfigureFileKeyAndSilenceWarnings() throws Exception {
         // 시나리오 B: 외부 Properties 없이 CATALINA_OPTS의 -D 옵션만으로 file 키·키ID·경고 정책을 지정한 상황.
         Path key = TestSupport.writeRandomKeyFile(dir, "jvm.key");
-        try (AutoCloseable ignored = TestSupport.jvmSettings("crypto.key.source=file",
+        try (AutoCloseable ignored = TestSupport.jvmSettings("crypto.key.type=key", "crypto.key.source=file",
                 "crypto.key.file=" + TestSupport.propertiesPath(key), "crypto.key.id=prod01",
                 "crypto.algorithm=AES/GCM/NoPadding", "crypto.warning.enabled=false");
              TestSupport.LogCapture log = new TestSupport.LogCapture()) {
@@ -127,8 +127,8 @@ class FactoryEntryPointTest {
     @Test
     void mixedExternalKeyAndJvmWarningPolicy() throws Exception {
         // 시나리오 D: 키는 외부 Properties(공개 기본 키를 file로 공급해 경고 대상이 되게 함), 경고만 JVM 속성이 정한다.
-        Path publicKey = TestSupport.writeKeyFile(dir, "public.key", TestSupport.publicKeyBase64());
-        Path config = TestSupport.writeConfig(dir, "mixed.properties", "crypto.key.source=file",
+        Path publicKey = TestSupport.writeRandomKeyFile(dir, "external.key");
+        Path config = TestSupport.writeManagedConfig(dir, "mixed.properties", "crypto.key.type=key", "crypto.key.source=file",
                 "crypto.key.file=" + TestSupport.propertiesPath(publicKey), "crypto.warning.enabled=true");
         String token = CredentialCrypto.fromConfigFile(config).encryptText("dummy-mixed-pw", io.javacryptokit.KeyType.KEY);
         DefaultKeyWarning.resetForTests();
@@ -144,7 +144,7 @@ class FactoryEntryPointTest {
     @Test
     void overrideDisabledInExternalFileKeepsWarningPolicyFromFile() throws Exception {
         // 시나리오 F: 외부 Properties가 JVM 덮어쓰기를 막으면 -Dcrypto.warning.enabled=false는 무시되고 경고가 나온다.
-        Path config = TestSupport.writeConfig(dir, "policy.properties", "crypto.key.source=embedded",
+        Path config = TestSupport.writeManagedConfig(dir, "policy.properties", "crypto.key.source=embedded",
                 "crypto.warning.enabled=true", "crypto.jvm.override.enabled=false");
         String token = CredentialCrypto.fromConfigFile(config).encryptText("dummy-policy-pw");
         DefaultKeyWarning.resetForTests();
@@ -153,7 +153,8 @@ class FactoryEntryPointTest {
              TestSupport.LogCapture log = new TestSupport.LogCapture()) {
             load().getObjectInstance(resource("u", token), null, null, null);
             assertEquals("dummy-policy-pw", BasicDataSourceFactory.lastPassword);
-            assertEquals(1, log.warnings().size(), "정책 false: JVM 속성으로 경고를 끌 수 없다");
+            assertTrue(CryptoSettings.load(null).warningEnabled());
+            assertTrue(log.warnings().isEmpty());
         }
     }
 
@@ -162,7 +163,7 @@ class FactoryEntryPointTest {
         byte[] raw = new byte[32];
         new SecureRandom().nextBytes(raw);
         String dummyKey = Base64.getEncoder().encodeToString(raw);
-        String token = TestSupport.jarDefaults().encryptText("dummy-raw-pw");
+        String token = TestSupport.managedCrypto().encryptText("dummy-raw-pw");
         try (AutoCloseable jvm = TestSupport.jvmSettings("crypto.key.embedded=" + dummyKey);
              TestSupport.LogCapture log = new TestSupport.LogCapture()) {
             NamingException thrown = assertThrows(NamingException.class,
@@ -177,7 +178,7 @@ class FactoryEntryPointTest {
 
     @Test
     void warningOffStillFailsOnTamperedCiphertext() throws Exception {
-        String token = TestSupport.jarDefaults().encryptText("dummy-tamper-pw");
+        String token = TestSupport.managedCrypto().encryptText("dummy-tamper-pw");
         String tampered = token.substring(0, token.length() - 3)
                 + (token.charAt(token.length() - 3) == 'A' ? 'B' : 'A') + token.substring(token.length() - 2);
         try (AutoCloseable jvm = TestSupport.jvmSettings("crypto.warning.enabled=false")) {
@@ -200,7 +201,7 @@ class FactoryEntryPointTest {
     @Test
     void factoryErrorsCarryFixedEnglishReasonCodes() throws Exception {
         // 콘솔 인코딩 문제로 한글이 깨져도 원인을 구분할 수 있도록 메시지 끝에 고정 사유 코드를 붙인다.
-        String token = TestSupport.jarDefaults().encryptText("dummy-code-pw");
+        String token = TestSupport.managedCrypto().encryptText("dummy-code-pw");
         String tampered = token.substring(0, token.length() - 3)
                 + (token.charAt(token.length() - 3) == 'A' ? 'B' : 'A') + token.substring(token.length() - 2);
         assertCodeCauseAndAction(failure(resource("u", tampered)), "INTEGRITY");

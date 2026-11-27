@@ -10,7 +10,7 @@ Options
 
 Result (part)
   Key type   : pass [JAR built-in value]
-  Active pass: pass-default [JAR built-in value]
+  Active pass: app-pass [JAR built-in value]
   Active key : key01 [JAR built-in value]
 
   Key key01 (key, default, crypto.key.*)

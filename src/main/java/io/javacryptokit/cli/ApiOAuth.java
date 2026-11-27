@@ -61,7 +61,7 @@ final class ApiOAuth {
         ClientCredentials client = builder.build();
         TokenResponse result;
         try {
-            result = a.value("scope") == null ? client.requestToken() : client.requestToken(ApiAuth.words(a.required("scope")));
+            result = a.value("scope") == null ? client.requestToken() : client.requestToken(permissionNames(a.required("scope")));
         } catch (IllegalArgumentException e) {
             throw ApiInput.invalid("api.err.scope");
         }
@@ -122,6 +122,11 @@ final class ApiOAuth {
         return 0;
     }
 
+    /** Split only on spaces so the OAuth validators can reject control characters. */
+    private static String[] permissionNames(String value) {
+        return value.replaceAll("^ +| +$", "").split(" +");
+    }
+
     private static int create(ApiInput a) throws Exception {
         a.choice("profile", "rfc9068", "rfc9068");
         Path out = a.target(true);
@@ -131,8 +136,8 @@ final class ApiOAuth {
                 .issuer(a.ask("issuer")).subject(a.ask("subject")).audience(ApiAuth.words(a.ask("audience")))
                 .clientId(a.ask("client-id")).expiresIn(a.seconds("expires-in", 300, 1, Integer.MAX_VALUE));
         if (a.value("jwt-id") != null) builder.jwtId(a.required("jwt-id"));
-        if (a.value("scope") != null) builder.scopes(ApiAuth.words(a.required("scope")));
-        if (a.value("roles") != null) builder.roles(Arrays.asList(ApiAuth.words(a.required("roles"))));
+        if (a.value("scope") != null) builder.scopes(permissionNames(a.required("scope")));
+        if (a.value("roles") != null) builder.roles(Arrays.asList(permissionNames(a.required("roles"))));
         for (Map.Entry<?, ?> claim : ApiAuth.claims(a).entrySet()) {
             String name = (String) claim.getKey();
             Object value = claim.getValue();
@@ -167,8 +172,8 @@ final class ApiOAuth {
         else if (clientIdClaim != null) clientIdClaim = a.required("client-id-claim");
         if (clientIdClaim != null) builder.clientIdClaim(clientIdClaim);
         if (a.flag("require-permission")) builder.requirePermissionClaim(true);
-        if (a.value("scope") != null) builder.requireScopes(ApiAuth.words(a.required("scope")));
-        if (a.value("roles") != null) builder.requireRoles(ApiAuth.words(a.required("roles")));
+        if (a.value("scope") != null) builder.requireScopes(permissionNames(a.required("scope")));
+        if (a.value("roles") != null) builder.requireRoles(permissionNames(a.required("roles")));
         if (a.value("client-id") != null) {
             ApiAuth.expected(expected, standard ? "client_id" : clientIdClaim, a.required("client-id"));
         }

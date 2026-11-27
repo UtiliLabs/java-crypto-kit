@@ -8,8 +8,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 
 /**
- * <b>내부 구현 클래스(공개 API 아님)</b>: 실제로 쓰는 키가 공개 기본 키(공개 배포 JAR에 들어 있는 예제 키)이면 실행을 막지 않는
- * WARNING 한 줄을 남긴다. 이 라이브러리가 정상 실행 중에 자동으로 내는 경고는 이것 하나뿐이다.
+ * <b>내부 구현 클래스(공개 API 아님)</b>: 이전 배포본의 공개 예제 키를 지문으로 판별한다. 관리형 키는
+ * {@link KeyResolver}에서 해당 지문을 거부한다. 이전 경고 처리의 설정과 동작은 호환 목적으로 유지한다.
  *
  * <p><b>판정</b>: 키 공급 방식(embedded·file·env·vault·aws-kms)과 관계없이 실제 적용된 키 값을 공개 기본 키와 비교한다. 같은 값을
  * 키 파일·환경변수·원격 저장소로 옮겨도 그 키로 만든 암호문은 누구나 복호화할 수 있기 때문이다. 사용자 지정 키(교체한 내장 키
@@ -49,7 +49,7 @@ public final class DefaultKeyWarning {
 
     /**
      * 키가 공개 기본 키와 같은지 확인한다. 경고 정책과 관계없이 결과를 돌려주므로 {@code info}·{@code doctor}·{@code fingerprint}의
-     * 키 상태 표시와 {@code config embed-key}의 공개 키 내장 거부에 쓴다.
+     * 키 상태 표시 및 관리형 키 등록·로딩의 이전 공개 키 차단에 쓴다.
      *
      * @param rawKey 32바이트 원시 키(바꾸거나 보관하지 않는다)
      * @return 공개 기본 키와 같으면 true
@@ -79,7 +79,7 @@ public final class DefaultKeyWarning {
     }
 
     /**
-     * 결과를 공개 기본 키로 만들었다는 것을 이미 아는 명령(CLI {@code rekey})이 작업을 모두 성공한 뒤 직접 부르는 경고. 경고 정책·
+     * 이전 공개 키 경고를 직접 요청하는 내부 호출용이다. 경고 정책·
      * JVM당 1회 규칙은 자동 경고와 같으며, {@link #quiet()} 범위 안에서 불러도 기록한다(그 범위는 자동 경고만 막는다).
      *
      * @param settings 결과 키의 설정(경고 정책)

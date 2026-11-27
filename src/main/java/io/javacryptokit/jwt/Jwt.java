@@ -199,6 +199,7 @@ public final class Jwt {
          *
          * @param key 서명 키(HS256 비밀키 또는 개인키)
          * @return {@code header.payload.signature}
+         * @throws IllegalArgumentException 최종 헤더·클레임이 JOSE 상한을 넘거나 유효하지 않은 시간 정책
          */
         public String sign(JwtKey key) {
             if (key == null || !key.canSign()) throw Jose.invalid("jwt.err.notSigningKey");
@@ -206,12 +207,20 @@ public final class Jwt {
             Map<String, Object> payload = new LinkedHashMap<>(claims);
             Instant iat = issuedAtSet ? issuedAt : now;
             if (iat != null) payload.put("iat", seconds(iat));
-            if (expiresIn != null) payload.put("exp", seconds((iat == null ? now : iat).plus(expiresIn)));
+            if (expiresIn != null) {
+                Instant base = iat == null ? now : iat;
+                long baseSeconds = seconds(base);
+                if (expiresIn.getSeconds() > Times.MAX_SECONDS - baseSeconds) {
+                    throw Jose.invalid("jwt.err.timeRange");
+                }
+                payload.put("exp", seconds(base.plus(expiresIn)));
+            }
             Map<String, Object> header = new LinkedHashMap<>();
             header.put("alg", key.algorithm().name());
             if (type != null) header.put("typ", type);
             if (key.keyId() != null) header.put("kid", key.keyId());
-            String signingInput = Jose.encode(Bytes.utf8(StrictJson.write(header))) + "." + Jose.encode(Bytes.utf8(StrictJson.write(payload)));
+            String signingInput = Jose.encodeObject(header) + "." + Jose.encodeObject(payload);
+            if (signingInput.length() >= Jose.MAX_TOKEN_LENGTH) throw Jose.invalid("jwt.err.tooLarge", Jose.MAX_TOKEN_LENGTH);
             String token = signingInput + "." + Jose.encode(key.sign(Bytes.utf8(signingInput)));
             if (token.length() > Jose.MAX_TOKEN_LENGTH) throw Jose.invalid("jwt.err.tooLarge", Jose.MAX_TOKEN_LENGTH);
             return token;

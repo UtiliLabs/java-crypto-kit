@@ -1,7 +1,7 @@
 file decrypt - decrypt a file made by file encrypt (JCKF v1/v2)
 
 Usage
-  java [-D...] -jar {jar} file decrypt --in <file>
+  java [-D...] -jar {jar} file dec --in <file>
        --out <file> [--config <file>]
        [--admin-pass-file <file>] [--lang en|ko]
 

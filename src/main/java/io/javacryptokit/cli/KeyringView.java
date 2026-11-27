@@ -56,7 +56,7 @@ final class KeyringView {
      *
      * @param settings JAR 내부 설정
      * @param profile  키
-     * @return 예: {@code pass, embedded, 공개 기본 키}
+     * @return 예: {@code pass, embedded, 사용자 지정}
      */
     static String jarSummary(CryptoSettings settings, KeyProfile profile) {
         List<String> parts = new ArrayList<>();
@@ -271,7 +271,7 @@ final class KeyringView {
      */
     static void showGenerated(CryptoCli.Terminal terminal, KeyType type, String keyId, char[] secret,
                               java.util.Map<String, String> items, String fingerprint, Kept kept) {
-        terminal.println(""); // 앞의 결과 줄(생성 JAR·키 파일 등)과 생성값 묶음을 빈 줄 하나로 구분한다.
+        terminal.println(""); // 앞의 결과 줄(갱신한 JAR·키 파일 등)과 생성값 묶음을 빈 줄 하나로 구분한다.
         terminal.println(Messages.get("gen.type", type.code()));
         terminal.println(keyId == null ? Messages.get("gen.keyIdNone") : Messages.get("gen.keyId", keyId));
         terminal.println(type == KeyType.PASS ? Messages.get("gen.format.pass", secret.length) : Messages.get("gen.format.key"));

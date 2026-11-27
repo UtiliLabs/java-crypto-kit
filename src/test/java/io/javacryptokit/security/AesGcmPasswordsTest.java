@@ -156,6 +156,10 @@ class AesGcmPasswordsTest {
         assertTrue(Passwords.needsRehash(python256), "100,000회 < 기본 600,000회");
         assertTrue(Passwords.needsRehash(python512), "알고리즘이 기본(SHA256)과 다름");
         assertFalse(Passwords.needsRehash(python512, Pbkdf2Algorithm.SHA512, 100_000));
+        assertTrue(Passwords.needsRehash(python512, Pbkdf2Algorithm.SHA512, 5_000_000));
+        for (int invalid : new int[] {-1, 0, 99_999, 5_000_001}) {
+            assertThrows(IllegalArgumentException.class, () -> Passwords.needsRehash(python512, Pbkdf2Algorithm.SHA512, invalid));
+        }
         String stored = Passwords.hash(password);
         assertTrue(stored.matches("\\$pbkdf2-sha256\\$v=1\\$i=600000\\$[A-Za-z0-9+/]{22}\\$[A-Za-z0-9+/]{43}"), stored);
         assertNotEquals(stored, Passwords.hash(password), "해시마다 새 Salt");

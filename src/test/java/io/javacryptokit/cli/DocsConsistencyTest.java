@@ -58,7 +58,7 @@ class DocsConsistencyTest {
     private static final Pattern SETTING = Pattern.compile("crypto\\.[a-z0-9.-]*[a-z0-9](?![A-Za-z0-9(])");
     /** 예제 명령 줄: "-jar <jar 파일>" 또는 "... io.javacryptokit.cli.CryptoCli" 다음의 명령과 나머지 인자. */
     private static final Pattern EXAMPLE = Pattern.compile(
-            "java .*?(?:-jar \\S*\\.jar|io\\.javacryptokit\\.cli\\.CryptoCli) (api(?: [a-z][a-z0-9-]*){1,2}|(?:config key|config|file|kms|admin password|admin) \\S+|\\S+)(.*)");
+            "(?:java .*?(?:-jar \\S*\\.jar|io\\.javacryptokit\\.cli\\.CryptoCli)|\\.\\\\jck\\.ps1(?: \\S*\\.jar)?) (api(?: [a-z][a-z0-9-]*){1,2}|(?:config key|config|file|kms|admin password|admin) \\S+|\\S+)(.*)");
 
     @TempDir
     Path dir;
@@ -289,9 +289,10 @@ class DocsConsistencyTest {
         String guide = guideText();
         assertFalse(guide.contains("## 2. 처음 설치해 연결하기"), "상세 가이드에 README 빠른 시작이 중복되면 안 된다");
         assertFalse(guide.contains("DBA — 회사 키"), "상세 가이드는 특정 조직의 역할을 전제하지 않는다");
-        // 체험용 내장 키와 운영용 사용자 지정 키를 구분하고, keygen이 필수 단계가 아님을 안내한다.
-        assertTrue(guide.contains("체험용 내장 키와 운영용 사용자 지정 키") && guide.contains("필수 선행 단계가 아닙니다"),
-                "체험용 키·운영용 키 구분과 keygen 선택 안내 누락");
+        // 최초 설정이 두 유형을 준비하고 keygen은 선택이라는 안내를 확인한다.
+        assertTrue(guide.contains("PASS (Passphrase) 기본 암호화") && guide.contains("KEY (AES Key) 명시 선택")
+                        && guide.contains("필수 선행 단계가 아닙니다"),
+                "최초 생성 키 두 유형과 keygen 선택 안내 누락");
         String tomcat = read("docs/guide/tomcat-jdbc.md");
         assertTrue(tomcat.contains("cryptoPool=\"dbcp2\"") && tomcat.contains("cryptoPool=\"tomcat-jdbc\"")
                 && tomcat.contains("Resource의 `cryptoPool` > 유효한 공통 `crypto.pool.factory`"));
@@ -488,7 +489,7 @@ class DocsConsistencyTest {
             String value = defaults.getProperty(setting.key);
             assertNotNull(value, setting.key);
             if (setting.sensitive) {
-                assertTrue(cell.startsWith("공개 예제 키"), setting.key);
+                assertTrue(cell.startsWith("없음") || cell.startsWith("빈 값"), setting.key);
             } else if (value.isEmpty()) {
                 assertTrue(cell.startsWith("없음") || cell.startsWith("빈 값"), setting.key);
             } else if (setting.key.equals(CryptoSettings.POOL_FACTORY)) {

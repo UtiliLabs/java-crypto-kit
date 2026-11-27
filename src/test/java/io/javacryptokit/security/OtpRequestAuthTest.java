@@ -74,6 +74,22 @@ class OtpRequestAuthTest {
     }
 
     @Test
+    void requestSigningUsesTheVerifierTimestampRange() {
+        Hmac shared = Hmac.of(Hmac.generateKey());
+        byte[] request = "request".getBytes(StandardCharsets.UTF_8);
+        for (long seconds : new long[] {0, 999_999_999_999L}) {
+            RequestAuth auth = RequestAuth.of(shared, Duration.ofMinutes(5), Clock.fixed(Instant.ofEpochSecond(seconds), ZoneOffset.UTC));
+            RequestAuth.Signed signed = auth.sign(request);
+            assertEquals(Long.toString(seconds), signed.timestamp());
+            assertEquals(RequestAuth.Result.VALID, auth.verify(request, signed.timestamp(), signed.nonce(), signed.mac()));
+        }
+        for (long seconds : new long[] {-1, 1_000_000_000_000L}) {
+            RequestAuth auth = RequestAuth.of(shared, Duration.ofMinutes(5), Clock.fixed(Instant.ofEpochSecond(seconds), ZoneOffset.UTC));
+            assertThrows(IllegalArgumentException.class, () -> auth.sign(request));
+        }
+    }
+
+    @Test
     void requestAuthenticationChecksMacTimeAndFormat() {
         Instant now = Instant.parse("2026-11-24T00:00:00Z");
         Hmac shared = Hmac.of(Hmac.generateKey());
